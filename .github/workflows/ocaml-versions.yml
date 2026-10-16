@@ -1,0 +1,30 @@
+name: OCaml Versions
+
+on:
+  workflow_call:
+    outputs:
+      images_matrix:
+        description: 'JSON array of {os, ocaml_version, platform} objects for image builds'
+        value: ${{ jobs.versions.outputs.images_matrix }}
+
+jobs:
+  versions:
+    runs-on: ubuntu-slim
+    outputs:
+      images_matrix: ${{ steps.versions.outputs.images_matrix }}
+    steps:
+    - name: versions
+      id: versions
+      run: |
+        python3 - <<'EOF'
+        import json, os
+        versions = ["4.14.4", "5.4.1"]
+        # 64-bit hosts only: the Coral NPU simulators exist for x86_64 and aarch64.
+        matrix = []
+        for ver in versions:
+            matrix.append({"os": "ubuntu-24.04",     "ocaml_version": ver, "platform": "linux/amd64"})
+            matrix.append({"os": "ubuntu-24.04-arm", "ocaml_version": ver, "platform": "linux/arm64"})
+        with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+            f.write("images_matrix<<__OUTPUT__\n%s\n__OUTPUT__\n" % json.dumps(matrix, indent=2))
+        EOF
+        cat "$GITHUB_OUTPUT"

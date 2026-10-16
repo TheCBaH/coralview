@@ -1,0 +1,63 @@
+name: images
+
+# Builds the devcontainer images and publishes them as the cache that ci.yml
+# and Codespaces start from.
+
+on:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  versions:
+    uses: ./.github/workflows/ocaml-versions.yml
+  devcontainer:
+    needs: versions
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.versions.outputs.images_matrix) }}
+    permissions:
+      packages: write
+    steps:
+    - name: checkout
+      uses: actions/checkout@v7
+      with:
+        submodules: true
+    - name: image
+      id: devcontainer
+      uses: TheCBaH/devcontainer-action/devcontainer@v1
+      env:
+        OCAML_VERSION: ${{ matrix.ocaml_version }}
+      with:
+        variant: ${{ matrix.ocaml_version }}
+        platform: ${{ matrix.platform }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - name: smoke test
+      run: ${{ steps.devcontainer.outputs.exec }} make versions
+  devcontainers-cli:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux/amd64
+          - os: ubuntu-24.04-arm
+            platform: linux/arm64
+    permissions:
+      packages: write
+    steps:
+    - name: checkout
+      uses: actions/checkout@v7
+    - name: image
+      id: devcontainer-cli
+      uses: TheCBaH/devcontainer-action/devcontainer@v1
+      with:
+        name: devcontainers-cli
+        config: .devcontainer/devcontainers.cli/devcontainer.json
+        platform: ${{ matrix.platform }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - name: smoke test
+      run: ${{ steps.devcontainer-cli.outputs.exec }} devcontainer --version

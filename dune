@@ -1,0 +1,3 @@
+; Rivet is built from source, with the opam fmt and err_trace (RIVET_EXTERNAL_DEPS).
+
+(vendored_dirs vendor)

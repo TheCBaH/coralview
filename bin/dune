@@ -1,0 +1,4 @@
+(executable
+ (name coralview)
+ (public_name coralview)
+ (libraries ovcd ovcd.fst rivet.driver rivet.target_intf rivet.foundation))
