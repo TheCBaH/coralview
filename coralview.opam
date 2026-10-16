@@ -11,6 +11,7 @@ bug-reports: "https://github.com/TheCBaH/coralview/issues"
 depends: [
   "dune" {>= "3.21"}
   "ocaml" {>= "4.14"}
+  "hwfrp"
   "ovcd"
   "fst"
   "err_trace"
