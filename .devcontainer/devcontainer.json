@@ -1,0 +1,35 @@
+// For format details, see https://aka.ms/devcontainer.json.
+{
+    "name": "coralview devcontainer",
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    "features": {
+        "ghcr.io/devcontainers/features/common-utils:2": {
+            "installZsh": "true",
+            "username": "vscode",
+            "userUid": "1000",
+            "userGid": "1000",
+            "upgradePackages": "false"
+        },
+        "ghcr.io/devcontainers/features/sshd:1": {},
+        "ghcr.io/thecbah/ocaml-features/ocaml:1": {
+            // CI sets OCAML_VERSION per matrix leg.
+            "version": "${localEnv:OCAML_VERSION:4.14.4}",
+            // Same commits as coralview.opam's pin-depends, so make deps finds them installed.
+            "pin-packages": "unlz4 git+https://github.com/TheCBaH/ocaml-unlz4.git#f5446abf9a4ce4beb92b02ee958f345a6c8171bd,fst git+https://github.com/TheCBaH/ocaml-fst.git#e709ec7f63b1ce092b84ae9edffabb54370fc4cf,ovcd git+https://github.com/TheCBaH/ovcd.git#4ed35f4e69d35a7fee794e7e781aea63899e1db0,err_trace git+https://github.com/TheCBaH/err_trace.git#1c7a6ba94c81c70008c594c709e7d37feb38f435",
+            "packages": "dune#3.24.2 ocamlformat#0.28.1 ovcd err_trace fmt menhir re jsont bytesrw ppx_expect ppx_inline_test qcheck-core"
+        }
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ocamllabs.ocaml-platform"
+            ]
+        }
+    },
+    "remoteUser": "vscode",
+    // vendor/rivet is needed to build; its own submodules are not (RIVET_EXTERNAL_DEPS).
+    "postCreateCommand": "sudo .devcontainer/fix-opam-owner.sh $(id -u) $(id -g) && git config --global --add safe.directory '*' && git submodule update --init && make deps",
+    "waitFor": "postCreateCommand"
+}

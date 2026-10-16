@@ -1,0 +1,44 @@
+name: ci
+
+# Every leg runs inside the repository devcontainer (.devcontainer/), built by
+# TheCBaH/devcontainer-action and cached in the repository's container registry.
+# 64-bit hosts only: the Coral NPU simulators exist for x86_64 and aarch64.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  ci:
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+        ocaml_version: ["4.14.4", "5.4.1"]
+    steps:
+    - name: checkout
+      uses: actions/checkout@v7
+      with:
+        submodules: true
+    - name: devcontainer
+      uses: TheCBaH/devcontainer-action/devcontainer@v1
+      id: devcontainer
+      env:
+        OCAML_VERSION: ${{ matrix.ocaml_version }}
+      with:
+        variant: ${{ matrix.ocaml_version }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - name: setup
+      run: |
+        echo 'EXEC=${{ steps.devcontainer.outputs.exec }}' >> $GITHUB_ENV
+    - name: versions
+      run: |
+        ${{ env.EXEC }} sh -c 'opam exec -- ocamlfind ocamlopt -version; opam exec -- dune --version; opam list --columns=name,version,pin ovcd fst unlz4 err_trace ocamlformat 2>/dev/null'
+    - name: ci
+      run: |
+        ${{ env.EXEC }} make ci
