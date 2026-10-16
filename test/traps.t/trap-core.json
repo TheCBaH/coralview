@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "name": "test",
+  "configurations": [
+    { "name": "trap-core", "top_level": "Core", "trace_root": ["TOP", "core"] }
+  ],
+  "clock": "io_aclk",
+  "sample": "after_falling",
+  "blocks": {
+    "dispatch_debug": { "scope": [], "lanes": 1 },
+    "retirement_debug": { "scope": [], "lanes": 1, "idx_width": 7, "trap": true },
+    "traps": {
+      "scope": ["fm"],
+      "valid": "io_out_valid", "mcause": "io_out_bits_mcause", "mepc": "io_out_bits_mepc",
+      "mtval": "io_out_bits_mtval", "decode": "io_out_bits_decode",
+      "memory": "io_in_memory_fault_valid", "memory_write": "io_in_memory_fault_bits_write",
+      "fetch": "io_in_fetchFault_valid",
+      "csr": { "scope": ["csr"], "mcause": "mcause", "mepc": "mepc", "mtval": "mtval", "mtvec": "mtvec" }
+    }
+  }
+}

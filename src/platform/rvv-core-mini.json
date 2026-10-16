@@ -1,0 +1,73 @@
+{
+  "schema_version": "1.0",
+  "name": "rvv-core-mini",
+  "configurations": [
+    { "name": "rvv-core-mini-axi", "top_level": "RvvCoreMiniAxi", "trace_root": ["VRvvCoreMiniAxi.core", "RvvCoreMiniAxi"] },
+    { "name": "rvv-core-mini-highmem-axi", "top_level": "RvvCoreMiniHighmemAxi", "trace_root": ["VRvvCoreMiniHighmemAxi.core", "RvvCoreMiniHighmemAxi"] },
+    { "name": "rvv-core-mini-itcm512kb-dtcm512kb-axi", "top_level": "RvvCoreMini_ITCM512KB_DTCM512KBAxi", "trace_root": ["VRvvCoreMini_ITCM512KB_DTCM512KBAxi.core", "RvvCoreMini_ITCM512KB_DTCM512KBAxi"] }
+  ],
+  "clock": "io_aclk",
+  "sample": "after_falling",
+  "blocks": {
+    "dispatch_debug": { "scope": [], "lanes": 4 },
+    "retirement_debug": { "scope": [], "lanes": 8, "idx_width": 7, "trap": true },
+    "regfile_writeback": { "scope": [], "ports": 6 },
+    "float_writeback": { "scope": [], "ports": 2 },
+    "dispatch": {
+      "scope": ["core", "score", "dispatch"],
+      "lanes": 4,
+      "try_dispatch": ["tryDispatch", "tryDispatch_1", "tryDispatch_2", "tryDispatch_3"],
+      "comb": ["io_scoreboard_comb", "comb_1", "comb_2", "comb_3"],
+      "fcomb": ["io_fscoreboard", "fcomb_1", "fcomb_2", "fcomb_3"],
+      "rvv_queue": "io_rvvQueueCapacity"
+    },
+    "lsu": { "scope": ["core", "score", "lsu"], "tcm_ready": false },
+    "traps": {
+      "scope": ["core", "score", "fault_manager"],
+      "valid": "io_out_valid", "mcause": "io_out_bits_mcause", "mepc": "io_out_bits_mepc",
+      "mtval": "io_out_bits_mtval", "decode": "io_out_bits_decode",
+      "memory": "io_in_memory_fault_valid", "memory_write": "io_in_memory_fault_bits_write",
+      "fetch": "io_in_fetchFault_valid",
+      "rvv": "io_in_rvv_fault_valid",
+      "csr": { "scope": ["core", "score", "csr"], "mcause": "mcause", "mepc": "mepc", "mtval": "mtval", "mtvec": "mtvec" }
+    },
+    "x_registers": {
+      "scope": ["core", "score", "regfile"],
+      "base": 0, "first": 1, "count": 31,
+      "fields": [{ "name": "regfile_%d", "width": 32 }],
+      "scoreboard": "scoreboard", "flushed_scoreboard": "flushed_scoreboard", "flush": "io_pipelineFlush",
+      "marks": {
+        "scope": [], "ports": 4,
+        "valid": "io_debug_regfile_writeAddr_%d_valid", "addr": "io_debug_regfile_writeAddr_%d_bits"
+      }
+    },
+    "f_registers": {
+      "scope": ["core", "score", "fRegfile"],
+      "base": 32, "first": 0, "count": 32,
+      "fields": [
+        { "name": "fregfile_%d_sign", "width": 1 },
+        { "name": "fregfile_%d_exponent", "width": 8 },
+        { "name": "fregfile_%d_mantissa", "width": 23 }
+      ],
+      "scoreboard": "scoreboard", "flushed_scoreboard": "flushed_scoreboard", "flush": "io_pipelineFlush",
+      "marks": {
+        "scope": [], "ports": 1,
+        "valid": "io_debug_float_writeAddr_valid", "addr": "io_debug_float_writeAddr_bits"
+      }
+    },
+    "v_registers": {
+      "scope": ["core", "rvvCore", "rvvCoreWrapper", "core", "backend", "u_vrf"],
+      "base": 64, "count": 32, "vlen": 128,
+      "storage": "vrf_rd_data_full",
+      "writes": {
+        "ports": 4, "valid": "rt2vrf_wr_valid", "data": "rt2vrf_wr_data",
+        "layout": [
+          { "name": "uop_pc", "width": 32 },
+          { "name": "rt_index", "width": 5 },
+          { "name": "rt_data", "width": 128 },
+          { "name": "rt_strobe", "width": 16 }
+        ]
+      }
+    }
+  }
+}

@@ -19,9 +19,6 @@ module Net : sig
 
   val add_ext : t -> ext -> unit
   val exts : t -> ext list
-
-  val add_check : t -> (unit -> string list) -> unit
-  (** Run by {!Sched.compile}, which fails with one [Check_failed] per returned message. *)
 end
 
 module Clock : sig
@@ -136,6 +133,18 @@ module Source : sig
     init:'a ->
     (Vcd_types.Value.t -> 'a) ->
     ('a, 'c) Sig.t
+
+  val many :
+    ?name:string ->
+    ?eq:('a -> 'a -> bool) ->
+    'c Clock.t ->
+    Trace.signal array ->
+    init:'a ->
+    (int list -> (int -> Logic.t) -> 'a -> 'a) ->
+    ('a, 'c) Sig.t
+  (** One node for many signals: at each sample where some of them changed, [update changed read prev]
+      gets their indices in the array, ascending (all of them at the first sample), a reader of any
+      signal's value, and the previous value. Work is proportional to the signals that changed. *)
 end
 
 module Clock_cross : sig
@@ -181,7 +190,7 @@ end
 module Sched : sig
   type t
   type node_stats = { evals : int; changes : int }
-  type build_error = Unbound_source of string | Check_failed of string
+  type build_error = Unbound_source of string
 
   type strategy =
     | Incremental  (** Evaluates the nodes reached from what changed, in id order, from a heap. *)
@@ -195,7 +204,7 @@ module Sched : sig
   }
 
   val compile : ?strategy:strategy -> Net.t -> (t, build_error list) result
-  (** Runs the checks of {!Net.add_check}, then freezes the net: no node can be added afterwards. *)
+  (** Freezes the net: no node can be added afterwards. *)
 
   val run : t -> Sampler.t -> run_stats
   (** The sampler must have been created with {!Net.domains}. *)

@@ -1,0 +1,54 @@
+$timescale 1ps $end
+$scope module TOP $end
+$scope module core $end
+$var wire 1 ! io_aclk $end
+$var wire 1 " io_debug_dispatch_0_instFire $end
+$var wire 32 # io_debug_dispatch_0_instAddr $end
+$var wire 32 $ io_debug_dispatch_0_instInst $end
+$var wire 1 % io_debug_rb_inst_0_valid $end
+$var wire 32 & io_debug_rb_inst_0_bits_pc $end
+$var wire 32 ' io_debug_rb_inst_0_bits_inst $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+0!
+0"
+b0 #
+b0 $
+b0 %
+b0 &
+b0 '
+$end
+#1
+1!
+#2
+0!
+#3
+1!
+#4
+0!
+1"
+b10000000000000000000000000000000 #
+b10011 $
+#5
+1!
+#6
+0!
+0"
+#7
+1!
+#8
+0!
+b1 %
+b10000000000000000000000000000000 &
+#9
+1!
+#10
+0!
+b0 %
+#11
+1!
+#12
+0!

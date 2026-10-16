@@ -58,9 +58,10 @@ type k = { k : 'c. Trace.t -> Net.t -> 'c Bind.scope -> unit }
 let setup { k } =
   let tr = Trace.of_string vcd in
   let net = Net.create () in
-  match Bind.clock net tr ~model:"m" ~name:"clk" ~purpose:"clock" After_falling (at "clk") with
-  | None -> assert false
-  | Some (Clock.Any c) -> k tr net (Bind.root net tr c ~model:"m" core)
+  let (Clock.Any c) =
+    Bind.clock net tr ~model:"m" ~name:"clk" ~purpose:"clock" After_falling (at "clk")
+  in
+  k tr net (Bind.root net tr c ~model:"m" core)
 
 let%expect_test "discovery" =
   setup
@@ -93,67 +94,53 @@ let%expect_test "check" =
       k =
         (fun tr net sc ->
           ignore (Bind.signal sc "io_a_bits_x" Bind.uint ~purpose:"x");
-          ignore (Bind.signal sc "io_a_bits_y" Bind.bool ~purpose:"too wide");
-          ignore (Bind.signal sc "temp" Bind.uint);
-          ignore (Bind.signal sc "nope" Bind.uint ~purpose:"absent");
-          ignore (Bind.optional sc "maybe" Bind.uint ~purpose:"absent, optional");
-          ignore (Bind.signal (Bind.sub sc "deeper") "z" Bind.bool);
           List.iter (Format.printf "%a@." Bind.pp_report) (Bind.check tr (Bind.requirements net));
-          match Sched.compile net with
-          | Ok _ -> print_endline "compiled"
-          | Error es ->
-              List.iter
-                (function
-                  | Sched.Check_failed s -> print_endline s | Unbound_source s -> print_endline s)
-                es);
+          let probe name f =
+            match f () with
+            | _ -> Printf.printf "%s: bound\n" name
+            | exception Bind.Unbound (r, s) -> Format.printf "%s: %a@." name Bind.pp_entry (r, s)
+          in
+          probe "too wide" (fun () -> Bind.signal sc "io_a_bits_y" Bind.bool ~purpose:"one bit");
+          probe "real" (fun () -> Bind.signal sc "temp" Bind.uint);
+          probe "absent" (fun () -> Bind.signal sc "nope" Bind.uint ~purpose:"absent");
+          probe "deeper" (fun () -> Bind.signal (Bind.sub sc "deeper") "z" Bind.bool);
+          Printf.printf "%d requirements kept\n" (List.length (Bind.requirements net)));
     };
   [%expect
     {|
     m at top.core
       bound   clk 1: clock
       bound   io_a_bits_x 8: x
-      width   io_a_bits_y 4, expected 1: too wide
-      type    temp real
-      missing nope: absent
-      missing maybe (optional): absent, optional
-      missing deeper.z
-      width   io_a_bits_y 4, expected 1: too wide
-      type    temp real
-      missing nope: absent
-      missing deeper.z |}]
+    too wide:   width   io_a_bits_y 4, expected 1: one bit
+    real:   type    temp real
+    absent:   missing nope: absent
+    deeper:   missing deeper.z
+    2 requirements kept
+    |}]
 
 let%expect_test "values" =
   let tr = Trace.of_string vcd in
   let net = Net.create () in
-  match Bind.clock net tr ~model:"m" ~name:"clk" After_falling (at "clk") with
-  | None -> assert false
-  | Some (Clock.Any c) ->
-      let sc = Bind.root net tr c ~model:"m" core in
-      let a = Bundle.valid sc "io_a" in
-      let x = Bundle.get a.v_bits "x" Bind.uint in
-      let lo = Bind.signal sc "io_a_bits_x" (Bind.field ~lo:0 ~width:2) in
-      let y = Bundle.get a.v_bits "y" Bind.bits in
-      let maybe = Bind.optional sc "maybe" Bind.uint in
-      let row =
-        let open Sig in
-        let+ cycle = cycle c
-        and+ v = a.v_valid
-        and+ x = x
-        and+ lo = lo
-        and+ y = y
-        and+ maybe = maybe in
-        Printf.sprintf "cycle %d valid=%b x=%d lo=%d y=%s maybe=%s" cycle v x lo (Bits.to_hex y)
-          (match maybe with Some m -> string_of_int m | None -> "none")
-      in
-      Ev.subscribe (Ev.when_ (Sig.const c true) row) print_endline;
-      let sched = Result.get_ok (Sched.compile net) in
-      ignore (Sched.run sched (Sampler.create tr (Net.domains net)));
-      Seq.iter (Format.printf "%a@." Diag.pp) (Diag.stream net);
-      [%expect
-        {|
-        cycle 0 valid=true x=5 lo=1 y=c maybe=none
-        cycle 1 valid=false x=0 lo=0 y=c maybe=none
-        cycle 2 valid=false x=0 lo=0 y=c maybe=none
+  let (Clock.Any c) = Bind.clock net tr ~model:"m" ~name:"clk" After_falling (at "clk") in
+  let sc = Bind.root net tr c ~model:"m" core in
+  let a = Bundle.valid sc "io_a" in
+  let x = Bundle.get a.v_bits "x" Bind.uint in
+  let lo = Bind.signal sc "io_a_bits_x" (Bind.field ~lo:0 ~width:2) in
+  let y = Bundle.get a.v_bits "y" Bind.bits in
+  let row =
+    let open Sig in
+    let+ cycle = cycle c and+ v = a.v_valid and+ x = x and+ lo = lo and+ y = y in
+    Printf.sprintf "cycle %d valid=%b x=%d lo=%d y=%s" cycle v x lo (Bits.to_hex y)
+  in
+  Ev.subscribe (Ev.when_ (Sig.const c true) row) print_endline;
+  let sched = Result.get_ok (Sched.compile net) in
+  ignore (Sched.run sched (Sampler.create tr (Net.domains net)));
+  Seq.iter (Format.printf "%a@." Diag.pp) (Diag.stream net);
+  [%expect
+    {|
+        cycle 0 valid=true x=5 lo=1 y=c
+        cycle 1 valid=false x=0 lo=0 y=c
+        cycle 2 valid=false x=0 lo=0 y=c
         warning[bind.unknown-bits] m cycle 1 time 4: uint of 000001x1
         top.core.io_a_bits_x
         warning[bind.unknown-bits] m cycle 1 time 4: field[0+:2] of 000001x1

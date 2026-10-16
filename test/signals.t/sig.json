@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0",
+  "name": "test",
+  "configurations": [
+    { "name": "sig-core", "top_level": "Core", "trace_root": ["TOP.sim", "core"] }
+  ],
+  "clock": "io_aclk",
+  "sample": "after_falling",
+  "blocks": {}
+}

@@ -1,0 +1,160 @@
+$timescale 1ps $end
+$scope module TOP $end
+$scope module core $end
+$var wire 1 ! io_aclk $end
+$var wire 1 " io_debug_dispatch_0_instFire $end
+$var wire 32 # io_debug_dispatch_0_instAddr $end
+$var wire 32 $ io_debug_dispatch_0_instInst $end
+$var wire 1 % io_debug_rb_inst_0_valid $end
+$var wire 32 & io_debug_rb_inst_0_bits_pc $end
+$var wire 7 ' io_debug_rb_inst_0_bits_idx $end
+$var wire 1 ( io_debug_rb_inst_0_bits_trap $end
+$scope module fm $end
+$var wire 1 ) io_out_valid $end
+$var wire 32 * io_out_bits_mcause $end
+$var wire 32 + io_out_bits_mepc $end
+$var wire 32 , io_out_bits_mtval $end
+$var wire 1 - io_out_bits_decode $end
+$var wire 1 . io_in_memory_fault_valid $end
+$var wire 1 / io_in_memory_fault_bits_write $end
+$var wire 1 0 io_in_fetchFault_valid $end
+$upscope $end
+$scope module csr $end
+$var wire 32 1 mcause $end
+$var wire 32 2 mepc $end
+$var wire 32 3 mtval $end
+$var wire 32 4 mtvec $end
+$upscope $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+0!
+0"
+b0 #
+b0 $
+0%
+b0 &
+b1111111 '
+0(
+0)
+b0 *
+b0 +
+b0 ,
+0-
+0.
+0/
+00
+b0 1
+b0 2
+b0 3
+b00000000000000000000000001000001 4
+$end
+#1
+1!
+#2
+0!
+#3
+1!
+#4
+0!
+1"
+b00000000000000000000000000010000 #
+b00000000000000000000000000010011 $
+#5
+1!
+#6
+0!
+0"
+1)
+b00000000000000000000000000000111 *
+b00000000000000000000000000010000 +
+b00000000000000000000000100000000 ,
+1.
+1/
+#7
+1!
+#8
+0!
+0)
+b00000000000000000000000000000000 *
+b00000000000000000000000000000000 +
+b00000000000000000000000000000000 ,
+0.
+0/
+b00000000000000000000000000000111 1
+b00000000000000000000000000010000 2
+b00000000000000000000000100000000 3
+1%
+b00000000000000000000000000010000 &
+1(
+#9
+1!
+#10
+0!
+0%
+0(
+1"
+b00000000000000000000000001000000 #
+b00000000000000000000000000010011 $
+#11
+1!
+#12
+0!
+0"
+1%
+b00000000000000000000000001000000 &
+0(
+#13
+1!
+#14
+0!
+0%
+b00000000000000000000000000010100 2
+#15
+1!
+#16
+0!
+1%
+b00000000000000000000000000100000 &
+0(
+#17
+1!
+#18
+0!
+0%
+1)
+b00000000000000000000000000000101 *
+b00000000000000000000000000100000 +
+b00000000000000000011000000000000 ,
+1.
+#19
+1!
+#20
+0!
+0)
+b00000000000000000000000000000000 *
+b00000000000000000000000000000000 +
+b00000000000000000000000000000000 ,
+0.
+0/
+b00000000000000000000000000000101 1
+b00000000000000000000000000100000 2
+b00000000000000000011000000000000 3
+#21
+1!
+#22
+0!
+1"
+b00000000000000000000000001000000 #
+b00000000000000000000000000010011 $
+#23
+1!
+#24
+0!
+0"
+#25
+1!
+#26
+0!

@@ -67,7 +67,6 @@ and net = {
   mutable ndiags : int;
   mutable dropped : int;
   mutable exts : ext list;
-  mutable checks : (unit -> string list) list;
 }
 
 type ('a, 'c) signal = 'a node
@@ -145,7 +144,6 @@ module Net = struct
       ndiags = 0;
       dropped = 0;
       exts = [];
-      checks = [];
     }
 
   let domains net = Array.of_list (List.rev_map (fun rc -> rc.spec) net.clocks)
@@ -154,10 +152,6 @@ module Net = struct
 
   let add_ext net e = net.exts <- e :: net.exts
   let exts net = net.exts
-
-  let add_check net f =
-    check_open net;
-    net.checks <- f :: net.checks
 end
 
 module Clock = struct
@@ -431,6 +425,38 @@ module Source = struct
 
   let value ?name ?eq rc s ~init decode =
     make ?name ?eq rc s ~init (fun sm slot -> decode (Sampler.value sm slot))
+
+  let many ?name ?(eq = ( == )) rc (signals : Trace.signal array) ~init update =
+    let name =
+      match name with Some n -> n | None -> Printf.sprintf "many(%d)" (Array.length signals)
+    in
+    let n = mk ~name ~kind:K_source rc init in
+    let index = Hashtbl.create (2 * Array.length signals) in
+    Array.iteri
+      (fun i (s : Trace.signal) ->
+        let slot = (s.slot :> int) in
+        Hashtbl.replace index slot (i :: Option.value (Hashtbl.find_opt index slot) ~default:[]))
+      signals;
+    n.eval <-
+      (fun () ->
+        match rc.net.sampler with
+        | None -> false
+        | Some sm ->
+            let changed =
+              if rc.net.tick.index = 0 then List.init (Array.length signals) Fun.id
+              else begin
+                let l = ref [] in
+                Bitset.iter
+                  (fun slot ->
+                    match Hashtbl.find_opt index slot with Some is -> l := is @ !l | None -> ())
+                  (Sampler.changed sm);
+                List.sort Int.compare !l
+              end
+            in
+            changed <> []
+            && set_if eq n (update changed (fun i -> Sampler.logic sm signals.(i).slot) n.value));
+    Hashtbl.iter (fun slot _ -> rc.sources <- (slot, P n) :: rc.sources) index;
+    n
 end
 
 module Clock_cross = struct
@@ -535,7 +561,7 @@ end
 
 module Sched = struct
   type node_stats = { evals : int; changes : int }
-  type build_error = Unbound_source of string | Check_failed of string
+  type build_error = Unbound_source of string
   type strategy = Incremental | Sweep
 
   type run_stats = {
@@ -561,43 +587,38 @@ module Sched = struct
   }
 
   let compile ?(strategy = Incremental) net =
-    match List.concat_map (fun f -> f ()) (List.rev net.checks) with
-    | _ :: _ as errors -> Error (List.map (fun e -> Check_failed e) errors)
-    | [] ->
-        net.frozen <- true;
-        let nodes = Array.of_list (List.rev net.nodes) in
-        let clocks = Array.of_list (List.rev net.clocks) in
-        let nd = Array.length clocks in
-        let by_domain = Array.make nd [] in
-        Array.iter
-          (function P n as p -> by_domain.(n.rc.index) <- p :: by_domain.(n.rc.index))
-          nodes;
-        let sources =
-          Array.map
-            (fun (rc : clock_rec) ->
-              let h = Hashtbl.create 64 in
-              List.iter
-                (fun (slot, p) ->
-                  Hashtbl.replace h slot (p :: Option.value (Hashtbl.find_opt h slot) ~default:[]))
-                rc.sources;
-              h)
-            clocks
-        in
-        Ok
-          {
-            net;
-            strategy;
-            clocks;
-            nodes;
-            by_domain = Array.map (fun l -> Array.of_list (List.rev l)) by_domain;
-            sources;
-            subs = Array.map (fun (rc : clock_rec) -> Array.of_list (List.rev rc.subs)) clocks;
-            heap = Heap.create ();
-            queued = Bitset.create (Array.length nodes);
-            changed = Bitset.create (Array.length nodes);
-            fired = Array.make nd [];
-            last = Array.make nd None;
-          }
+    net.frozen <- true;
+    let nodes = Array.of_list (List.rev net.nodes) in
+    let clocks = Array.of_list (List.rev net.clocks) in
+    let nd = Array.length clocks in
+    let by_domain = Array.make nd [] in
+    Array.iter (function P n as p -> by_domain.(n.rc.index) <- p :: by_domain.(n.rc.index)) nodes;
+    let sources =
+      Array.map
+        (fun (rc : clock_rec) ->
+          let h = Hashtbl.create 64 in
+          List.iter
+            (fun (slot, p) ->
+              Hashtbl.replace h slot (p :: Option.value (Hashtbl.find_opt h slot) ~default:[]))
+            rc.sources;
+          h)
+        clocks
+    in
+    Ok
+      {
+        net;
+        strategy;
+        clocks;
+        nodes;
+        by_domain = Array.map (fun l -> Array.of_list (List.rev l)) by_domain;
+        sources;
+        subs = Array.map (fun (rc : clock_rec) -> Array.of_list (List.rev rc.subs)) clocks;
+        heap = Heap.create ();
+        queued = Bitset.create (Array.length nodes);
+        changed = Bitset.create (Array.length nodes);
+        fired = Array.make nd [];
+        last = Array.make nd None;
+      }
 
   let push t (P n) =
     if not (Bitset.mem t.queued n.id) then begin

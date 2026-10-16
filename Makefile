@@ -34,7 +34,19 @@ smoke: build
 	grep -q CORAL_MATRIX_PASS $$d/log; \
 	fst=$$(sed -n 's/.*for tracing: 1 ps (\(.*\.fst\)).*/\1/p' $$d/log); \
 	ls -l $$fst; \
-	$(DUNE) exec -- coralview probe $$fst
+	$(DUNE) exec -- coralview probe $$fst; \
+	p="--platform vme-core-mini-axi"; \
+	$(DUNE) exec -- coralview platforms --manifest $(CORALNPU)/emulators/hardware-configurations.json; \
+	$(DUNE) exec -- coralview check $$p $$fst; \
+	$(DUNE) exec -- coralview commits $$p --limit 20 --profile 10 $$fst; \
+	$(DUNE) exec -- coralview stalls $$p --profile 10 $$fst; \
+	$(DUNE) exec -- coralview memory $$p --manifest $(CORALNPU)/emulators/hardware-configurations.json --limit 10 $$fst; \
+	$(DUNE) exec -- coralview tiles $$p --limit 10 $$fst; \
+	$(DUNE) exec -- coralview registers $$p --at 600 $$fst; \
+	$(DUNE) exec -- coralview vectors $$p --limit 5 $$fst; \
+	$(DUNE) exec -- coralview traps $$p $$fst; \
+	$(DUNE) exec -- coralview signals $$p --changes --to-cycle 600 $$fst VVmeCoreMiniAxi.core/VmeCoreMiniAxi/io_halted; \
+	$(DUNE) exec -- coralview bench $$p $$fst
 
 ci: fmt-check build test smoke
 

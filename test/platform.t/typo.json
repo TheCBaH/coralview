@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "name": "test",
+  "configurations": [
+    { "name": "test-core", "top_level": "Core", "trace_root": ["TOP", "core"] }
+  ],
+  "clock": "io_aclk",
+  "sample": "after_falling",
+  "blocks": {
+    "dispatch_debug": { "scope": [], "lanes": 1, "fetch": true },
+    "retirement_debug": { "scope": [], "lanes": 1, "idx_width": 7, "trap": true },
+    "regfile_writeback": { "scope": [], "ports": 1 }
+  }
+}

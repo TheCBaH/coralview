@@ -18,3 +18,4 @@ module Diag = Frp.Diag
 module Sched = Frp.Sched
 module Bind = Bind
 module Bundle = Bundle
+module State = State

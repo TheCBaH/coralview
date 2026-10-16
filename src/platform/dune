@@ -1,0 +1,12 @@
+(rule
+ (target builtin_platforms.ml)
+ (deps
+  (glob_files *.json))
+ (action
+  (with-stdout-to
+   %{target}
+   (progn
+    (echo "let all = [\n")
+    (system
+     "for f in %{deps}; do printf '(\"%s\", {json|' \"$(basename $f .json)\"; cat $f; printf '|json});\\n'; done")
+    (echo "]\n")))))

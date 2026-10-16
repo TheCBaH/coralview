@@ -18,7 +18,7 @@ let discover scope prefix =
   { scope; prefix; fields }
 
 let fields b = b.fields
-let get ?need ?purpose b field d = Bind.signal ?need ?purpose b.scope (b.prefix ^ "_" ^ field) d
+let get ?purpose b field d = Bind.signal ?purpose b.scope (b.prefix ^ "_" ^ field) d
 
 let lanes scope pattern =
   let rec split i =

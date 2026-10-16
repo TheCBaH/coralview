@@ -18,7 +18,7 @@
             "version": "${localEnv:OCAML_VERSION:4.14.4}",
             // Same commits as coralview.opam's pin-depends, so make deps finds them installed.
             "pin-packages": "unlz4 git+https://github.com/TheCBaH/ocaml-unlz4.git#f5446abf9a4ce4beb92b02ee958f345a6c8171bd,fst git+https://github.com/TheCBaH/ocaml-fst.git#e709ec7f63b1ce092b84ae9edffabb54370fc4cf,ovcd git+https://github.com/TheCBaH/ovcd.git#4ed35f4e69d35a7fee794e7e781aea63899e1db0,err_trace git+https://github.com/TheCBaH/err_trace.git#1c7a6ba94c81c70008c594c709e7d37feb38f435",
-            "packages": "dune#3.24.2 ocamlformat#0.28.1 ovcd err_trace fmt menhir re jsont bytesrw ppx_expect ppx_inline_test qcheck-core"
+            "packages": "bytesrw cmdliner dune err_trace fmt jsont menhir ocamlformat#0.28.1 ovcd ppx_expect ppx_inline_test qcheck-core re"
         }
     },
     "customizations": {

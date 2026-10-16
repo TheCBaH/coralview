@@ -5,7 +5,6 @@
 open Vcd_types
 open Frp
 
-type need = Required | Optional
 type width_rule = Exact of int | At_least of int | Up_to of int | Any_width
 
 type requirement = {
@@ -13,7 +12,6 @@ type requirement = {
   root : Reference.t;
   path : Reference.t;
   width : width_rule;
-  need : need;
   purpose : string;
 }
 
@@ -23,6 +21,8 @@ type status =
   | Width_mismatch of { expected : width_rule; actual : int }
   | Not_a_vector of Vcd_ast.var_type
 
+exception Unbound of requirement * status
+
 type report = { model : string; root : Reference.t; entries : (requirement * status) list }
 
 let pp_width_rule ppf = function
@@ -31,7 +31,7 @@ let pp_width_rule ppf = function
   | Up_to n -> Format.fprintf ppf "<=%d" n
   | Any_width -> Format.fprintf ppf "any"
 
-let failed (r, s) = r.need = Required && match s with Bound _ -> false | _ -> true
+let ok (_, s) = match s with Bound _ -> true | _ -> false
 
 let relative (r : requirement) =
   let rec strip root path =
@@ -55,7 +55,6 @@ let pp_entry ppf ((r : requirement), s) =
   in
   Format.fprintf ppf "  %-7s %s" word (relative r);
   if detail <> "" then Format.fprintf ppf " %s" detail;
-  if r.need = Optional then Format.fprintf ppf " (optional)";
   if r.purpose <> "" then Format.fprintf ppf ": %s" r.purpose
 
 let pp_report ppf { model; root; entries } =
@@ -63,7 +62,12 @@ let pp_report ppf { model; root; entries } =
   List.iter (Format.fprintf ppf "@,%a" pp_entry) entries;
   Format.fprintf ppf "@]"
 
-type Net.ext += Requirements of (requirement * status) list ref
+let () =
+  Printexc.register_printer (function
+    | Unbound (r, s) -> Some (Format.asprintf "Bind.Unbound: %s:%a" r.model pp_entry (r, s))
+    | _ -> None)
+
+type Net.ext += Requirements of requirement list ref
 
 let registry net =
   match List.find_map (function Requirements r -> Some r | _ -> None) (Net.exts net) with
@@ -71,13 +75,11 @@ let registry net =
   | None ->
       let r = ref [] in
       Net.add_ext net (Requirements r);
-      Net.add_check net (fun () ->
-          List.rev !r |> List.filter failed |> List.map (fun e -> Format.asprintf "%a" pp_entry e));
       r
 
 let requirements net =
   match List.find_map (function Requirements r -> Some r | _ -> None) (Net.exts net) with
-  | Some r -> List.rev_map fst !r
+  | Some r -> List.rev !r
   | None -> []
 
 let width_ok rule w =
@@ -96,26 +98,21 @@ let status tr path rule =
       else if not (width_ok rule w) then Width_mismatch { expected = rule; actual = w }
       else Bound (Trace.track tr e)
 
-let record net (r : requirement) s =
-  let reg = registry net in
-  reg := (r, s) :: !reg;
-  match s with Bound s -> Some s | _ -> None
+let require net tr (r : requirement) =
+  match status tr r.path r.width with
+  | Bound s ->
+      let reg = registry net in
+      reg := r :: !reg;
+      s
+  | s -> raise (Unbound (r, s))
+
+let parent p = Reference.of_list (List.rev (List.tl (List.rev (Reference.to_list p))))
 
 let clock net tr ~model ?(purpose = "") ~name ?enable rule path =
-  let parent p = Reference.of_list (List.rev (List.tl (List.rev (Reference.to_list p)))) in
-  let bind need path =
-    record net
-      { model; root = parent path; path; width = Exact 1; need; purpose }
-      (status tr path (Exact 1))
-  in
-  match bind Required path with
-  | None -> None
-  | Some s ->
-      let enable =
-        Option.map (fun p -> Option.map (fun (e : Trace.signal) -> e.slot) (bind Required p)) enable
-      in
-      if enable = Some None then None
-      else Some (Clock.define net ~name { clock = s.slot; rule; enable = Option.join enable })
+  let bit path = require net tr { model; root = parent path; path; width = Exact 1; purpose } in
+  let s = bit path in
+  let enable = Option.map (fun p -> (bit p).slot) enable in
+  Clock.define net ~name { clock = s.slot; rule; enable }
 
 type 'c scope = {
   net : Net.t;
@@ -146,7 +143,7 @@ type 'a decoder = {
   dname : string;
   dwidth : width_rule;
   decode : Logic.t -> ('a, Logic.t) result;
-  default : int -> 'a;
+  unknown : int -> 'a;
 }
 
 let known f (l : Logic.t) = match Logic.to_known l with Some b -> Ok (f b) | None -> Error l
@@ -156,14 +153,14 @@ let bool =
     dname = "bool";
     dwidth = Exact 1;
     decode = known (fun b -> Bits.bit b 0);
-    default = (fun _ -> false);
+    unknown = (fun _ -> false);
   }
 
 let uint =
-  { dname = "uint"; dwidth = Up_to 62; decode = known Bits.to_int_exn; default = (fun _ -> 0) }
+  { dname = "uint"; dwidth = Up_to 62; decode = known Bits.to_int_exn; unknown = (fun _ -> 0) }
 
-let bits = { dname = "bits"; dwidth = Any_width; decode = known Fun.id; default = Bits.zero }
-let logic = { dname = "logic"; dwidth = Any_width; decode = Result.ok; default = Logic.unknown }
+let bits = { dname = "bits"; dwidth = Any_width; decode = known Fun.id; unknown = Bits.zero }
+let logic = { dname = "logic"; dwidth = Any_width; decode = Result.ok; unknown = Logic.unknown }
 
 let field ~lo ~width =
   {
@@ -174,42 +171,33 @@ let field ~lo ~width =
         if Bits.is_zero (Bits.field l.Logic.unknown ~lo ~width) then
           Ok (Bits.field_int l.Logic.bits ~lo ~width)
         else Error l);
-    default = (fun _ -> 0);
+    unknown = (fun _ -> 0);
   }
 
-let nominal = function Exact n | At_least n | Up_to n -> n | Any_width -> 1
-
-let bind ~need ~purpose sc name d =
+let resolve ?(purpose = "") sc name width =
   let rel = String.concat "." (sc.rel @ [ name ]) in
   let path =
     match List.assoc_opt rel sc.overrides with
     | Some p -> p
     | None -> Reference.of_list (Reference.to_list sc.root @ sc.rel @ [ name ])
   in
-  record sc.net
-    { model = sc.model; root = sc.root; path; width = d.dwidth; need; purpose }
-    (status sc.trace path d.dwidth)
+  require sc.net sc.trace { model = sc.model; root = sc.root; path; width; purpose }
 
-let source sc (s : Trace.signal) d wrap =
-  let fallback = d.default s.width in
-  Source.logic sc.clk s ~init:(wrap fallback) (fun l ->
-      match d.decode l with
-      | Ok v -> wrap v
-      | Error l ->
-          Diag.report sc.net
-            (Diag.make ~paths:[ s.path ] ~source:sc.model ~code:"bind.unknown-bits"
-               (Printf.sprintf "%s of %s" d.dname (Logic.to_string l)));
-          wrap fallback)
+let decode sc d (s : Trace.signal) l =
+  match d.decode l with
+  | Ok v -> v
+  | Error l ->
+      Diag.report sc.net
+        (Diag.make ~paths:[ s.path ] ~source:sc.model ~code:"bind.unknown-bits"
+           (Printf.sprintf "%s of %s" d.dname (Logic.to_string l)));
+      d.unknown s.width
 
-let signal ?(need = Required) ?(purpose = "") sc name d =
-  match bind ~need ~purpose sc name d with
-  | Some s -> source sc s d Fun.id
-  | None -> Sig.const sc.clk (d.default (nominal d.dwidth))
+let signal ?purpose sc name d =
+  let s = resolve ?purpose sc name d.dwidth in
+  Source.logic sc.clk s ~init:(d.unknown s.width) (decode sc d s)
 
-let optional ?(purpose = "") sc name d =
-  match bind ~need:Optional ~purpose sc name d with
-  | Some s -> source sc s d Option.some
-  | None -> Sig.const sc.clk None
+let clock_of sc = sc.clk
+let net_of sc = sc.net
 
 let check tr reqs =
   let groups = ref [] in

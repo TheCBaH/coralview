@@ -1,0 +1,57 @@
+{
+  "schema_version": "1.0",
+  "name": "core-mini",
+  "configurations": [
+    { "name": "core-mini-axi", "top_level": "CoreMiniAxi", "trace_root": ["VCoreMiniAxi.core", "CoreMiniAxi"] },
+    { "name": "core-mini-highmem-axi", "top_level": "CoreMiniHighmemAxi", "trace_root": ["VCoreMiniHighmemAxi.core", "CoreMiniHighmemAxi"] },
+    { "name": "core-mini-itcm512kb-dtcm512kb-axi", "top_level": "CoreMini_ITCM512KB_DTCM512KBAxi", "trace_root": ["VCoreMini_ITCM512KB_DTCM512KBAxi.core", "CoreMini_ITCM512KB_DTCM512KBAxi"] }
+  ],
+  "clock": "io_aclk",
+  "sample": "after_falling",
+  "blocks": {
+    "dispatch_debug": { "scope": [], "lanes": 4 },
+    "retirement_debug": { "scope": [], "lanes": 8, "idx_width": 7, "trap": true },
+    "regfile_writeback": { "scope": [], "ports": 6 },
+    "float_writeback": { "scope": [], "ports": 2 },
+    "dispatch": {
+      "scope": ["core", "score", "dispatch"],
+      "lanes": 4,
+      "try_dispatch": ["tryDispatch", "tryDispatch_1", "tryDispatch_2", "tryDispatch_3"],
+      "comb": ["io_scoreboard_comb", "comb_1", "comb_2", "comb_3"],
+      "fcomb": ["io_fscoreboard", "io_fscoreboard", "io_fscoreboard", "io_fscoreboard"]
+    },
+    "lsu": { "scope": ["core", "score", "lsu"], "tcm_ready": false },
+    "traps": {
+      "scope": ["core", "score", "fault_manager"],
+      "valid": "io_out_valid", "mcause": "io_out_bits_mcause", "mepc": "io_out_bits_mepc",
+      "mtval": "io_out_bits_mtval", "decode": "io_out_bits_decode",
+      "memory": "io_in_memory_fault_valid", "memory_write": "io_in_memory_fault_bits_write",
+      "fetch": "io_in_fetchFault_valid",
+      "csr": { "scope": ["core", "score", "csr"], "mcause": "mcause", "mepc": "mepc", "mtval": "mtval", "mtvec": "mtvec" }
+    },
+    "x_registers": {
+      "scope": ["core", "score", "regfile"],
+      "base": 0, "first": 1, "count": 31,
+      "fields": [{ "name": "regfile_%d", "width": 32 }],
+      "scoreboard": "scoreboard", "flushed_scoreboard": "flushed_scoreboard", "flush": "io_pipelineFlush",
+      "marks": {
+        "scope": [], "ports": 4,
+        "valid": "io_debug_regfile_writeAddr_%d_valid", "addr": "io_debug_regfile_writeAddr_%d_bits"
+      }
+    },
+    "f_registers": {
+      "scope": ["core", "score", "fRegfile"],
+      "base": 32, "first": 0, "count": 32,
+      "fields": [
+        { "name": "fregfile_%d_sign", "width": 1 },
+        { "name": "fregfile_%d_exponent", "width": 8 },
+        { "name": "fregfile_%d_mantissa", "width": 23 }
+      ],
+      "scoreboard": "scoreboard", "flushed_scoreboard": "flushed_scoreboard", "flush": "io_pipelineFlush",
+      "marks": {
+        "scope": [], "ports": 1,
+        "valid": "io_debug_float_writeAddr_valid", "addr": "io_debug_float_writeAddr_bits"
+      }
+    }
+  }
+}

@@ -26,7 +26,12 @@
   fst
   err_trace
   fmt
-  menhir))
+  menhir
+  (jsont
+   (>= 0.4.0))
+  bytesrw
+  (cmdliner
+   (>= 1.1.0))))
 
 (package
  (name hwfrp)

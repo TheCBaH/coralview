@@ -13,8 +13,7 @@ val discover : 'c Bind.scope -> string -> 'c t
 val fields : 'c t -> (string * int) list
 (** Field names without the prefix, with their widths, in declaration order. *)
 
-val get :
-  ?need:Bind.need -> ?purpose:string -> 'c t -> string -> 'a Bind.decoder -> ('a, 'c) Frp.Sig.t
+val get : ?purpose:string -> 'c t -> string -> 'a Bind.decoder -> ('a, 'c) Frp.Sig.t
 
 val lanes : 'c Bind.scope -> string -> int list
 (** The values of [%d] for which a variable of the scope matches the pattern, ascending:

@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "name": "test",
+  "configurations": [
+    { "name": "vector-core", "top_level": "Core", "trace_root": ["TOP", "core"] }
+  ],
+  "clock": "io_aclk",
+  "sample": "after_falling",
+  "blocks": {
+    "dispatch_debug": { "scope": [], "lanes": 1 },
+    "retirement_debug": { "scope": [], "lanes": 1, "idx_width": 7, "trap": true },
+    "regfile_writeback": { "scope": [], "ports": 1 },
+    "v_registers": {
+      "scope": ["vrf"],
+      "base": 64, "count": 2, "vlen": 16,
+      "storage": "vreg",
+      "writes": {
+        "ports": 2, "valid": "wr_valid", "data": "wr_data",
+        "layout": [
+          { "name": "uop_pc", "width": 32 },
+          { "name": "rt_index", "width": 1 },
+          { "name": "rt_data", "width": 16 },
+          { "name": "rt_strobe", "width": 2 }
+        ]
+      }
+    }
+  }
+}
