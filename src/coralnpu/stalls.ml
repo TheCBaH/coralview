@@ -238,7 +238,7 @@ let step s cycle lanes =
   let open_, out = go s.open_ lanes [] [] in
   ({ open_; counts; ticks = s.ticks + 1; last = cycle }, out)
 
-let build () (c : _ Core.t) =
+let make (c : _ Core.t) =
   let d = Core.block c "dispatch" c.platform.blocks.dispatch in
   let sc = Core.scope c d.d_scope in
   let b name = Bind.signal sc name Bind.bool in
@@ -297,6 +297,34 @@ let build () (c : _ Core.t) =
   in
   (out, summary)
 
+type 'c Core.dep += Shared of ((Event.t list, 'c) Ev.t * (Sched.run_stats -> Summary.t))
+
+let build () c =
+  Analysis.shared c name
+    ~inj:(fun x -> Shared x)
+    ~prj:(function Shared x -> Some x | _ -> None)
+    (fun () -> make c)
+
+let profile (ctx : Text.ctx) events (s : Summary.t) =
+  let blocked =
+    List.filter_map
+      (fun (Event.Stall_span x) ->
+        if x.lane = 0 && x.reason <> Dispatched && x.reason <> Empty then Some x else None)
+      events
+    |> List.stable_sort (fun (a : Event.stall_span) b -> Int.compare a.span.start b.span.start)
+  in
+  Printf.printf "lane 0 blocked, by instruction:\n%8s %6s %-14s %s\n" "pc" "cycles" "reason"
+    "instruction";
+  Profile.by
+    ~key:(fun (x : Event.stall_span) -> Some (x.pc, x.word, x.reason))
+    ~weight:(fun (x : Event.stall_span) ->
+      Option.value x.span.stop ~default:(s.cycles - 1) - x.span.start + 1)
+    (List.to_seq blocked)
+  |> List.iteri (fun i (r : _ Profile.row) ->
+      let pc, word, reason = r.key in
+      if i < ctx.profile then
+        Printf.printf "%08x %6d %-14s %s\n" pc r.weight (reason_name reason) (ctx.disasm word))
+
 let text (ctx : Text.ctx) events (s : Summary.t) =
   let count lane r =
     List.find_map
@@ -319,23 +347,21 @@ let text (ctx : Text.ctx) events (s : Summary.t) =
         print_newline ()
       end)
     reasons;
-  if ctx.profile > 0 then begin
-    let blocked =
-      List.filter_map
+  if ctx.profile > 0 then profile ctx events s
+
+let perfetto (ctx : Text.ctx) events (s : Summary.t) =
+  {
+    Perfetto.process = "stalls " ^ ctx.root;
+    slices =
+      List.map
         (fun (Event.Stall_span x) ->
-          if x.lane = 0 && x.reason <> Dispatched && x.reason <> Empty then Some x else None)
-        events
-      |> List.stable_sort (fun (a : Event.stall_span) b -> Int.compare a.span.start b.span.start)
-    in
-    Printf.printf "lane 0 blocked, by instruction:\n%8s %6s %-14s %s\n" "pc" "cycles" "reason"
-      "instruction";
-    Profile.by
-      ~key:(fun (x : Event.stall_span) -> Some (x.pc, x.word, x.reason))
-      ~weight:(fun (x : Event.stall_span) ->
-        Option.value x.span.stop ~default:(s.cycles - 1) - x.span.start + 1)
-      (List.to_seq blocked)
-    |> List.iteri (fun i (r : _ Profile.row) ->
-        let pc, word, reason = r.key in
-        if i < ctx.profile then
-          Printf.printf "%08x %6d %-14s %s\n" pc r.weight (reason_name reason) (ctx.disasm word))
-  end
+          {
+            Perfetto.track = Printf.sprintf "lane %d" x.lane;
+            name = reason_name x.reason;
+            start = x.span.start;
+            stop = Option.value x.span.stop ~default:(s.cycles - 1);
+            args = [ ("pc", Printf.sprintf "%08x" x.pc); ("instruction", ctx.disasm x.word) ];
+          })
+        events;
+    counters = [];
+  }

@@ -89,3 +89,6 @@ val build :
 
 val text : Text.ctx -> beats:int -> Event.t list -> Summary.t -> unit
 (** Each job with its first [beats] beats, then the stray activity and the summary. *)
+
+val perfetto : Text.ctx -> Event.t list -> Summary.t -> Perfetto.process
+(** Tracks of the jobs, descriptor fetches, host reads and host writes. *)

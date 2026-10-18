@@ -228,7 +228,7 @@ let summary_of st =
     pending = List.map (fun (f : flight) -> (f.pc, f.word, f.cycle)) st.queue;
   }
 
-let build () (c : _ Core.t) =
+let make (c : _ Core.t) =
   let lanes l = Core.present c l in
   let input =
     let open Sig in
@@ -269,13 +269,36 @@ let shared c =
   Analysis.shared c name
     ~inj:(fun x -> Shared x)
     ~prj:(function Shared x -> Some x | _ -> None)
-    (fun () -> build () c)
+    (fun () -> make c)
 
+let build () c = shared c
 let commits = List.filter_map (function Event.Commit c -> Some c | In_flight _ -> None)
 
 let events c =
   let out, summary = shared c in
   (Ev.filter (( <> ) []) (Ev.map commits out), summary)
+
+let profile (ctx : Text.ctx) events (s : Summary.t) =
+  let disasm w = match w with Some w -> ctx.disasm w | None -> "?" in
+  let commits = commits events in
+  (* The word of a PC is its first retirement's. *)
+  let words =
+    List.fold_left
+      (fun m (c : commit) -> if IM.mem c.pc m then m else IM.add c.pc c.word m)
+      IM.empty commits
+  in
+  Printf.printf "%8s %6s %7s %6s %8s  %s\n" "pc" "count" "cycles" "share" "d->r" "instruction";
+  Profile.by_pc ~buckets:256
+    ~pc:(fun (c : commit) -> Some c.pc)
+    ~weight:(fun (c : commit) -> c.charged)
+    ~total:(fun (c : commit) -> match c.dispatched with Some x -> c.retired - x | None -> 0)
+    (List.to_seq commits)
+  |> List.iteri (fun i (r : int Profile.row) ->
+      if i < ctx.profile then
+        Printf.printf "%08x %6d %7d %5.1f%% %8.2f  %s\n" r.key r.count r.weight
+          (100. *. float r.weight /. float (max 1 s.cycles))
+          (float r.total /. float r.count)
+          (disasm (IM.find r.key words)))
 
 let text (ctx : Text.ctx) events (s : Summary.t) =
   let shown = ref 0 in
@@ -309,23 +332,4 @@ let text (ctx : Text.ctx) events (s : Summary.t) =
         Printf.printf "  dispatched %8d pc %08x %08x %s\n" cycle pc word (disasm (Some word)))
       s.pending
   end;
-  if ctx.profile > 0 then begin
-    (* The word of a PC is its first retirement's. *)
-    let words =
-      List.fold_left
-        (fun m (c : commit) -> if IM.mem c.pc m then m else IM.add c.pc c.word m)
-        IM.empty commits
-    in
-    Printf.printf "%8s %6s %7s %6s %8s  %s\n" "pc" "count" "cycles" "share" "d->r" "instruction";
-    Profile.by_pc ~buckets:256
-      ~pc:(fun (c : commit) -> Some c.pc)
-      ~weight:(fun (c : commit) -> c.charged)
-      ~total:(fun (c : commit) -> match c.dispatched with Some x -> c.retired - x | None -> 0)
-      (List.to_seq commits)
-    |> List.iteri (fun i (r : int Profile.row) ->
-        if i < ctx.profile then
-          Printf.printf "%08x %6d %7d %5.1f%% %8.2f  %s\n" r.key r.count r.weight
-            (100. *. float r.weight /. float (max 1 s.cycles))
-            (float r.total /. float r.count)
-            (disasm (IM.find r.key words)))
-  end
+  if ctx.profile > 0 then profile ctx events s

@@ -28,3 +28,16 @@ at the end are open:
   [0,"empty",260,4,4]
   [0,"halted",264,5,null]
   [1,"empty",264,3,null]
+
+The spans as a Chrome trace: a track per lane, a slice per span named by its reason:
+
+  $ coralview run --platform stall-core.json --model stalls --perfetto stalls.json stalls.vcd
+  $ jq -c '.traceEvents[] | select(.ph == "X") | [.tid, .name, .ts, .dur]' stalls.json
+  [1,"dispatched",0,1]
+  [2,"raw",0,1]
+  [1,"raw",1,2]
+  [2,"behind",1,2]
+  [1,"dispatched",3,1]
+  [1,"empty",4,1]
+  [1,"halted",5,1]
+  [2,"empty",3,3]

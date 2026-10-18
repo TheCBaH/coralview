@@ -549,3 +549,50 @@ let text (ctx : Text.ctx) ~beats events (s : Summary.t) =
   Printf.printf
     "root %s: jobs %d, %d bytes in %d cycles, host port at most %d outstanding, %d stray\n" ctx.root
     s.jobs s.bytes s.cycles s.max_outstanding s.stray
+
+let perfetto (ctx : Text.ctx) events (s : Summary.t) =
+  let last = s.cycles - 1 in
+  let jobs = List.filter_map (function Event.Job j -> Some j | Stray _ -> None) events in
+  let beat track (t : Transaction.t) =
+    {
+      Perfetto.track;
+      name = Printf.sprintf "%s %08x" (if t.write then "write" else "read") t.address;
+      start = t.accepted;
+      stop = Option.value t.completed ~default:last;
+      args = [ ("bytes", string_of_int t.bytes) ];
+    }
+  in
+  {
+    Perfetto.process = "dma " ^ ctx.root;
+    slices =
+      List.concat
+        (List.mapi
+           (fun i (j : Event.job) ->
+             {
+               Perfetto.track = "jobs";
+               name = Printf.sprintf "job %d" (i + 1);
+               start = j.span.start;
+               stop = Option.value j.span.stop ~default:last;
+               args =
+                 [
+                   ("bytes", string_of_int (bytes j)); ("descriptor", Printf.sprintf "%08x" j.first);
+                 ];
+             }
+             :: List.map
+                  (fun (x : Descriptor.t) ->
+                    {
+                      Perfetto.track = "descriptor fetch";
+                      name = Printf.sprintf "%08x" x.at;
+                      start = x.fetch.start;
+                      stop = Option.value x.fetch.stop ~default:last;
+                      args = [ ("len", string_of_int x.len) ];
+                    })
+                  j.descriptors
+             @ List.concat_map
+                 (fun (b : Event.beat) ->
+                   beat "host reads" b.read
+                   :: Option.to_list (Option.map (beat "host writes") b.write))
+                 j.beats)
+           jobs);
+    counters = [];
+  }

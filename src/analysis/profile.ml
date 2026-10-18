@@ -15,7 +15,8 @@ let by ?(buckets = 64) ~key ?(weight = fun _ -> 0) ?(total = fun _ -> 0) events 
           Hashtbl.replace t k (n + 1, w + weight e, s + total e))
     events;
   Hashtbl.fold (fun key (count, weight, total) acc -> { key; count; weight; total } :: acc) t []
-  |> List.sort (fun a b -> Int.compare b.weight a.weight)
+  |> List.sort (fun a b ->
+      match Int.compare b.weight a.weight with 0 -> compare a.key b.key | c -> c)
 
 let by_pc ?buckets ~pc ?weight ?total events = by ?buckets ~key:pc ?weight ?total events
 

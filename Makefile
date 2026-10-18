@@ -39,9 +39,12 @@ hwfrp-boundary:
 	bad=$$(for d in $$deps; do case " $(HWFRP_DEPS) " in *" $$d "*) ;; *) echo $$d ;; esac; done); \
 	if [ -n "$$bad" ]; then echo "hwfrp must not depend on:" $$bad; exit 1; fi
 
+VME_MODELS = commits stalls memory axi registers tiles traps vectors
+
 # RTL simulations with tracing, read back by coralview: every model on the VME
 # core, the external traffic of memory.elf on the scalar core, and the DMA jobs
-# of subsystem_dma.elf on the full subsystem.
+# of subsystem_dma.elf on the full subsystem. Each JSONL rendered back must give
+# the text: on the VME trace for every model, in one pass.
 smoke: build
 	set -e; d=$$(mktemp -d); trap 'rm -rf $$d' EXIT; \
 	timeout --kill-after=5 300 $(CORALNPU)/emulators/bin/vme_core_mini_axi_sim \
@@ -63,7 +66,10 @@ smoke: build
 	$(DUNE) exec -- coralview traps $$p $$fst; \
 	$(DUNE) exec -- coralview signals $$p --changes --to-cycle 600 $$fst VVmeCoreMiniAxi.core/VmeCoreMiniAxi/io_halted; \
 	$(DUNE) exec -- coralview axi $$p --limit 5 $$fst; \
-	$(DUNE) exec -- coralview bench $$p $$fst
+	$(DUNE) exec -- coralview bench $$p $$fst; \
+	$(DUNE) exec -- coralview run $$p \
+	  $(foreach m,$(VME_MODELS),--sink $(m):text:$$d/$(m).txt --sink $(m):jsonl:$$d/$(m).jsonl) $$fst; \
+	for m in $(VME_MODELS); do $(DUNE) exec -- coralview render $$d/$$m.jsonl | cmp - $$d/$$m.txt; done
 	set -e; d=$$(mktemp -d); trap 'rm -rf $$d' EXIT; \
 	timeout --kill-after=5 300 $(CORALNPU)/emulators/bin/core_mini_axi_sim \
 	  --cycles=5000000 --trace --binary=$(CORALNPU)/emulators/examples/memory.elf > $$d/log 2>&1; \
@@ -71,14 +77,19 @@ smoke: build
 	fst=$$(sed -n 's/.*for tracing: 1 ps (\(.*\.fst\)).*/\1/p' $$d/log); \
 	$(DUNE) exec -- coralview axi --platform core-mini-axi --limit 5 --profile 5 $$fst | tee $$d/axi; \
 	grep -q ' unmatched 0$$' $$d/axi; \
-	! grep -q DISAGREEING $$d/axi
+	! grep -q DISAGREEING $$d/axi; \
+	$(DUNE) exec -- coralview axi --platform core-mini-axi --format jsonl $$fst > $$d/axi.jsonl; \
+	$(DUNE) exec -- coralview render --limit 5 --profile 5 $$d/axi.jsonl | cmp - $$d/axi
 	set -e; d=$$(mktemp -d); trap 'rm -rf $$d' EXIT; \
 	s=$(CORALNPU)/subsystem; \
 	tools/trace-subsystem.sh $$s vector_normal $$s/examples/subsystem_dma.elf 8 32 $$d | grep -q CORAL_SUBSYSTEM_DMA_PASS; \
 	$(DUNE) exec -- coralview dma --platform subsystem-vector-normal --manifest $$s/hardware-configurations.json \
 	  --beats 2 $$d/sim.fst | tee $$d/dma; \
 	grep -q ': jobs 3, 192 bytes .* 0 stray$$' $$d/dma; \
-	test $$(grep -c 'software saw done' $$d/dma) = 3
+	test $$(grep -c 'software saw done' $$d/dma) = 3; \
+	$(DUNE) exec -- coralview dma --platform subsystem-vector-normal --manifest $$s/hardware-configurations.json \
+	  --format jsonl $$d/sim.fst > $$d/dma.jsonl; \
+	$(DUNE) exec -- coralview render --manifest $$s/hardware-configurations.json --beats 2 $$d/dma.jsonl | cmp - $$d/dma
 
 # The committed Zvt table must be the one the image's emulator archive ships.
 zvt-check:

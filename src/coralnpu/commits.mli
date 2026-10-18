@@ -68,15 +68,18 @@ end
 
 val build :
   Config.t -> 'c Core.t -> (Event.t list, 'c) Hwfrp.Ev.t * (Hwfrp.Sched.run_stats -> summary)
-(** Raises {!Hwfrp.Bind.Unbound} and {!Core.No_block}. *)
+(** {!shared}. Raises {!Hwfrp.Bind.Unbound} and {!Core.No_block}. *)
 
 val shared : 'c Core.t -> (Event.t list, 'c) Hwfrp.Ev.t * (Hwfrp.Sched.run_stats -> summary)
-(** {!build}, once per net, for the models that depend on it. *)
+(** The model, built once per net for the models that depend on it. *)
 
 val events : 'c Core.t -> (commit list, 'c) Hwfrp.Ev.t * (Hwfrp.Sched.run_stats -> summary)
 (** The retirements of each cycle, from {!shared}. *)
 
 val commits : Event.t list -> commit list
+
+val profile : Text.ctx -> Event.t list -> Summary.t -> unit
+(** The cycles charged by instruction, the [ctx.profile] heaviest PCs. *)
 
 val text : Text.ctx -> Event.t list -> Summary.t -> unit
 (** The retirements the context selects, the summary, what was in flight and the profile. *)

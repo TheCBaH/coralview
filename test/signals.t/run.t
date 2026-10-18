@@ -23,14 +23,7 @@ Only the changes, in a window; the window's first cycle shows every value:
          2          6    4 TOP.sim/core/count 0x3
          2          6    8 TOP.sim/core/data 0xa5
 
-As JSON lines:
-
-  $ coralview signals --platform sig.json --changes --json --to-cycle 2 sig.vcd TOP.sim/core/data
-  {"phase":"after_falling","cycle":0,"time":2,"path":"TOP.sim/core/data","width":8,"value":"0bxxxxxxxx"}
-  {"phase":"after_falling","cycle":1,"time":4,"path":"TOP.sim/core/data","width":8,"value":"0b1010xxxx"}
-  {"phase":"after_falling","cycle":2,"time":6,"path":"TOP.sim/core/data","width":8,"value":"0xa5"}
-
-With --format jsonl the same records carry a type, between a header and a summary:
+With --format jsonl, one record per value between a header and a summary:
 
   $ coralview signals --platform sig.json --changes --format jsonl --to-cycle 2 sig.vcd TOP.sim/core/data
   {"type":"coralview","schema_version":1,"model":"signals","platform":"sig-core","trace":"sig.vcd"}
@@ -38,7 +31,10 @@ With --format jsonl the same records carry a type, between a header and a summar
   {"type":"signals.sample","phase":"after_falling","cycle":1,"time":4,"path":"TOP.sim/core/data","width":8,"value":"0b1010xxxx"}
   {"type":"signals.sample","phase":"after_falling","cycle":2,"time":6,"path":"TOP.sim/core/data","width":8,"value":"0xa5"}
   {"type":"signals.summary","samples":3}
-  $ coralview signals --platform sig.json --changes --format jsonl --to-cycle 2 sig.vcd TOP.sim/core/data | jq -c 'select(.type == "signals.sample") | del(.type)' > typed.json
+
+--json is the same:
+
+  $ coralview signals --platform sig.json --changes --format jsonl --to-cycle 2 sig.vcd TOP.sim/core/data > typed.json
   $ coralview signals --platform sig.json --changes --json --to-cycle 2 sig.vcd TOP.sim/core/data | cmp - typed.json
 
 The raw value changes, by timestamp, with no clock:

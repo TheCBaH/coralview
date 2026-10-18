@@ -63,9 +63,6 @@ module Event : sig
 
   type t = Sample of sample
 
-  val json : sample Jsont.t
-  (** Without a [type] member: the lines of [--json]. *)
-
   val jsont : t Jsont.t
 end
 
@@ -76,3 +73,9 @@ module Summary : sig
 end
 
 val sample : phase:string -> record -> Event.sample
+
+val header : Platform.t -> unit
+(** The text form's first line for sampled values: the rule, clock and root. *)
+
+val row : record -> unit
+(** A record in the text form: cycle (or [-]), time, width, path and value. *)

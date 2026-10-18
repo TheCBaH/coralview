@@ -19,8 +19,7 @@ val by :
   'e Seq.t ->
   'k row list
 (** Events whose key is [None] are left out; [weight] and [total] default to 0 per event. Rows are by
-    weight, descending. Ties keep the order of a [Hashtbl] of [buckets] (default 64) filled in event
-    order: deterministic, and the order the CLI's profiles always had. *)
+    weight, descending, then by key, ascending. [buckets] (default 64) sizes the table. *)
 
 val by_pc :
   ?buckets:int ->

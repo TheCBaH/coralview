@@ -262,7 +262,8 @@ type state = {
   recent : (int * int option * int) list IM.t;  (** Per source: operations issued lately. *)
   resyncs : int;
   began : ((int * bool option * int option) * int) IM.t;  (** Per source: the request and since. *)
-  retirement : int PM.t;  (** By PC and dispatch cycle. *)
+  retirement : int PM.t;  (** By PC and dispatch cycle, of the PCs [queued]. *)
+  queued : unit IM.t;  (** The PCs that entered an originator's queue: only they can be pinned. *)
   words : int IM.t;  (** By PC. *)
   outbox : pending IM.t;  (** By acceptance order. *)
   live : int;  (** Outstanding before this cycle. *)
@@ -386,7 +387,14 @@ let ops_step s cycle queues =
           (q, recent, s.resyncs) iss
       in
       let q = q @ List.map (fun pc -> (pc, cycle)) enq in
-      { s with waiting = IM.add id q s.waiting; recent = IM.add id recent s.recent; resyncs })
+      let queued = List.fold_left (fun m pc -> IM.add pc () m) s.queued enq in
+      {
+        s with
+        waiting = IM.add id q s.waiting;
+        recent = IM.add id recent s.recent;
+        resyncs;
+        queued;
+      })
     s queues
 
 let retire s = function
@@ -399,8 +407,8 @@ let retire s = function
             words = (match k.word with Some w -> IM.add k.pc w s.words | None -> s.words);
             retirement =
               (match k.dispatched with
-              | Some d -> PM.add (k.pc, d) k.retired s.retirement
-              | None -> s.retirement);
+              | Some d when IM.mem k.pc s.queued -> PM.add (k.pc, d) k.retired s.retirement
+              | Some _ | None -> s.retirement);
           })
         s commits
 
@@ -521,6 +529,7 @@ let init =
     resyncs = 0;
     began = IM.empty;
     retirement = PM.empty;
+    queued = IM.empty;
     words = IM.empty;
     outbox = IM.empty;
     live = 0;
@@ -661,6 +670,25 @@ let build (cfg : Config.t) (c : _ Core.t) =
   in
   (out, summary)
 
+let profile (ctx : Text.ctx) events (s : Summary.t) =
+  let words = IM.of_seq (List.to_seq s.words) in
+  let instruction pc =
+    match IM.find_opt pc words with Some w -> ctx.disasm w | None -> "(not dispatched)"
+  in
+  let transactions =
+    List.filter_map (function Event.Transaction t -> Some t | Unmatched _ -> None) events
+  in
+  Printf.printf "external traffic by instruction:\n%8s %6s %7s %7s  %s\n" "pc" "count" "bytes"
+    "cycles" "instruction";
+  Profile.by_pc
+    ~pc:(fun t -> Event.pc (Transaction t))
+    ~weight:(fun (t : Event.transaction) -> t.txn.bytes)
+    ~total:(fun t -> Option.value (span t) ~default:0)
+    (List.to_seq transactions)
+  |> List.iteri (fun i (r : int Profile.row) ->
+      if i < ctx.profile then
+        Printf.printf "%08x %6d %7d %7d  %s\n" r.key r.count r.weight r.total (instruction r.key))
+
 let text (ctx : Text.ctx) events (s : Summary.t) =
   let words = IM.of_seq (List.to_seq s.words) in
   let instruction pc =
@@ -748,15 +776,33 @@ let text (ctx : Text.ctx) events (s : Summary.t) =
         s.sources;
       if s.resyncs > 0 then Printf.printf "  queued operations that never issued: %d\n" s.resyncs
   | _ -> ());
-  if ctx.profile > 0 then begin
-    Printf.printf "external traffic by instruction:\n%8s %6s %7s %7s  %s\n" "pc" "count" "bytes"
-      "cycles" "instruction";
-    Profile.by_pc
-      ~pc:(fun t -> Event.pc (Transaction t))
-      ~weight:(fun (t : Event.transaction) -> t.txn.bytes)
-      ~total:(fun t -> Option.value (span t) ~default:0)
-      (List.to_seq transactions)
-    |> List.iteri (fun i (r : int Profile.row) ->
-        if i < ctx.profile then
-          Printf.printf "%08x %6d %7d %7d  %s\n" r.key r.count r.weight r.total (instruction r.key))
-  end
+  if ctx.profile > 0 then profile ctx events s
+
+let perfetto (ctx : Text.ctx) events (s : Summary.t) =
+  let last = s.cycles - 1 in
+  let transactions =
+    List.filter_map (function Event.Transaction t -> Some t | Unmatched _ -> None) events
+  in
+  {
+    Perfetto.process = "axi " ^ ctx.root;
+    slices =
+      List.map
+        (fun (t : Event.transaction) ->
+          {
+            Perfetto.track = Printf.sprintf "id %d %s" t.txn.id (Option.value t.source ~default:"?");
+            name = Printf.sprintf "%s %08x" (if t.txn.write then "W" else "R") t.txn.address;
+            start = start t;
+            stop = Option.value t.txn.completed ~default:last;
+            args =
+              ([ ("bytes", string_of_int t.txn.bytes); ("accepted", string_of_int t.txn.accepted) ]
+              @ (match Event.pc (Transaction t) with
+                | Some pc -> [ ("pc", Printf.sprintf "%08x" pc) ]
+                | None -> [])
+              @ if t.txn.status = 0 then [] else [ ("resp", resp_name t.txn.status) ]);
+          })
+        transactions;
+    counters =
+      Perfetto.occupancy ~track:"outstanding"
+        (List.map (fun (t : Event.transaction) -> (t.txn.accepted, t.txn.completed)) transactions)
+        ~last;
+  }

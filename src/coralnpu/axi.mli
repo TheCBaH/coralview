@@ -129,5 +129,11 @@ val throughput : Event.transaction -> float option
 
 val resp_name : int -> string
 
+val profile : Text.ctx -> Event.t list -> Summary.t -> unit
+(** The external traffic by instruction, the [ctx.profile] heaviest PCs. *)
+
 val text : Text.ctx -> Event.t list -> Summary.t -> unit
 (** The rows the context selects, the unmatched ones, the summary and the profile by instruction. *)
+
+val perfetto : Text.ctx -> Event.t list -> Summary.t -> Perfetto.process
+(** A track per AXI ID with a slice per transaction, and the outstanding count. *)

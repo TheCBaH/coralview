@@ -115,7 +115,7 @@ let ctx p ?(features = None) ?(region = Region.none) ?(window = Text.everything)
     profile;
   }
 
-let signals platform ~raw ~json ~format ~changes ~cycles:(from_cycle, to_cycle)
+let signals platform ~raw ~format ~changes ~cycles:(from_cycle, to_cycle)
     ~times:(from_time, to_time) path paths =
   let jsonl = format = `Jsonl in
   let tr = Hwfrp.Trace.open_file path in
@@ -134,11 +134,7 @@ let signals platform ~raw ~json ~format ~changes ~cycles:(from_cycle, to_cycle)
       if from_time <> None || to_time <> None then
         fail ~code:2 "--from-time and --to-time select raw timestamps: add --raw";
       let (p : Platform.t) = platform () in
-      if not (json || jsonl) then
-        Printf.printf "# sampled %s on %s at %s\n"
-          (Signals.sample_rule_name p.sample)
-          p.clock
-          (Vcd_types.Reference.to_string (Platform.root p));
+      if not jsonl then Signals.header p;
       ( Signals.sample_rule_name p.sample,
         fun ~changes f ->
           guard p (fun () ->
@@ -159,11 +155,7 @@ let signals platform ~raw ~json ~format ~changes ~cycles:(from_cycle, to_cycle)
     incr samples;
     if jsonl then
       print_endline (Codec.to_line Signals.Event.jsont (Sample (Signals.sample ~phase r)))
-    else if json then print_endline (Codec.to_line Signals.Event.json (Signals.sample ~phase r))
-    else
-      Printf.printf "%8s %10Ld %4d %s %s\n"
-        (match r.cycle with Some c -> string_of_int c | None -> "-")
-        r.time r.width r.path (Signals.to_string r.value)
+    else Signals.row r
   in
   run ~changes print;
   if jsonl then print_endline (Codec.to_line Signals.Summary.jsont { samples = !samples })
@@ -438,6 +430,369 @@ let cmd name doc term = Cmd.v (Cmd.info name ~doc ~exits) term
 let model name doc term =
   cmd name doc Term.(const (fun p f path -> guard p (fun () -> f p path)) $ platform $ term $ file)
 
+(* What [coralview run] needs of an analysis: its config and text view from the common options. *)
+type opts = {
+  o_region : Region.t;
+  o_features : string option;
+  o_window : Text.window;
+  o_limit : int;
+  o_profile : int;
+  o_at : int option;
+  o_beats : int;
+}
+
+type entry =
+  | E : {
+      a : (module Analysis.S with type Config.t = 'k and type Event.t = 'e and type Summary.t = 's);
+      cfg : opts -> 'k;
+      text : opts -> Text.ctx -> 'e list -> 's -> unit;
+      status : 's -> int;
+      profile : (Text.ctx -> 'e list -> 's -> unit) option;
+      perfetto : (Text.ctx -> 'e list -> 's -> Perfetto.process) option;
+    }
+      -> entry
+
+let entries =
+  let plain text _ = text and ok _ = 0 and profile = None and perfetto = None in
+  [
+    ( "commits",
+      E
+        {
+          a = (module Commits);
+          cfg = (fun _ -> ());
+          text = plain Commits.text;
+          status = ok;
+          profile = Some Commits.profile;
+          perfetto;
+        } );
+    ( "stalls",
+      E
+        {
+          a = (module Stalls);
+          cfg = (fun _ -> ());
+          text = plain Stalls.text;
+          status = ok;
+          profile = Some Stalls.profile;
+          perfetto = Some Stalls.perfetto;
+        } );
+    ( "memory",
+      E
+        {
+          a = (module Memory);
+          cfg = (fun o -> { region = o.o_region });
+          text = plain Memory.text;
+          status = ok;
+          profile;
+          perfetto;
+        } );
+    ( "axi",
+      E
+        {
+          a = (module Axi);
+          cfg = (fun o -> { region = o.o_region });
+          text = plain Axi.text;
+          status = ok;
+          profile = Some Axi.profile;
+          perfetto = Some Axi.perfetto;
+        } );
+    ( "dma",
+      E
+        {
+          a = (module Dma);
+          cfg = (fun o -> { region = o.o_region });
+          text = (fun o -> Dma.text ~beats:o.o_beats);
+          status = ok;
+          profile;
+          perfetto = Some Dma.perfetto;
+        } );
+    ( "tiles",
+      E
+        {
+          a = (module Tiles);
+          cfg = (fun _ -> ());
+          text = plain Tiles.text;
+          profile;
+          perfetto;
+          status = ok;
+        } );
+    ( "registers",
+      E
+        {
+          a = (module Registers);
+          cfg = (fun o -> { at = o.o_at });
+          text = plain Registers.text;
+          status = Registers.status;
+          profile;
+          perfetto;
+        } );
+    ( "vectors",
+      E
+        {
+          a = (module Vectors);
+          cfg = (fun o -> { at = o.o_at });
+          text = plain Vectors.text;
+          status = Vectors.status;
+          profile;
+          perfetto;
+        } );
+    ( "traps",
+      E
+        {
+          a = (module Traps);
+          cfg = (fun _ -> ());
+          text = plain Traps.text;
+          profile;
+          perfetto;
+          status = ok;
+        } );
+  ]
+
+(* Prints of [f] go to [path], or to the standard output for "-". *)
+let printing_to path f =
+  if path = "-" then f ()
+  else begin
+    flush stdout;
+    let saved = Unix.dup Unix.stdout in
+    let fd = Unix.openfile path [ O_WRONLY; O_CREAT; O_TRUNC ] 0o644 in
+    Unix.dup2 fd Unix.stdout;
+    Unix.close fd;
+    Fun.protect f ~finally:(fun () ->
+        flush stdout;
+        Unix.dup2 saved Unix.stdout;
+        Unix.close saved)
+  end
+
+(* Several analyses in one pass: each is built in the same net, and its events are pushed to its
+   sinks as they come. A model without a sink prints its text to the standard output. *)
+let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
+  let sinks =
+    List.map
+      (fun s ->
+        match String.split_on_char ':' s with
+        | m :: kind :: rest when List.mem kind [ "text"; "jsonl" ] ->
+            (m, kind, String.concat ":" rest)
+        | _ -> fail ~code:2 ("--sink " ^ s ^ ": expected MODEL:text:PATH or MODEL:jsonl:PATH"))
+      sinks
+  in
+  let models =
+    List.sort_uniq compare
+      (models @ List.map (fun (m, _, _) -> m) sinks @ if kanata = None then [] else [ "commits" ])
+  in
+  if models = [] then fail ~code:2 "run needs --model or --sink";
+  let ctx =
+    ctx p ~features:o.o_features ~region:o.o_region ~window:o.o_window ~limit:o.o_limit
+      ~profile:o.o_profile ()
+  in
+  let tr = Hwfrp.Trace.open_file path in
+  let (Core.Any c) = Core.bind p tr ~model:"run" in
+  let finishers =
+    guard p (fun () ->
+        List.map
+          (fun m ->
+            match List.assoc_opt m entries with
+            | None -> fail ~code:2 ("run: no analysis " ^ m)
+            | Some (E { a = (module A); cfg; text; status; perfetto = view; _ }) ->
+                let mine =
+                  match List.filter (fun (m', _, _) -> m' = m) sinks with
+                  | [] when perfetto <> None || kanata <> None || report <> None -> []
+                  | [] -> [ ("text", "-") ]
+                  | l -> List.map (fun (_, k, f) -> (k, f)) l
+                in
+                let keep e =
+                  selected ctx.window ~cycle:(A.Event.cycle e)
+                    ~pc:(Option.value (A.Event.pc e) ~default:(-1))
+                in
+                let jsonl =
+                  List.filter_map
+                    (fun (k, f) ->
+                      if k <> "jsonl" then None
+                      else begin
+                        let oc = if f = "-" then stdout else open_out f in
+                        output_string oc
+                          (Codec.to_line Jsonl.header_jsont
+                             (Jsonl.header ~model:A.name ~platform:p.name ~trace:path));
+                        output_char oc '\n';
+                        Some (oc, ref 0)
+                      end)
+                    mine
+                in
+                let texts =
+                  List.filter_map (fun (k, f) -> if k = "text" then Some f else None) mine
+                in
+                let events = ref [] in
+                let summary =
+                  Analysis.subscribe
+                    (module A)
+                    (cfg o) c
+                    (fun e ->
+                      if texts <> [] || report <> None || (perfetto <> None && view <> None) then
+                        events := e :: !events;
+                      if keep e then
+                        List.iter
+                          (fun (oc, n) ->
+                            if !n < ctx.limit then begin
+                              incr n;
+                              output_string oc (Codec.to_line A.Event.jsont e);
+                              output_char oc '\n'
+                            end)
+                          jsonl)
+                in
+                fun stats ->
+                  let s = summary stats in
+                  List.iter
+                    (fun (oc, _) ->
+                      Seq.iter
+                        (fun d ->
+                          output_string oc (Codec.to_line Codec.diag d);
+                          output_char oc '\n')
+                        (Hwfrp.Diag.stream c.net);
+                      output_string oc (Codec.to_line A.Summary.jsont s);
+                      output_char oc '\n';
+                      if oc == stdout then flush oc else close_out oc)
+                    jsonl;
+                  let events = List.rev !events in
+                  List.iter (fun f -> printing_to f (fun () -> text o ctx events s)) texts;
+                  let section =
+                    Option.map
+                      (fun _ ->
+                        let tmp = Filename.temp_file "coralview" ".txt" in
+                        let ctx =
+                          {
+                            ctx with
+                            limit = 0;
+                            profile = (if ctx.profile = 0 then 10 else ctx.profile);
+                          }
+                        in
+                        printing_to tmp (fun () -> text o ctx events s);
+                        let body = In_channel.with_open_text tmp In_channel.input_all in
+                        Sys.remove tmp;
+                        (A.name, A.doc, body))
+                      report
+                  in
+                  ( status s,
+                    (match (perfetto, view) with Some _, Some v -> [ v ctx events s ] | _ -> []),
+                    section ))
+          models)
+  in
+  let kanata_events =
+    Option.map
+      (fun _ ->
+        let commits = ref [] and stalls = ref [] in
+        guard p (fun () ->
+            let (_ : Hwfrp.Sched.run_stats -> _) =
+              Analysis.subscribe (module Commits) () c (fun e -> commits := e :: !commits)
+            in
+            if List.mem "dispatch" (Platform.blocks p) then
+              let (_ : Hwfrp.Sched.run_stats -> _) =
+                Analysis.subscribe (module Stalls) () c (fun e -> stalls := e :: !stalls)
+              in
+              ());
+        (commits, stalls))
+      kanata
+  in
+  let stats = Core.run c in
+  let results = List.map (fun f -> f stats) finishers in
+  Option.iter
+    (fun f ->
+      let commits, stalls = Option.get kanata_events in
+      let oc = if f = "-" then stdout else open_out f in
+      Kanata.write oc (Kanata.of_run ~disasm:ctx.disasm (List.rev !commits) (List.rev !stalls));
+      if oc != stdout then close_out oc)
+    kanata;
+  Option.iter
+    (fun f ->
+      let oc = if f = "-" then stdout else open_out f in
+      Perfetto.write oc (List.concat_map (fun (_, v, _) -> v) results);
+      if oc != stdout then close_out oc)
+    perfetto;
+  Option.iter
+    (fun f ->
+      let oc = if f = "-" then stdout else open_out f in
+      Printf.fprintf oc
+        "# coralview report\n\n\
+         | | |\n\
+         |---|---|\n\
+         | platform | %s |\n\
+         | trace | %s |\n\
+         | root | %s |\n\
+         | cycles | %d |\n\
+         | models | %s |\n"
+        p.name path ctx.root stats.ticks.(0) (String.concat ", " models);
+      List.iter
+        (fun (_, _, section) ->
+          Option.iter
+            (fun (name, doc, body) ->
+              Printf.fprintf oc "\n## %s\n\n%s\n\n```text\n%s```\n" name doc body)
+            section)
+        results;
+      if oc != stdout then close_out oc else flush oc)
+    report;
+  match List.fold_left (fun n (k, _, _) -> max n k) 0 results with 0 -> () | n -> exit n
+
+(* A saved JSONL back to the text its model prints: the events and summary decoded with the
+   model's codecs, then its text view. *)
+let read_jsonl file =
+  let first =
+    In_channel.with_open_text file In_channel.input_line
+    |> Option.to_result ~none:"empty file"
+    |> Fun.flip Result.bind (Codec.of_line Jsonl.header_jsont)
+  in
+  match first with Ok h -> h | Error e -> fail ~code:2 (file ^ ": " ^ e)
+
+(* The events and summary of a saved JSONL, decoded with the model's codecs. *)
+let decode_jsonl (type e s) (module A : Analysis.S with type Event.t = e and type Summary.t = s)
+    file =
+  let events = ref [] and summary = ref None in
+  In_channel.with_open_text file (fun ic ->
+      Seq.iteri
+        (fun i -> function
+          | Ok (Jsonl.Event e) -> events := e :: !events
+          | Ok (Summary s) -> summary := Some s
+          | Ok (Header _ | Diag _) -> ()
+          | Error e -> fail ~code:2 (Printf.sprintf "%s:%d: %s" file (i + 1) e))
+        (Jsonl.read (module A) ic));
+  match !summary with
+  | None -> fail ~code:2 (file ^ ": no summary")
+  | Some s -> (List.rev !events, s)
+
+let entry file (h : Jsonl.header) =
+  match List.assoc_opt h.model entries with
+  | Some e -> e
+  | None -> fail ~code:2 (file ^ ": no analysis " ^ h.model)
+
+let opts_ctx p o =
+  ctx p ~features:o.o_features ~region:o.o_region ~window:o.o_window ~limit:o.o_limit
+    ~profile:o.o_profile ()
+
+(* A saved JSONL back to the text its model prints. *)
+let render p o file =
+  let (E { a = (module A); text; status; _ }) = entry file (read_jsonl file) in
+  let events, s = decode_jsonl (module A) file in
+  text o (opts_ctx p o) events s;
+  match status s with 0 -> () | n -> exit n
+
+(* The profile of a saved JSONL, as its model's --profile prints it. *)
+let profile_of p o file =
+  let h = read_jsonl file in
+  match entry file h with
+  | E { a = (module A); profile = Some profile; _ } ->
+      let events, s = decode_jsonl (module A) file in
+      profile (opts_ctx p o) events s
+  | E _ -> fail ~code:2 (file ^ ": " ^ h.model ^ " has no profile")
+
+let saved_platform =
+  Arg.(
+    value
+    & opt (some string) None
+    & info [ "platform"; "p" ] ~docv:"P"
+        ~doc:"The platform, when the file's is not built in: as for the analyses.")
+
+let jsonl_file = Arg.(required & pos 0 (some file) None & info [] ~docv:"FILE" ~doc:"A JSONL file.")
+
+let beats =
+  Arg.(
+    value & opt int 0 & info [ "beats" ] ~docv:"N" ~doc:"Print the first $(docv) beats of each job.")
+
 let commands =
   [
     cmd "probe" "Count the signals, timestamps and changes of a trace." Term.(const probe $ file);
@@ -482,18 +837,15 @@ let commands =
                 match p with
                 | Some p -> load p
                 | None -> fail ~code:2 "signals needs --platform, or --raw")
-              ~raw ~json ~format ~changes ~cycles:(fc, tc) ~times:(ft, tt) path paths)
+              ~raw
+              ~format:(if json then `Jsonl else format)
+              ~changes ~cycles:(fc, tc) ~times:(ft, tt) path paths)
         $ Arg.(
             value & opt (some string) None & info [ "platform"; "p" ] ~docv:"P" ~doc:platform_doc)
         $ Arg.(
             value & flag
             & info [ "raw" ] ~doc:"Print value changes at their timestamps, with no clock.")
-        $ Arg.(
-            value & flag
-            & info [ "json" ]
-                ~doc:
-                  "Print one JSON object per value, as $(b,--format jsonl) without its header, \
-                   summary and $(i,type) members.")
+        $ Arg.(value & flag & info [ "json" ] ~doc:"The same as $(b,--format jsonl).")
         $ format $ output
         $ Arg.(value & flag & info [ "changes" ] ~doc:"Print only values that changed.")
         $ from_cycle $ to_cycle
@@ -584,6 +936,104 @@ let commands =
             redirect output;
             analyze (module Traps) () p ~format ~ctx:(ctx p ()) Traps.text path)
         $ format $ output);
+    cmd "run" "Run several analyses in one pass over a trace, each to its own text or JSONL sinks."
+      Term.(
+        const
+          (fun
+            p
+            models
+            sinks
+            perfetto
+            kanata
+            report
+            features
+            manifest
+            window
+            limit
+            profile
+            at
+            beats
+            path
+          ->
+            run_models p ?perfetto ?kanata ?report
+              {
+                o_region = regions p manifest;
+                o_features = features;
+                o_window = window;
+                o_limit = limit;
+                o_profile = profile;
+                o_at = at;
+                o_beats = beats;
+              }
+              models sinks path)
+        $ platform
+        $ Arg.(
+            value & opt_all string []
+            & info [ "model"; "m" ] ~docv:"M"
+                ~doc:"An analysis to run; repeatable. Without a sink it prints text.")
+        $ Arg.(
+            value & opt_all string []
+            & info [ "sink" ] ~docv:"M:KIND:PATH"
+                ~doc:
+                  "Send analysis $(i,M) as $(b,text) or $(b,jsonl) to $(i,PATH), $(b,-) for the \
+                   standard output; repeatable.")
+        $ Arg.(
+            value
+            & opt (some string) None
+            & info [ "perfetto" ] ~docv:"FILE"
+                ~doc:
+                  "Also write the transactions, DMA jobs and stall spans of the analyses run as a \
+                   Chrome trace, for ui.perfetto.dev; a model without a sink then prints nothing.")
+        $ Arg.(
+            value
+            & opt (some string) None
+            & info [ "kanata" ] ~docv:"FILE"
+                ~doc:
+                  "Also write the retired instructions, with their stalls before dispatch, as a \
+                   Kanata log for Konata.")
+        $ Arg.(
+            value
+            & opt (some string) None
+            & info [ "report" ] ~docv:"FILE"
+                ~doc:
+                  "Also write a Markdown report: each analysis' summary and profile (10 rows \
+                   unless $(b,--profile)), without its rows.")
+        $ features $ manifest $ window $ limit $ profile $ at $ beats $ file);
+    cmd "render" "Print a saved JSONL of an analysis as the text its command prints."
+      Term.(
+        const (fun platform features manifest window limit profile at beats file ->
+            let p = load (Option.value platform ~default:(read_jsonl file).platform) in
+            render p
+              {
+                o_region = regions p manifest;
+                o_features = features;
+                o_window = window;
+                o_limit = limit;
+                o_profile = profile;
+                o_at = at;
+                o_beats = beats;
+              }
+              file)
+        $ saved_platform $ features $ manifest $ window $ limit $ profile $ at $ beats $ jsonl_file);
+    cmd "profile" "Print the profile of a saved JSONL of commits, stalls or axi."
+      Term.(
+        const (fun platform features n file ->
+            let p = load (Option.value platform ~default:(read_jsonl file).platform) in
+            profile_of p
+              {
+                o_region = Region.none;
+                o_features = features;
+                o_window = Text.everything;
+                o_limit = max_int;
+                o_profile = n;
+                o_at = None;
+                o_beats = 0;
+              }
+              file)
+        $ saved_platform $ features
+        $ Arg.(
+            value & opt int 10 & info [ "rows"; "n" ] ~docv:"N" ~doc:"The $(docv) heaviest rows.")
+        $ jsonl_file);
     model "bench" "Time opening, decoding and sampling a trace."
       Term.(
         const (fun nodes p path -> Bench.run p ~nodes path)

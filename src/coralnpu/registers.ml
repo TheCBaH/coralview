@@ -215,11 +215,6 @@ let graph ?at (c : _ Core.t) =
             |> Option.map (fun (cycle, snaps) -> (cycle, union snaps)));
     }
 
-let run ?at p tr =
-  let (Core.Any c) = Core.bind p tr ~model in
-  let finish = graph ?at c in
-  finish (Core.run c)
-
 module Config = struct
   type t = { at : int option  (** Also keep the storage as of this cycle. *) }
 

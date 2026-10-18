@@ -153,3 +153,12 @@ let raw tr paths ~from ~until ~changes f =
         | _ -> ())
       (Trace.events tr)
   with Stop -> ()
+
+let header (p : Platform.t) =
+  Printf.printf "# sampled %s on %s at %s\n" (sample_rule_name p.sample) p.clock
+    (Vcd_types.Reference.to_string (Platform.root p))
+
+let row (r : record) =
+  Printf.printf "%8s %10Ld %4d %s %s\n"
+    (match r.cycle with Some c -> string_of_int c | None -> "-")
+    r.time r.width r.path (to_string r.value)

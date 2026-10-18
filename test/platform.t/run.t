@@ -62,6 +62,17 @@ the whole run:
   $ coralview commits --platform test-core.json --format jsonl --pc 80000004 core.vcd | jq -c 'select(.type == "commits.commit") | .instance'
   {"pc":2147483652,"word":19,"dispatched":2,"retired":5}
 
+A saved JSONL gives back the profile, and the whole text; a platform that is not built in is given
+again:
+
+  $ coralview commits --platform test-core.json --format jsonl core.vcd > commits.jsonl
+  $ coralview profile --platform test-core.json -n 2 commits.jsonl
+        pc  count  cycles  share     d->r  instruction
+  80000000      1       4  50.0%     3.00  addi x10, x0, 42
+  80000004      1       1  12.5%     3.00  addi x0, x0, 0
+  $ coralview commits --platform test-core.json --profile 2 core.vcd > commits.txt
+  $ coralview render --platform test-core.json --profile 2 commits.jsonl | cmp - commits.txt
+
 A trace without the register writeback ports does not match the
 description, which is a hard error:
 
@@ -100,3 +111,22 @@ Command-line errors are cmdliner's, with its exit status:
   Usage: coralview commits [--help] [OPTION]… FILE
   coralview: required option --platform is missing
   [124]
+
+The retirements as a Kanata log for Konata, each instruction from its dispatch to its retirement:
+
+  $ coralview run --platform test-core.json --kanata - core.vcd
+  Kanata	0004
+  C=	1
+  I	0	0	0
+  L	0	0	80000000 addi x10, x0, 42
+  S	0	0	Ex
+  C	1
+  I	1	1	0
+  L	1	0	80000004 addi x0, x0, 0
+  S	1	0	Ex
+  C	2
+  E	0	0	Ex
+  R	0	0	0
+  C	1
+  E	1	0	Ex
+  R	1	1	0

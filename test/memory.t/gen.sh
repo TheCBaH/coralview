@@ -36,7 +36,7 @@ echo '$dumpvars'
 echo 0ck
 for v in "${vars[@]}"; do set -- $v; echo "b0 $2"; done
 echo '$end'
-# cycle: "id hex" ... (values hold until changed)
+# cycle: "id hex" ... (values hold until changed); x for unknown
 cycles=(
   "tv 1 tr 1 tw 1 ta 10004 tm 00f0 td 00000000000000000000deadbeef00000000 ep 100"
   "tw 0 ta 10008 tm 0 td 0 ep 104"
@@ -45,7 +45,8 @@ cycles=(
   "ew 0 ea 20000010 em 0 ed 0 ep 10c"
   "ev 0 eq 55667788 fv 1 fa 30000000 fe 10c"
   "fw 1 fa 40 fe 110"
-  "fv 0 fw 0"
+  "fv 0 fw 0 ev 1 er 1 ea 20000020 ep 114"
+  "ev 0 eq x"
 )
 t=0
 for c in "${cycles[@]}" ""; do
@@ -55,7 +56,7 @@ for c in "${cycles[@]}" ""; do
   echo 0ck
   set -- $c
   while [ $# -gt 0 ]; do
-    echo "$(bin ${width[$1]} $2) $1"
+    if [ "$2" = x ]; then echo "bx $1"; else echo "$(bin ${width[$1]} $2) $1"; fi
     shift 2
   done
   t=$((t + 2))
