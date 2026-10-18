@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "name": "test",
+  "configurations": [
+    { "name": "dma-sub", "top_level": "Sub", "trace_root": ["TOP", "sub"] }
+  ],
+  "clock": "io_clk_i",
+  "sample": "after_falling",
+  "blocks": {
+    "dma": {
+      "scope": ["dma"],
+      "host": { "prefix": "io_tl_host_", "data_bytes": 16, "d_ready": true },
+      "device": { "prefix": "io_tl_device_", "data_bytes": 4, "d_ready": false },
+      "csr_base": 1074069504,
+      "requester": { "scope": ["lsu"], "valid": "io_ebus_dbus_valid", "ready": "io_ebus_dbus_ready",
+                     "addr": "io_ebus_dbus_addr", "align": 1, "write": "io_ebus_dbus_write", "pc": "io_ebus_dbus_pc" }
+    }
+  }
+}

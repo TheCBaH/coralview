@@ -1,0 +1,353 @@
+$timescale 1ps $end
+$scope module TOP $end
+$scope module core $end
+$var wire 1 ck io_aclk $end
+$var wire 1 df io_debug_dispatch_0_instFire $end
+$var wire 32 da io_debug_dispatch_0_instAddr $end
+$var wire 32 di io_debug_dispatch_0_instInst $end
+$var wire 1 tv io_debug_rb_inst_0_valid $end
+$var wire 32 tp io_debug_rb_inst_0_bits_pc $end
+$var wire 7 tx io_debug_rb_inst_0_bits_idx $end
+$var wire 1 tt io_debug_rb_inst_0_bits_trap $end
+$var wire 1 gv io_debug_regfile_writeData_0_valid $end
+$var wire 5 ga io_debug_regfile_writeData_0_bits_addr $end
+$var wire 32 gd io_debug_regfile_writeData_0_bits_data $end
+$var wire 1 iv io_ibus_valid $end
+$var wire 1 ir io_ibus_ready $end
+$var wire 32 ia io_ibus_addr $end
+$var wire 1 rv io_axi_master_read_addr_valid $end
+$var wire 1 rr io_axi_master_read_addr_ready $end
+$var wire 32 ra io_axi_master_read_addr_bits_addr $end
+$var wire 6 ri io_axi_master_read_addr_bits_id $end
+$var wire 8 rl io_axi_master_read_addr_bits_len $end
+$var wire 3 rs io_axi_master_read_addr_bits_size $end
+$var wire 2 rb io_axi_master_read_addr_bits_burst $end
+$var wire 1 wv io_axi_master_write_addr_valid $end
+$var wire 1 wr io_axi_master_write_addr_ready $end
+$var wire 32 wa io_axi_master_write_addr_bits_addr $end
+$var wire 6 wi io_axi_master_write_addr_bits_id $end
+$var wire 8 wl io_axi_master_write_addr_bits_len $end
+$var wire 3 ws io_axi_master_write_addr_bits_size $end
+$var wire 2 wb io_axi_master_write_addr_bits_burst $end
+$var wire 1 dv io_axi_master_read_data_valid $end
+$var wire 1 dr io_axi_master_read_data_ready $end
+$var wire 6 di2 io_axi_master_read_data_bits_id $end
+$var wire 2 dp io_axi_master_read_data_bits_resp $end
+$var wire 1 dl io_axi_master_read_data_bits_last $end
+$var wire 1 xv io_axi_master_write_data_valid $end
+$var wire 1 xr io_axi_master_write_data_ready $end
+$var wire 16 xs io_axi_master_write_data_bits_strb $end
+$var wire 1 xl io_axi_master_write_data_bits_last $end
+$var wire 1 bv io_axi_master_write_resp_valid $end
+$var wire 1 br io_axi_master_write_resp_ready $end
+$var wire 6 bi io_axi_master_write_resp_bits_id $end
+$var wire 2 bp io_axi_master_write_resp_bits_resp $end
+$scope module lsu $end
+$var wire 1 ev io_ebus_dbus_valid $end
+$var wire 1 er io_ebus_dbus_ready $end
+$var wire 1 ew io_ebus_dbus_write $end
+$var wire 32 ea io_ebus_dbus_addr $end
+$var wire 32 ep io_ebus_dbus_pc $end
+$var wire 1 qv io_req_0_valid $end
+$var wire 1 qr io_req_0_ready $end
+$var wire 32 qp io_req_0_bits_pc $end
+$scope module slot $end
+$var wire 1 sv io_uop_valid $end
+$var wire 1 sr io_uop_ready $end
+$var wire 32 sp io_uop_bits_pc $end
+$upscope $end
+$upscope $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+0ck
+0df
+b00000000000000000000000000000000 da
+b00000000000000000000000000000000 di
+0tv
+b00000000000000000000000000000000 tp
+b0000000 tx
+0tt
+0gv
+b00000 ga
+b00000000000000000000000000000000 gd
+0iv
+0ir
+b00000000000000000000000000000000 ia
+0rv
+0rr
+b00000000000000000000000000000000 ra
+b000000 ri
+b00000000 rl
+b000 rs
+b00 rb
+0wv
+0wr
+b00000000000000000000000000000000 wa
+b000000 wi
+b00000000 wl
+b000 ws
+b00 wb
+0dv
+0dr
+b000000 di2
+b00 dp
+0dl
+0xv
+0xr
+b0000000000000000 xs
+0xl
+0bv
+0br
+b000000 bi
+b00 bp
+0ev
+0er
+0ew
+b00000000000000000000000000000000 ea
+b00000000000000000000000000000000 ep
+0qv
+0qr
+b00000000000000000000000000000000 qp
+0sv
+0sr
+b00000000000000000000000000000000 sp
+b1111111 tx
+b100 rs
+b100 ws
+b01 rb
+b01 wb
+$end
+#1
+1ck
+#2
+0ck
+1df
+b00000000000000000000000100000000 da
+b00000000000001010010010100000011 di
+1qv
+1qr
+b00000000000000000000000100000000 qp
+#3
+1ck
+#4
+0ck
+0df
+0qv
+0qr
+1sv
+1sr
+b00000000000000000000000100000000 sp
+1ev
+0ew
+b00100000000000000000000000000000 ea
+b00000000000000000000000100000000 ep
+#5
+1ck
+#6
+0ck
+0sv
+0sr
+1rv
+b00100000000000000000000000000000 ra
+b000000 ri
+#7
+1ck
+#8
+0ck
+1rr
+1iv
+b00100000000000000001000000000100 ia
+#9
+1ck
+#10
+0ck
+b00100000000000000001000000000000 ra
+b000001 ri
+#11
+1ck
+#12
+0ck
+0rv
+0rr
+1dv
+1dr
+b000001 di2
+1dl
+1ir
+#13
+1ck
+#14
+0ck
+0iv
+0ir
+b000000 di2
+1er
+#15
+1ck
+#16
+0ck
+0dv
+0dr
+0dl
+0ev
+0er
+1tv
+b00000000000000000000000100000000 tp
+1df
+b00000000000000000000000100000100 da
+b00000000101101010010100000100011 di
+1qv
+1qr
+b00000000000000000000000100000100 qp
+#17
+1ck
+#18
+0ck
+0tv
+1df
+b00000000000000000000000100000100 da
+b00000000101101010010100000100011 di
+1qv
+1qr
+b00000000000000000000000100000100 qp
+1sv
+1sr
+b00000000000000000000000100000100 sp
+1ev
+1ew
+b00100000000000000000000000010000 ea
+b00000000000000000000000100000100 ep
+1xv
+1xr
+b0000000000001111 xs
+1xl
+#19
+1ck
+#20
+0ck
+0df
+0qv
+0qr
+0sv
+0sr
+0xv
+0xr
+0xl
+1wv
+1wr
+b00100000000000000000000000010000 wa
+b000000 wi
+1tv
+b00000000000000000000000100000100 tp
+#21
+1ck
+#22
+0ck
+0wv
+0wr
+#23
+1ck
+#24
+0ck
+0tv
+1bv
+1br
+b000000 bi
+1er
+1tv
+b00000000000000000000000100000100 tp
+#25
+1ck
+#26
+0ck
+0tv
+0bv
+0br
+0ev
+0er
+1sv
+1sr
+b00000000000000000000000100000100 sp
+#27
+1ck
+#28
+0ck
+0sv
+0sr
+1ev
+b00100000000000000000000000010100 ea
+1wv
+1wr
+b00100000000000000000000000010100 wa
+1xv
+1xr
+b0000000011110000 xs
+1xl
+#29
+1ck
+#30
+0ck
+0wv
+0wr
+0xv
+0xr
+0xl
+#31
+1ck
+#32
+0ck
+1bv
+1br
+1er
+#33
+1ck
+#34
+0ck
+b000011 bi
+0ev
+0er
+0ew
+1df
+b00000000000000000000000100001000 da
+b00000010000001010010010100000011 di
+1qv
+1qr
+b00000000000000000000000100001000 qp
+#35
+1ck
+#36
+0ck
+0bv
+0br
+0df
+0qv
+0qr
+1sv
+1sr
+b00000000000000000000000100001000 sp
+1ev
+b00100000000000000000000000100000 ea
+b00000000000000000000000100001000 ep
+#37
+1ck
+#38
+0ck
+0sv
+0sr
+1rv
+1rr
+b00100000000000000000000000110000 ra
+b000000 ri
+#39
+1ck
+#40
+0ck
+0rv
+0rr
+#41
+1ck
+#42
+0ck

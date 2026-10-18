@@ -26,7 +26,9 @@ fmt:
 fmt-check:
 	$(DUNE) build @fmt
 
-# One RTL simulation with tracing, read back by coralview.
+# RTL simulations with tracing, read back by coralview: every model on the VME
+# core, the external traffic of memory.elf on the scalar core, and the DMA jobs
+# of subsystem_dma.elf on the full subsystem.
 smoke: build
 	set -e; d=$$(mktemp -d); trap 'rm -rf $$d' EXIT; \
 	timeout --kill-after=5 300 $(CORALNPU)/emulators/bin/vme_core_mini_axi_sim \
@@ -36,7 +38,8 @@ smoke: build
 	ls -l $$fst; \
 	$(DUNE) exec -- coralview probe $$fst; \
 	p="--platform vme-core-mini-axi"; \
-	$(DUNE) exec -- coralview platforms --manifest $(CORALNPU)/emulators/hardware-configurations.json; \
+	$(DUNE) exec -- coralview platforms --manifest $(CORALNPU)/emulators/hardware-configurations.json \
+	  --manifest $(CORALNPU)/subsystem/hardware-configurations.json; \
 	$(DUNE) exec -- coralview check $$p $$fst; \
 	$(DUNE) exec -- coralview commits $$p --limit 20 --profile 10 $$fst; \
 	$(DUNE) exec -- coralview stalls $$p --profile 10 $$fst; \
@@ -46,7 +49,23 @@ smoke: build
 	$(DUNE) exec -- coralview vectors $$p --limit 5 $$fst; \
 	$(DUNE) exec -- coralview traps $$p $$fst; \
 	$(DUNE) exec -- coralview signals $$p --changes --to-cycle 600 $$fst VVmeCoreMiniAxi.core/VmeCoreMiniAxi/io_halted; \
+	$(DUNE) exec -- coralview axi $$p --limit 5 $$fst; \
 	$(DUNE) exec -- coralview bench $$p $$fst
+	set -e; d=$$(mktemp -d); trap 'rm -rf $$d' EXIT; \
+	timeout --kill-after=5 300 $(CORALNPU)/emulators/bin/core_mini_axi_sim \
+	  --cycles=5000000 --trace --binary=$(CORALNPU)/emulators/examples/memory.elf > $$d/log 2>&1; \
+	grep -q CORAL_MEMORY_PASS $$d/log; \
+	fst=$$(sed -n 's/.*for tracing: 1 ps (\(.*\.fst\)).*/\1/p' $$d/log); \
+	$(DUNE) exec -- coralview axi --platform core-mini-axi --limit 5 --profile 5 $$fst | tee $$d/axi; \
+	grep -q ' unmatched 0$$' $$d/axi; \
+	! grep -q DISAGREEING $$d/axi
+	set -e; d=$$(mktemp -d); trap 'rm -rf $$d' EXIT; \
+	s=$(CORALNPU)/subsystem; \
+	tools/trace-subsystem.sh $$s vector_normal $$s/examples/subsystem_dma.elf 8 32 $$d | grep -q CORAL_SUBSYSTEM_DMA_PASS; \
+	$(DUNE) exec -- coralview dma --platform subsystem-vector-normal --manifest $$s/hardware-configurations.json \
+	  --beats 2 $$d/sim.fst | tee $$d/dma; \
+	grep -q ': jobs 3, 192 bytes .* 0 stray$$' $$d/dma; \
+	test $$(grep -c 'software saw done' $$d/dma) = 3
 
 # The committed Zvt table must be the one the image's emulator archive ships.
 zvt-check:

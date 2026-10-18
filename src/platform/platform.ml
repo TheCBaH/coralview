@@ -26,6 +26,46 @@ type vme = {
   subtile_bytes : int;
 }
 
+type port = {
+  port_scope : string list;
+  port_lanes : int;
+  port_valid : string;
+  port_ready : string;
+  port_pc : string;
+}
+
+type ops = { enqueue : port; issue : port }
+
+type origin = {
+  o_scope : string list;
+  o_valid : string;
+  o_ready : string;
+  o_addr : string;
+  align : int;
+  o_write : string option;
+  o_pc : string option;
+  ops : ops option;
+}
+
+type axi_source = { source_id : int; source : string; origin : origin option }
+
+type axi = {
+  axi_scope : string list;
+  axi_prefix : string;
+  data_bytes : int;
+  sources : axi_source list;
+}
+
+type tlul = { tl_prefix : string; tl_data_bytes : int; d_ready : bool }
+
+type dma = {
+  dma_scope : string list;
+  host : tlul;
+  device : tlul;
+  csr_base : int;
+  requester : origin option;
+}
+
 type field = { field : string; field_width : int }
 type marks = { m_scope : string list; m_valid : string; m_addr : string; m_ports : int }
 
@@ -82,6 +122,8 @@ type blocks = {
   dispatch : dispatch option;
   lsu : lsu option;
   vme : vme option;
+  axi_master : axi option;
+  dma : dma option;
   x_registers : register_file option;
   f_registers : register_file option;
   v_registers : vector_registers option;
@@ -166,6 +208,82 @@ let vme =
   |> Jsont.Object.mem "tiles" Jsont.int ~enc:(fun b -> b.tiles)
   |> Jsont.Object.mem "subtiles" Jsont.int ~enc:(fun b -> b.subtiles)
   |> Jsont.Object.mem "subtile_bytes" Jsont.int ~enc:(fun b -> b.subtile_bytes)
+  |> finish
+
+let port =
+  obj "port" (fun port_scope port_lanes port_valid port_ready port_pc ->
+      { port_scope; port_lanes; port_valid; port_ready; port_pc })
+  |> Jsont.Object.mem "scope" scope ~enc:(fun p -> p.port_scope)
+  |> Jsont.Object.mem "lanes" Jsont.int ~enc:(fun p -> p.port_lanes)
+  |> Jsont.Object.mem "valid" Jsont.string ~enc:(fun p -> p.port_valid)
+  |> Jsont.Object.mem "ready" Jsont.string ~enc:(fun p -> p.port_ready)
+  |> Jsont.Object.mem "pc" Jsont.string ~enc:(fun p -> p.port_pc)
+  |> finish
+
+let ops =
+  obj "ops" (fun enqueue issue -> { enqueue; issue })
+  |> Jsont.Object.mem "enqueue" port ~enc:(fun o -> o.enqueue)
+  |> Jsont.Object.mem "issue" port ~enc:(fun o -> o.issue)
+  |> finish
+
+let origin =
+  obj "origin" (fun o_scope o_valid o_ready o_addr align o_write o_pc ops ->
+      if align <= 0 || align land (align - 1) <> 0 then
+        Jsont.Error.msgf Jsont.Meta.none "origin: align %d is not a power of two" align;
+      if ops <> None && o_pc = None then Jsont.Error.msgf Jsont.Meta.none "origin: ops without a pc";
+      { o_scope; o_valid; o_ready; o_addr; align; o_write; o_pc; ops })
+  |> Jsont.Object.mem "scope" scope ~enc:(fun o -> o.o_scope)
+  |> Jsont.Object.mem "valid" Jsont.string ~enc:(fun o -> o.o_valid)
+  |> Jsont.Object.mem "ready" Jsont.string ~enc:(fun o -> o.o_ready)
+  |> Jsont.Object.mem "addr" Jsont.string ~enc:(fun o -> o.o_addr)
+  |> Jsont.Object.mem "align" Jsont.int ~enc:(fun o -> o.align)
+  |> Jsont.Object.opt_mem "write" Jsont.string ~enc:(fun o -> o.o_write)
+  |> Jsont.Object.opt_mem "pc" Jsont.string ~enc:(fun o -> o.o_pc)
+  |> Jsont.Object.opt_mem "ops" ops ~enc:(fun o -> o.ops)
+  |> finish
+
+let axi_source =
+  obj "axi source" (fun source_id source origin -> { source_id; source; origin })
+  |> Jsont.Object.mem "id" Jsont.int ~enc:(fun s -> s.source_id)
+  |> Jsont.Object.mem "name" Jsont.string ~enc:(fun s -> s.source)
+  |> Jsont.Object.opt_mem "origin" origin ~enc:(fun s -> s.origin)
+  |> finish
+
+let axi =
+  obj "axi_master" (fun axi_scope axi_prefix data_bytes sources ->
+      if data_bytes <= 0 || data_bytes land (data_bytes - 1) <> 0 then
+        Jsont.Error.msgf Jsont.Meta.none "axi_master: data_bytes %d is not a power of two"
+          data_bytes;
+      let ids = List.map (fun s -> s.source_id) sources in
+      if List.length (List.sort_uniq compare ids) <> List.length ids then
+        Jsont.Error.msgf Jsont.Meta.none "axi_master: a source id is given twice";
+      { axi_scope; axi_prefix; data_bytes; sources })
+  |> Jsont.Object.mem "scope" scope ~enc:(fun a -> a.axi_scope)
+  |> Jsont.Object.mem "prefix" Jsont.string ~enc:(fun a -> a.axi_prefix)
+  |> Jsont.Object.mem "data_bytes" Jsont.int ~enc:(fun a -> a.data_bytes)
+  |> Jsont.Object.mem "sources" Jsont.(list axi_source) ~enc:(fun a -> a.sources)
+  |> finish
+
+let tlul =
+  obj "tlul port" (fun tl_prefix tl_data_bytes d_ready ->
+      if tl_data_bytes <= 0 || tl_data_bytes land (tl_data_bytes - 1) <> 0 then
+        Jsont.Error.msgf Jsont.Meta.none "tlul: data_bytes %d is not a power of two" tl_data_bytes;
+      { tl_prefix; tl_data_bytes; d_ready })
+  |> Jsont.Object.mem "prefix" Jsont.string ~enc:(fun t -> t.tl_prefix)
+  |> Jsont.Object.mem "data_bytes" Jsont.int ~enc:(fun t -> t.tl_data_bytes)
+  |> Jsont.Object.mem "d_ready" Jsont.bool ~enc:(fun t -> t.d_ready)
+  |> finish
+
+let dma =
+  obj "dma" (fun dma_scope host device csr_base requester ->
+      if host.tl_data_bytes < 16 then
+        Jsont.Error.msgf Jsont.Meta.none "dma: the host port carries 16-byte descriptor halves";
+      { dma_scope; host; device; csr_base; requester })
+  |> Jsont.Object.mem "scope" scope ~enc:(fun d -> d.dma_scope)
+  |> Jsont.Object.mem "host" tlul ~enc:(fun d -> d.host)
+  |> Jsont.Object.mem "device" tlul ~enc:(fun d -> d.device)
+  |> Jsont.Object.mem "csr_base" Jsont.int ~enc:(fun d -> d.csr_base)
+  |> Jsont.Object.opt_mem "requester" origin ~enc:(fun d -> d.requester)
   |> finish
 
 let field =
@@ -265,6 +383,8 @@ let blocks =
       dispatch
       lsu
       vme
+      axi_master
+      dma
       x_registers
       f_registers
       v_registers
@@ -278,6 +398,8 @@ let blocks =
         dispatch;
         lsu;
         vme;
+        axi_master;
+        dma;
         x_registers;
         f_registers;
         v_registers;
@@ -290,6 +412,8 @@ let blocks =
   |> Jsont.Object.opt_mem "dispatch" dispatch ~enc:(fun b -> b.dispatch)
   |> Jsont.Object.opt_mem "lsu" lsu ~enc:(fun b -> b.lsu)
   |> Jsont.Object.opt_mem "vme" vme ~enc:(fun b -> b.vme)
+  |> Jsont.Object.opt_mem "axi_master" axi ~enc:(fun b -> b.axi_master)
+  |> Jsont.Object.opt_mem "dma" dma ~enc:(fun b -> b.dma)
   |> Jsont.Object.opt_mem "x_registers" register_file ~enc:(fun b -> b.x_registers)
   |> Jsont.Object.opt_mem "f_registers" register_file ~enc:(fun b -> b.f_registers)
   |> Jsont.Object.opt_mem "v_registers" vector_registers ~enc:(fun b -> b.v_registers)
@@ -394,6 +518,8 @@ let blocks p =
       ("dispatch", b.dispatch <> None);
       ("lsu", b.lsu <> None);
       ("vme", b.vme <> None);
+      ("axi_master", b.axi_master <> None);
+      ("dma", b.dma <> None);
       ("x_registers", b.x_registers <> None);
       ("f_registers", b.f_registers <> None);
       ("v_registers", b.v_registers <> None);

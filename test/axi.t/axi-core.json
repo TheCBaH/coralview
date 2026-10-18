@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "name": "test",
+  "configurations": [
+    { "name": "axi-core", "top_level": "CoreAxi", "trace_root": ["TOP", "core"] }
+  ],
+  "clock": "io_aclk",
+  "sample": "after_falling",
+  "blocks": {
+    "dispatch_debug": { "scope": [], "lanes": 1 },
+    "retirement_debug": { "scope": [], "lanes": 1, "idx_width": 7, "trap": true },
+    "regfile_writeback": { "scope": [], "ports": 1 },
+    "axi_master": {
+      "scope": [], "prefix": "io_axi_master_", "data_bytes": 16,
+      "sources": [
+        { "id": 0, "name": "lsu",
+          "origin": { "scope": ["lsu"], "valid": "io_ebus_dbus_valid", "ready": "io_ebus_dbus_ready",
+                      "addr": "io_ebus_dbus_addr", "align": 1, "write": "io_ebus_dbus_write", "pc": "io_ebus_dbus_pc",
+                      "ops": {
+                        "enqueue": { "scope": ["lsu"], "lanes": 1, "valid": "io_req_%d_valid", "ready": "io_req_%d_ready", "pc": "io_req_%d_bits_pc" },
+                        "issue": { "scope": ["lsu", "slot"], "lanes": 1, "valid": "io_uop_valid", "ready": "io_uop_ready", "pc": "io_uop_bits_pc" } } } },
+        { "id": 1, "name": "fetch",
+          "origin": { "scope": [], "valid": "io_ibus_valid", "ready": "io_ibus_ready", "addr": "io_ibus_addr", "align": 16 } }
+      ]
+    }
+  }
+}

@@ -32,6 +32,66 @@ type vme = {
   subtile_bytes : int;
 }
 
+type port = {
+  port_scope : string list;
+  port_lanes : int;
+  port_valid : string;
+  port_ready : string;
+  port_pc : string;
+}
+(** [port_lanes] handshakes [port_valid]/[port_ready] carrying an instruction's [port_pc]; names have
+    [%d] for the lane when there are several. *)
+
+type ops = { enqueue : port; issue : port }
+(** An in-order queue of the originator's operations, one per instruction: entered at [enqueue], when
+    the instruction is dispatched to it, in lane order; left at [issue], when the operation starts
+    making requests, all with its PC, until the next leaves. *)
+
+type origin = {
+  o_scope : string list;
+  o_valid : string;
+  o_ready : string;
+  o_addr : string;
+  align : int;
+  o_write : string option;
+  o_pc : string option;
+  ops : ops option;
+}
+
+type axi_source = { source_id : int; source : string; origin : origin option }
+
+type axi = {
+  axi_scope : string list;
+  axi_prefix : string;
+  data_bytes : int;
+  sources : axi_source list;
+}
+(** The core's AXI4 master port, through which all external traffic leaves the core: wires
+    [axi_prefix ^ "{read,write}_addr_{valid,ready,bits_*}"], [read_data_*], [write_data_*] and
+    [write_resp_*], with a [data_bytes]-wide data bus. [sources] name the masters behind it by AXI ID.
+    A source's [origin] is the request interface the master serves ([o_scope] relative to the root),
+    which a transaction is pinned to when its address is accepted: [o_valid] must be high then and
+    [o_addr], rounded down to [align] bytes, equal the AXI address. The request began at the start of
+    that run of [o_valid] (it ends at [o_valid && o_ready]); [o_write], if given, is its direction and
+    [o_pc] the instruction that made it, whose operation [ops] follows from dispatch to issue. *)
+
+type tlul = { tl_prefix : string; tl_data_bytes : int; d_ready : bool }
+(** A TileLink-UL port: [tl_prefix ^ "{a,d}_{valid,ready}"] and the channel fields
+    [a_bits_{opcode,size,source,address,mask,data}], [d_bits_{opcode,size,source,data,error}], with a
+    [tl_data_bytes]-wide data bus. Without [d_ready] (a device that does not read it), a response is
+    taken when it is valid. *)
+
+type dma = {
+  dma_scope : string list;
+  host : tlul;  (** The engine's master port: descriptor fetches, polls and data beats. *)
+  device : tlul;  (** Its CSR port. *)
+  csr_base : int;
+  requester : origin option;
+      (** The core's request interface, which a CSR access is pinned to, by address, to name the
+          instruction that made it. *)
+}
+(** A descriptor DMA engine ([bus.DmaEngine]). *)
+
 type field = { field : string; field_width : int }
 type marks = { m_scope : string list; m_valid : string; m_addr : string; m_ports : int }
 
@@ -100,6 +160,8 @@ type blocks = {
   dispatch : dispatch option;
   lsu : lsu option;
   vme : vme option;
+  axi_master : axi option;
+  dma : dma option;
   x_registers : register_file option;
   f_registers : register_file option;
   v_registers : vector_registers option;

@@ -20,6 +20,21 @@
       "rvv_queue": "io_rvvQueueCapacity"
     },
     "lsu": { "scope": ["core", "score", "lsu"], "tcm_ready": false },
+    "axi_master": {
+      "scope": [], "prefix": "io_axi_master_", "data_bytes": 16,
+      "sources": [
+        { "id": 0, "name": "lsu",
+          "origin": { "scope": ["core", "score", "lsu"], "valid": "io_ebus_dbus_valid", "ready": "io_ebus_dbus_ready",
+                      "addr": "io_ebus_dbus_addr", "align": 1, "write": "io_ebus_dbus_write", "pc": "io_ebus_dbus_pc",
+                      "ops": {
+                        "enqueue": { "scope": ["core", "score", "lsu"], "lanes": 4,
+                                     "valid": "io_req_%d_valid", "ready": "io_req_%d_ready", "pc": "io_req_%d_bits_pc" },
+                        "issue": { "scope": ["core", "score", "lsu", "slot"], "lanes": 1,
+                                   "valid": "io_uop_valid", "ready": "io_uop_ready", "pc": "io_uop_bits_pc" } } } },
+        { "id": 1, "name": "fetch",
+          "origin": { "scope": ["core"], "valid": "io_ibus_valid", "ready": "io_ibus_ready", "addr": "io_ibus_addr", "align": 16 } }
+      ]
+    },
     "traps": {
       "scope": ["core", "score", "fault_manager"],
       "valid": "io_out_valid", "mcause": "io_out_bits_mcause", "mepc": "io_out_bits_mepc",

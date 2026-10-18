@@ -231,6 +231,227 @@ let memory p ~region ~window limit path =
     (Vcd_types.Reference.to_string root)
     !reads !writes (Hashtbl.length by_pc) !faults
 
+let axi p features ~region ~window limit profile path =
+  let d = decoder features in
+  let s = Axi.run p (Hwfrp.Trace.open_file path) ignore in
+  let instruction pc =
+    match Hashtbl.find_opt s.instructions pc with
+    | Some w -> Rivet_decode.disasm d w
+    | None -> "(not dispatched)"
+  in
+  let origin (t : Axi.transaction) =
+    match t.origin with
+    | None -> "unpinned"
+    | Some o ->
+        let at =
+          match o.pc with
+          | Some pc ->
+              let at = function Some c -> string_of_int c | None -> "-" in
+              Printf.sprintf "pc %08x %s (dispatched %s, op %s, retired %s)" pc (instruction pc)
+                (at o.dispatched) (at o.started) (at o.retired)
+          | None -> Printf.sprintf "request %08x" o.o_addr
+        in
+        if o.agrees then at
+        else
+          Printf.sprintf "%s; DISAGREES: request %s %08x" at
+            (match o.o_write with Some true -> "W" | Some false -> "R" | None -> "?")
+            o.o_addr
+  in
+  let pc_of (t : Axi.transaction) =
+    match t.origin with Some { pc = Some pc; _ } -> pc | _ -> -1
+  in
+  let shown = ref 0 in
+  Printf.printf "%8s %8s %8s %-3s %3s %-6s %-20s %5s %5s %7s %3s  %s\n" "start" "accept" "done"
+    "dir" "id" "source" "addr" "bytes" "beats" "B/cycle" "out" "origin";
+  List.iter
+    (fun (t : Axi.transaction) ->
+      if selected window ~cycle:t.accepted ~pc:(pc_of t) && !shown < limit then begin
+        incr shown;
+        Printf.printf "%8d %8d %8s %-3s %3d %-6s %-20s %5d %2dx%-2d %7s %3d  %s%s\n" (Axi.start t)
+          t.accepted
+          (match t.completed with Some c -> string_of_int c | None -> "-")
+          (if t.write then "W" else "R")
+          t.id
+          (Option.value t.source ~default:"?")
+          (Printf.sprintf "%08x%s" t.addr (region t.addr))
+          t.bytes t.beats t.beat_bytes
+          (match Axi.throughput t with Some r -> Printf.sprintf "%.2f" r | None -> "-")
+          t.outstanding (origin t)
+          (if t.resp = 0 then "" else " " ^ Axi.resp_name t.resp)
+      end)
+    s.transactions;
+  List.iter
+    (fun (u : Axi.unmatched) ->
+      Printf.printf "%8d unmatched %s id %d: %s\n" u.u_cycle
+        (if u.u_write then "W" else "R")
+        u.u_id u.what)
+    s.unmatched;
+  let reads, writes = List.partition (fun (t : Axi.transaction) -> not t.write) s.transactions in
+  let bytes l = List.fold_left (fun n (t : Axi.transaction) -> n + t.bytes) 0 l in
+  let latencies l =
+    match List.filter_map Axi.latency l with
+    | [] -> "-"
+    | ls ->
+        Printf.sprintf "%d/%.1f/%d" (List.fold_left min max_int ls)
+          (float_of_int (List.fold_left ( + ) 0 ls) /. float_of_int (List.length ls))
+          (List.fold_left max 0 ls)
+  in
+  Printf.printf "root %s: reads %d (%d bytes), writes %d (%d bytes) in %d cycles, unmatched %d\n"
+    (Vcd_types.Reference.to_string (Platform.root p))
+    (List.length reads) (bytes reads) (List.length writes) (bytes writes) s.cycles
+    (List.length s.unmatched);
+  if s.transactions <> [] then begin
+    let incomplete = List.filter (fun (t : Axi.transaction) -> t.completed = None) s.transactions in
+    Printf.printf
+      "  latency, address accepted to done, min/mean/max: reads %s, writes %s cycles%s\n"
+      (latencies reads) (latencies writes)
+      (if incomplete = [] then ""
+       else Printf.sprintf "; %d not done when the trace ends" (List.length incomplete));
+    let first = List.fold_left (fun m t -> min m (Axi.start t)) max_int s.transactions in
+    let last =
+      List.fold_left
+        (fun m (t : Axi.transaction) -> max m (Option.value t.completed ~default:(s.cycles - 1)))
+        0 s.transactions
+    in
+    let busy = Array.fold_left ( + ) 0 s.occupancy - s.occupancy.(0) in
+    let total = bytes s.transactions in
+    Printf.printf
+      "  throughput %.3f bytes/cycle over cycles %d-%d, %.3f while a transaction is outstanding \
+       (%d cycles)\n"
+      (float_of_int total /. float_of_int (last - first + 1))
+      first last
+      (if busy = 0 then 0. else float_of_int total /. float_of_int busy)
+      busy;
+    Printf.printf "  outstanding at once: max %d (reads %d, writes %d); cycles by count:%s\n"
+      (Array.length s.occupancy - 1)
+      s.max_reads s.max_writes
+      (String.concat "" (Array.to_list (Array.mapi (Printf.sprintf " %d:%d") s.occupancy)));
+    let by_source = Hashtbl.create 4 in
+    List.iter
+      (fun (t : Axi.transaction) ->
+        let k = (t.id, Option.value t.source ~default:"?") in
+        let n, b, pinned, instance, disagree =
+          Option.value (Hashtbl.find_opt by_source k) ~default:(0, 0, 0, 0, 0)
+        in
+        let count f = match t.origin with Some o when f o -> 1 | _ -> 0 in
+        Hashtbl.replace by_source k
+          ( n + 1,
+            b + t.bytes,
+            pinned + count (fun _ -> true),
+            instance + count (fun o -> o.dispatched <> None),
+            disagree + count (fun o -> not o.agrees) ))
+      s.transactions;
+    Hashtbl.fold (fun k v acc -> (k, v) :: acc) by_source []
+    |> List.sort compare
+    |> List.iter (fun ((id, name), (n, b, pinned, instance, disagree)) ->
+        Printf.printf
+          "  source %s (id %d): transactions %d, bytes %d, pinned to a request %d, to an \
+           instruction instance %d%s\n"
+          name id n b pinned instance
+          (if disagree = 0 then "" else Printf.sprintf ", DISAGREEING %d" disagree));
+    if s.resyncs > 0 then Printf.printf "  queued operations that never issued: %d\n" s.resyncs
+  end;
+  if profile > 0 then begin
+    let by_pc = Hashtbl.create 64 in
+    List.iter
+      (fun (t : Axi.transaction) ->
+        match t.origin with
+        | Some { pc = Some pc; _ } ->
+            let n, b, c = Option.value (Hashtbl.find_opt by_pc pc) ~default:(0, 0, 0) in
+            Hashtbl.replace by_pc pc (n + 1, b + t.bytes, c + Option.value (Axi.span t) ~default:0)
+        | _ -> ())
+      s.transactions;
+    Printf.printf "external traffic by instruction:\n%8s %6s %7s %7s  %s\n" "pc" "count" "bytes"
+      "cycles" "instruction";
+    Hashtbl.fold (fun pc v acc -> (pc, v) :: acc) by_pc []
+    |> List.sort (fun (_, (_, a, _)) (_, (_, b, _)) -> Int.compare b a)
+    |> List.iteri (fun i (pc, (n, b, c)) ->
+        if i < profile then Printf.printf "%08x %6d %7d %7d  %s\n" pc n b c (instruction pc))
+  end
+
+let dma p ~region beats path =
+  let s = Dma.run p (Hwfrp.Trace.open_file path) in
+  let at = function Some c -> string_of_int c | None -> "-" in
+  let pc = function Some pc -> Printf.sprintf " by pc %08x" pc | None -> "" in
+  let stats l =
+    match l with
+    | [] -> "-"
+    | l ->
+        Printf.sprintf "%d/%.1f/%d" (List.fold_left min max_int l)
+          (float_of_int (List.fold_left ( + ) 0 l) /. float_of_int (List.length l))
+          (List.fold_left max 0 l)
+  in
+  let lat (t : Tlul.transaction) = Option.map (fun r -> r - t.accepted) t.responded in
+  let rate b c = if c <= 0 then 0. else float_of_int b /. float_of_int c in
+  List.iteri
+    (fun i (j : Dma.job) ->
+      Printf.printf "job %d: started %d%s, descriptor %08x%s\n" (i + 1) j.started (pc j.pc) j.first
+        (if j.aborted then ", ABORTED" else if j.error then ", ERROR" else "");
+      List.iter
+        (fun (x : Dma.descriptor) ->
+          Printf.printf
+            "  descriptor %08x fetched %d-%d: %08x%s%s -> %08x%s%s, %d bytes in %d-byte beats%s%s\n"
+            x.at (fst x.fetch) (snd x.fetch) x.src (region x.src)
+            (if x.src_fixed then " fixed" else "")
+            x.dst (region x.dst)
+            (if x.dst_fixed then " fixed" else "")
+            x.len x.beat
+            (match x.poll with
+            | Some (a, m, v) -> Printf.sprintf ", polls %08x & %08x = %08x" a m v
+            | None -> "")
+            (if x.next <> 0 then Printf.sprintf ", next %08x" x.next else ""))
+        j.descriptors;
+      let reads = List.filter_map (fun (b : Dma.beat) -> lat b.read) j.beats
+      and writes = List.filter_map (fun (b : Dma.beat) -> Option.bind b.write lat) j.beats in
+      (match j.beats with
+      | [] -> Printf.printf "  no data beats\n"
+      | first :: _ ->
+          let last = List.nth j.beats (List.length j.beats - 1) in
+          let ends = match last.write with Some w -> w.responded | None -> last.read.responded in
+          let data_cycles = Option.map (fun e -> e - first.read.requested + 1) ends in
+          let n = List.length j.beats in
+          Printf.printf
+            "  beats %d, cycles %d-%s%s: latency, request accepted to response, min/mean/max reads \
+             %s, writes %s; %.3f bytes/cycle%s\n"
+            n first.read.requested (at ends)
+            (if n > 1 then
+               Printf.sprintf ", one every %.1f cycles"
+                 (float_of_int (last.read.accepted - first.read.accepted) /. float_of_int (n - 1))
+             else "")
+            (stats reads) (stats writes)
+            (rate (Dma.bytes j) (Option.value data_cycles ~default:0))
+            (if j.polls > 0 then Printf.sprintf ", %d polls" j.polls else ""));
+      List.iteri
+        (fun k (b : Dma.beat) ->
+          if k < beats then
+            Printf.printf "    %8d read %08x %d bytes, response %s%s\n" b.read.accepted
+              b.read.request.address b.read.request.size (at b.read.responded)
+              (match b.write with
+              | Some w ->
+                  Printf.sprintf "; write %08x accepted %d, response %s" w.request.address
+                    w.accepted (at w.responded)
+              | None -> "; no write"))
+        j.beats;
+      (match j.finished with
+      | Some f ->
+          Printf.printf "  finished %d: %d bytes, %d cycles from start, %.3f bytes/cycle\n" f
+            (Dma.bytes j)
+            (f - j.started + 1)
+            (rate (Dma.bytes j) (f - j.started + 1))
+      | None -> Printf.printf "  not finished when the trace ends: %d bytes moved\n" (Dma.bytes j));
+      match j.observed with
+      | Some (c, p) ->
+          Printf.printf "  software saw done at %d%s, %d cycles after the start, %d STATUS reads\n"
+            c (pc p) (c - j.started) j.status_reads
+      | None -> Printf.printf "  software never saw done; %d STATUS reads\n" j.status_reads)
+    s.jobs;
+  List.iter (fun (c, what) -> Printf.printf "%8d stray: %s\n" c what) s.stray;
+  let total = List.fold_left (fun n j -> n + Dma.bytes j) 0 s.jobs in
+  Printf.printf
+    "root %s: jobs %d, %d bytes in %d cycles, host port at most %d outstanding, %d stray\n"
+    (Vcd_types.Reference.to_string (Platform.root p))
+    (List.length s.jobs) total s.cycles s.max_outstanding (List.length s.stray)
+
 let tiles p limit path =
   let shown = ref 0 and n = ref 0 and by_pc = Hashtbl.create 64 in
   let file =
@@ -447,6 +668,18 @@ let models =
       build = (fun c -> ignore (Memory.graph c ignore : Hwfrp.Sched.run_stats -> _));
     };
     {
+      name = Axi.model;
+      about = "AXI master transactions: all external traffic, pinned to its originators";
+      needs = Axi.needs;
+      build = (fun c -> ignore (Axi.graph c ignore : Hwfrp.Sched.run_stats -> _));
+    };
+    {
+      name = Dma.model;
+      about = "DMA engine jobs: activation, descriptors, beats, completion";
+      needs = Dma.needs;
+      build = (fun c -> ignore (Dma.graph c : Hwfrp.Sched.run_stats -> _));
+    };
+    {
       name = Registers.model;
       about = "x/f register files: storage, scoreboard and retired state related";
       needs = Registers.needs;
@@ -475,17 +708,20 @@ let models =
 let available p =
   List.filter (fun m -> List.for_all (fun b -> List.mem b (Platform.blocks p)) m.needs) models
 
-let platforms manifest =
-  let manifest =
-    Option.map (fun f -> match Manifest.load f with Ok m -> m | Error e -> fail e) manifest
+let platforms manifests =
+  let manifests =
+    List.map (fun f -> match Manifest.load f with Ok m -> m | Error e -> fail e) manifests
   in
   List.iter
     (fun (p : Platform.t) ->
       Printf.printf "%s (%s, %s): %s\n" p.name p.family_name p.top_level
         (String.concat ", " (List.map (fun m -> m.name) (available p)));
-      Option.iter
-        (fun m -> match Manifest.validate m p with Ok _ -> () | Error e -> fail ~code:3 e)
-        manifest)
+      if manifests <> [] then
+        match List.find_opt (fun m -> Manifest.find m p.name <> None) manifests with
+        | Some m -> ( match Manifest.validate m p with Ok _ -> () | Error e -> fail ~code:3 e)
+        | None ->
+            fail ~code:3
+              (Printf.sprintf "platform %s: no configuration %s in the manifests" p.name p.name))
     (Lazy.force Platform.builtin)
 
 (* Binding every model of the platform proves its description against the trace. *)
@@ -635,7 +871,14 @@ let commands =
         const decode $ features
         $ Arg.(non_empty & pos_all string [] & info [] ~docv:"HEXWORD" ~doc:"Instruction words."));
     cmd "platforms" "List the built-in platforms and the models their blocks allow."
-      Term.(const platforms $ manifest);
+      Term.(
+        const platforms
+        $ Arg.(
+            value & opt_all file []
+            & info [ "manifest" ] ~docv:"FILE"
+                ~doc:
+                  "An archive's $(i,hardware-configurations.json); repeatable. Every platform must \
+                   be in one of them and match it."));
     cmd "check" "Bind the models of a platform to a trace and report every signal."
       Term.(
         const check $ platform
@@ -684,6 +927,22 @@ let commands =
         const (fun manifest window limit p path ->
             memory p ~region:(region p manifest) ~window limit path)
         $ manifest $ window $ limit);
+    model "axi"
+      "External traffic: transactions on the core's AXI master port, with size, address, timing \
+       and throughput, each pinned to the request and instruction that made it."
+      Term.(
+        const (fun features manifest window limit profile p path ->
+            axi p features ~region:(region p manifest) ~window limit profile path)
+        $ features $ manifest $ window $ limit $ profile);
+    model "dma"
+      "DMA engine jobs: who started each, its descriptors, source, destination and size, every \
+       beat's latency, completion and throughput, and when software saw it done."
+      Term.(
+        const (fun manifest beats p path -> dma p ~region:(region p manifest) beats path)
+        $ manifest
+        $ Arg.(
+            value & opt int 0
+            & info [ "beats" ] ~docv:"N" ~doc:"Print the first $(docv) beats of each job."));
     model "tiles" "VME tile register writes, by PC."
       Term.(const (fun limit p path -> tiles p limit path) $ limit);
     model "registers" "The x/f register files, related to writes, scoreboards and retirements."
