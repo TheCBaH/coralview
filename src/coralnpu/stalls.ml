@@ -38,10 +38,80 @@ let reason_name = function
   | Unit_busy -> "unit-busy"
   | Other -> "other"
 
+let reasons =
+  [
+    Dispatched;
+    Empty;
+    Behind;
+    Halted;
+    Interlock;
+    Raw;
+    Waw;
+    Float_hazard;
+    Lsu_queue;
+    Rvv_queue;
+    Rob_full;
+    Trap_pending;
+    Csr_serialize;
+    Unit_busy;
+    Other;
+  ]
+
 type lane = { lane : int; pc : int; word : int; reason : reason }
 
-let model = "stalls"
+let name = "stalls"
+let doc = "Why each dispatch lane did not dispatch."
 let needs = [ "dispatch" ]
+
+module Config = struct
+  type t = unit
+
+  let default = ()
+end
+
+module Event = struct
+  type stall_span = { lane : int; reason : reason; pc : int; word : int; span : Span.t }
+  type t = Stall_span of stall_span
+
+  let reason = Jsont.enum ~kind:"reason" (List.map (fun r -> (reason_name r, r)) reasons)
+
+  let stall_span =
+    Codec.case "stalls.span"
+      (fun s -> Stall_span s)
+      (Jsont.Object.map (fun lane reason pc word span -> { lane; reason; pc; word; span })
+      |> Jsont.Object.mem "lane" Jsont.int ~enc:(fun s -> s.lane)
+      |> Jsont.Object.mem "reason" reason ~enc:(fun s -> s.reason)
+      |> Jsont.Object.mem "pc" Jsont.int ~enc:(fun s -> s.pc)
+      |> Jsont.Object.mem "word" Jsont.int ~enc:(fun s -> s.word)
+      |> Jsont.Object.mem "span" Codec.span ~enc:(fun s -> s.span)
+      |> Jsont.Object.finish)
+
+  let jsont =
+    Codec.cases "stalls.event"
+      (function Stall_span s -> Jsont.Object.Case.value stall_span s)
+      Jsont.Object.Case.[ make stall_span ]
+
+  let cycle (Stall_span s) = s.span.start
+  let pc (Stall_span s) = Some s.pc
+end
+
+module Summary = struct
+  type count = { lane : int; reason : reason; cycles : int }
+  type t = { cycles : int; counts : count list  (** By lane, then reason. *) }
+
+  let count =
+    Jsont.Object.map ~kind:"count" (fun lane reason cycles -> { lane; reason; cycles })
+    |> Jsont.Object.mem "lane" Jsont.int ~enc:(fun (c : count) -> c.lane)
+    |> Jsont.Object.mem "reason" Event.reason ~enc:(fun (c : count) -> c.reason)
+    |> Jsont.Object.mem "cycles" Jsont.int ~enc:(fun (c : count) -> c.cycles)
+    |> Jsont.Object.finish
+
+  let jsont =
+    Codec.record "stalls.summary" (fun cycles counts -> { cycles; counts })
+    |> Jsont.Object.mem "cycles" Jsont.int ~enc:(fun (s : t) -> s.cycles)
+    |> Jsont.Object.mem "counts" (Jsont.list count) ~enc:(fun s -> s.counts)
+    |> Jsont.Object.finish
+end
 
 (* Register use by major opcode, as Decode.scala's decodedInsts flags. *)
 let opcode w = w land 0x7f
@@ -129,7 +199,46 @@ let classify core ports =
       { lane = i; pc = p.pc; word = w; reason })
     ports
 
-let graph (c : _ Core.t) f =
+module CM = Map.Make (struct
+  type t = int * reason
+
+  let compare = compare
+end)
+
+type state = {
+  open_ : (lane * int) list;  (** Per lane, in lane order: the span running and its start. *)
+  counts : int CM.t;
+  ticks : int;
+  last : int;
+}
+
+let span_of ((l : lane), start) stop =
+  Event.Stall_span
+    { lane = l.lane; reason = l.reason; pc = l.pc; word = l.word; span = { start; stop } }
+
+let same (a : lane) (b : lane) = a.reason = b.reason && a.pc = b.pc && a.word = b.word
+
+(* Runs of a lane with the same reason and instruction; one ends when the next sample differs. *)
+let step s cycle lanes =
+  let counts =
+    List.fold_left
+      (fun m (l : lane) ->
+        CM.update (l.lane, l.reason) (fun n -> Some (1 + Option.value n ~default:0)) m)
+      s.counts lanes
+  in
+  let rec go prev lanes acc out =
+    match (prev, lanes) with
+    | ((p, start) as run) :: prev, l :: lanes ->
+        if same p l then go prev lanes (run :: acc) out
+        else go prev lanes ((l, cycle) :: acc) (span_of run (Some (cycle - 1)) :: out)
+    | [], l :: lanes -> go [] lanes ((l, cycle) :: acc) out
+    | run :: prev, [] -> go prev [] acc (span_of run (Some (cycle - 1)) :: out)
+    | [], [] -> (List.rev acc, List.rev out)
+  in
+  let open_, out = go s.open_ lanes [] [] in
+  ({ open_; counts; ticks = s.ticks + 1; last = cycle }, out)
+
+let build () (c : _ Core.t) =
   let d = Core.block c "dispatch" c.platform.blocks.dispatch in
   let sc = Core.scope c d.d_scope in
   let b name = Bind.signal sc name Bind.bool in
@@ -165,13 +274,68 @@ let graph (c : _ Core.t) f =
   let lanes =
     Sig.map2 classify core (match ports with [] -> Sig.const c.clk [] | p -> Sig.all p)
   in
-  let cycle = Sig.cycle c.clk in
-  Ev.subscribe
-    (Ev.when_ (Sig.const c.clk true) (Sig.map2 (fun n l -> (n, l)) cycle lanes))
-    (fun (n, l) -> f n l);
-  fun (st : Sched.run_stats) -> st.ticks.(0)
+  let out, st =
+    Machine.run
+      {
+        name;
+        init = { open_ = []; counts = CM.empty; ticks = 0; last = -1 };
+        step = (fun ~tick s l -> step s tick.index l);
+        finish = (fun s -> List.map (fun run -> span_of run None) s.open_);
+        every_tick = true;
+      }
+      lanes
+  in
+  let summary (st' : Sched.run_stats) =
+    let s = Sig.peek st in
+    {
+      Summary.cycles = st'.ticks.(0);
+      counts =
+        List.map
+          (fun ((lane, reason), cycles) -> { Summary.lane; reason; cycles })
+          (CM.bindings s.counts);
+    }
+  in
+  (out, summary)
 
-let run p tr f =
-  let (Core.Any c) = Core.bind p tr ~model in
-  let finish = graph c f in
-  finish (Core.run c)
+let text (ctx : Text.ctx) events (s : Summary.t) =
+  let count lane r =
+    List.find_map
+      (fun (c : Summary.count) -> if c.lane = lane && c.reason = r then Some c.cycles else None)
+      s.counts
+  in
+  let lanes = List.fold_left (fun n (c : Summary.count) -> max n (c.lane + 1)) 0 s.counts in
+  Printf.printf "root %s: %d cycles\n%-14s" ctx.root s.cycles "reason";
+  for l = 0 to lanes - 1 do
+    Printf.printf " %7s" (Printf.sprintf "lane%d" l)
+  done;
+  print_newline ();
+  List.iter
+    (fun r ->
+      if List.exists (fun l -> count l r <> None) (List.init lanes Fun.id) then begin
+        Printf.printf "%-14s" (reason_name r);
+        for l = 0 to lanes - 1 do
+          Printf.printf " %7d" (Option.value (count l r) ~default:0)
+        done;
+        print_newline ()
+      end)
+    reasons;
+  if ctx.profile > 0 then begin
+    let blocked =
+      List.filter_map
+        (fun (Event.Stall_span x) ->
+          if x.lane = 0 && x.reason <> Dispatched && x.reason <> Empty then Some x else None)
+        events
+      |> List.stable_sort (fun (a : Event.stall_span) b -> Int.compare a.span.start b.span.start)
+    in
+    Printf.printf "lane 0 blocked, by instruction:\n%8s %6s %-14s %s\n" "pc" "cycles" "reason"
+      "instruction";
+    Profile.by
+      ~key:(fun (x : Event.stall_span) -> Some (x.pc, x.word, x.reason))
+      ~weight:(fun (x : Event.stall_span) ->
+        Option.value x.span.stop ~default:(s.cycles - 1) - x.span.start + 1)
+      (List.to_seq blocked)
+    |> List.iteri (fun i (r : _ Profile.row) ->
+        let pc, word, reason = r.key in
+        if i < ctx.profile then
+          Printf.printf "%08x %6d %-14s %s\n" pc r.weight (reason_name reason) (ctx.disasm word))
+  end

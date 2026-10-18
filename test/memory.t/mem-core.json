@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "name": "mem",
+  "configurations": [
+    { "name": "mem-core", "top_level": "Core", "trace_root": ["TOP", "core"] }
+  ],
+  "clock": "io_aclk",
+  "sample": "after_falling",
+  "blocks": {
+    "lsu": { "scope": ["lsu"], "tcm_ready": true }
+  }
+}

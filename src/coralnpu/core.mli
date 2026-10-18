@@ -6,12 +6,16 @@
     and the debug-port lane groups at the sizes the platform gives. Binding raises {!Hwfrp.Bind.Unbound}
     when the trace lacks a signal the description implies. *)
 
+type 'c dep = ..
+(** An analysis built in the net, kept for the analyses that depend on it: see {!Analysis.shared}. *)
+
 type 'c t = {
   net : Hwfrp.Net.t;
   trace : Hwfrp.Trace.t;
   clk : 'c Hwfrp.Clock.t;
   platform : Platform.t;
   model : string;
+  deps : (string, 'c dep) Hashtbl.t;
 }
 
 type any = Any : 'c t -> any
@@ -26,6 +30,9 @@ val block : 'c t -> string -> 'a option -> 'a
 
 val scope : 'c t -> string list -> 'c Hwfrp.Bind.scope
 (** A block scope, relative to the platform root. *)
+
+val start : 'c t -> Hwfrp.Run.t
+(** Compiles the net and starts a run over the whole trace. *)
 
 val run : 'c t -> Hwfrp.Sched.run_stats
 

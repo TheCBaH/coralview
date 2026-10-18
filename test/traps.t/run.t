@@ -19,6 +19,15 @@ dispatched, but it never retires, so the trap is not delivered:
 
 Without the CSR registers the description does not match the trace:
 
+As JSON lines, each fault once its record ends, and the CSR changes as they come:
+
+  $ coralview traps --platform trap-core.json --format jsonl traps.vcd | jq -c 'select(.type != "coralview")'
+  {"type":"traps.csr_change","cycle":6,"mcause":7,"mepc":20,"mtval":256}
+  {"type":"traps.fault","cycle":2,"source":"store","pc":16,"cause":7,"value":256,"handler":64,"csr":3,"retired_after":{"at":3,"trapped":true},"dispatched":4,"delivered":5,"until":8}
+  {"type":"traps.fault","cycle":8,"source":"load","pc":32,"cause":5,"value":12288,"handler":64,"csr":9,"retired_before":{"at":7,"trapped":false},"dispatched":10,"until":12}
+  {"type":"traps.summary","cycles":13,"faults":2,"delivered":1,"unmatched":1}
+
+
   $ sed 's/"mtvec": "mtvec"/"mtvec": "mtvec_q"/' trap-core.json > renamed.json
   $ coralview traps --platform renamed.json traps.vcd
   platform trap-core does not match the trace (model traps):

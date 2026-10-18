@@ -30,6 +30,17 @@ As JSON lines:
   {"phase":"after_falling","cycle":1,"time":4,"path":"TOP.sim/core/data","width":8,"value":"0b1010xxxx"}
   {"phase":"after_falling","cycle":2,"time":6,"path":"TOP.sim/core/data","width":8,"value":"0xa5"}
 
+With --format jsonl the same records carry a type, between a header and a summary:
+
+  $ coralview signals --platform sig.json --changes --format jsonl --to-cycle 2 sig.vcd TOP.sim/core/data
+  {"type":"coralview","schema_version":1,"model":"signals","platform":"sig-core","trace":"sig.vcd"}
+  {"type":"signals.sample","phase":"after_falling","cycle":0,"time":2,"path":"TOP.sim/core/data","width":8,"value":"0bxxxxxxxx"}
+  {"type":"signals.sample","phase":"after_falling","cycle":1,"time":4,"path":"TOP.sim/core/data","width":8,"value":"0b1010xxxx"}
+  {"type":"signals.sample","phase":"after_falling","cycle":2,"time":6,"path":"TOP.sim/core/data","width":8,"value":"0xa5"}
+  {"type":"signals.summary","samples":3}
+  $ coralview signals --platform sig.json --changes --format jsonl --to-cycle 2 sig.vcd TOP.sim/core/data | jq -c 'select(.type == "signals.sample") | del(.type)' > typed.json
+  $ coralview signals --platform sig.json --changes --json --to-cycle 2 sig.vcd TOP.sim/core/data | cmp - typed.json
+
 The raw value changes, by timestamp, with no clock:
 
   $ coralview signals --raw --from-time 4 --to-time 6 sig.vcd TOP.sim/core/count TOP.sim/core/data

@@ -7,6 +7,18 @@
     file writeback that the retirement's destination index consumes, and every cycle is charged to the oldest
     instruction in flight, so that the charges of a run add up to its cycles. *)
 
+val name : string
+val doc : string
+
+val needs : string list
+(** The platform blocks it binds. *)
+
+module Config : sig
+  type t = unit
+
+  val default : t
+end
+
 type commit = {
   lane : int;
   pc : int;
@@ -20,6 +32,22 @@ type commit = {
   charged : int;  (** Cycles during which it was the oldest instruction in flight. *)
 }
 
+val instance : commit -> Instance.t
+
+type flight = { pc : int; word : int; cycle : int;  (** Of its dispatch. *) charged : int }
+
+module Event : sig
+  type t =
+    | Commit of commit  (** A retirement; those of a cycle in lane order. *)
+    | In_flight of flight  (** Dispatched and not retired by the end, oldest first. *)
+
+  val jsont : t Jsont.t
+  (** A commit's PC, word, dispatch and retirement are its [instance]. *)
+
+  val cycle : t -> int
+  val pc : t -> int option
+end
+
 type summary = {
   cycles : int;
   before : int;  (** Cycles before the first dispatch: reset and boot. *)
@@ -32,16 +60,23 @@ type summary = {
       (** Those instructions, oldest first: PC, word and dispatch cycle. *)
 }
 
-val model : string
+module Summary : sig
+  type t = summary
 
-val needs : string list
-(** The platform blocks it binds. *)
+  val jsont : t Jsont.t
+end
+
+val build :
+  Config.t -> 'c Core.t -> (Event.t list, 'c) Hwfrp.Ev.t * (Hwfrp.Sched.run_stats -> summary)
+(** Raises {!Hwfrp.Bind.Unbound} and {!Core.No_block}. *)
+
+val shared : 'c Core.t -> (Event.t list, 'c) Hwfrp.Ev.t * (Hwfrp.Sched.run_stats -> summary)
+(** {!build}, once per net, for the models that depend on it. *)
 
 val events : 'c Core.t -> (commit list, 'c) Hwfrp.Ev.t * (Hwfrp.Sched.run_stats -> summary)
-(** The retirements of each cycle, in lane order, for other models to build on. *)
+(** The retirements of each cycle, from {!shared}. *)
 
-val graph : 'c Core.t -> (commit -> unit) -> Hwfrp.Sched.run_stats -> summary
-(** Builds the model on a bound core; the returned function reads the outcome after the run. Raises
-    {!Hwfrp.Bind.Unbound} and {!Core.No_block}. *)
+val commits : Event.t list -> commit list
 
-val run : Platform.t -> Hwfrp.Trace.t -> (commit -> unit) -> summary
+val text : Text.ctx -> Event.t list -> Summary.t -> unit
+(** The retirements the context selects, the summary, what was in flight and the profile. *)

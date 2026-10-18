@@ -28,6 +28,37 @@ type summary = {
 }
 
 val model : string
+val name : string
+val doc : string
 val needs : string list
-val graph : ?at:int -> 'c Core.t -> Hwfrp.Sched.run_stats -> summary
-val run : ?at:int -> Platform.t -> Hwfrp.Trace.t -> summary
+
+module Config : sig
+  type t = { at : int option  (** Also keep the storage as of this cycle. *) }
+
+  val default : t
+end
+
+(** No events of its own: the relation failures are diagnostics, in every JSONL as [diag] lines. *)
+module Event : sig
+  type t = |
+
+  val jsont : t Jsont.t
+  val cycle : t -> int
+  val pc : t -> int option
+end
+
+module Summary : sig
+  type t = summary
+
+  val jsont : t Jsont.t
+end
+
+val build :
+  Config.t -> 'c Core.t -> (Event.t list, 'c) Hwfrp.Ev.t * (Hwfrp.Sched.run_stats -> summary)
+(** Raises {!Hwfrp.Bind.Unbound} and {!Core.No_block}. *)
+
+val status : summary -> int
+(** 1 if a relation failed. *)
+
+val text : Text.ctx -> Event.t list -> summary -> unit
+(** The relations, the storage tables and the first failures, up to the context's limit. *)

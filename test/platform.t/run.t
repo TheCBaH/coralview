@@ -51,6 +51,17 @@ run:
          4 0 80000000 02a00513 addi x10, x0, 42                 x10=0000002a       3   2   4
   root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
 
+The same retirements as JSON lines, filtered alike; the summary covers
+the whole run:
+
+  $ coralview commits --platform test-core.json --format jsonl core.vcd
+  {"type":"coralview","schema_version":1,"model":"commits","platform":"test-core","trace":"core.vcd"}
+  {"type":"commits.commit","lane":0,"instance":{"pc":2147483648,"word":44041491,"dispatched":1,"retired":4},"written":3,"dest":{"reg":10,"value":42},"store":false,"trap":false,"charged":4}
+  {"type":"commits.commit","lane":0,"instance":{"pc":2147483652,"word":19,"dispatched":2,"retired":5},"store":false,"trap":false,"charged":1}
+  {"type":"commits.summary","cycles":8,"before":1,"empty":2,"unmatched_retires":0,"skipped":0,"missing_values":0,"in_flight":0,"pending":[]}
+  $ coralview commits --platform test-core.json --format jsonl --pc 80000004 core.vcd | jq -c 'select(.type == "commits.commit") | .instance'
+  {"pc":2147483652,"word":19,"dispatched":2,"retired":5}
+
 A trace without the register writeback ports does not match the
 description, which is a hard error:
 

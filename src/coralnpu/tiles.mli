@@ -18,14 +18,39 @@ type write = {
   data : Hwfrp.Bits.t;
 }
 
-val model : string
+val name : string
+val doc : string
 
 val needs : string list
 (** The platform blocks it binds. *)
 
-val graph :
-  'c Core.t -> (write -> unit) -> Hwfrp.Sched.run_stats -> (int * int, Hwfrp.Bits.t) Hashtbl.t
-(** Builds the model on a bound core; the returned function reads the outcome after the run. Raises
-    {!Hwfrp.Bind.Unbound} and {!Core.No_block}. *)
+module Config : sig
+  type t = unit
 
-val run : Platform.t -> Hwfrp.Trace.t -> (write -> unit) -> (int * int, Hwfrp.Bits.t) Hashtbl.t
+  val default : t
+end
+
+module Event : sig
+  type t = Tile_write of write
+
+  val jsont : t Jsont.t
+  val cycle : t -> int
+  val pc : t -> int option
+end
+
+module Summary : sig
+  type t = {
+    writes : int;
+    file : ((int * int) * Hwfrp.Bits.t) list;
+        (** The final content of each sub-tile written, by tile and sub-tile. *)
+  }
+
+  val jsont : t Jsont.t
+end
+
+val build :
+  Config.t -> 'c Core.t -> (Event.t list, 'c) Hwfrp.Ev.t * (Hwfrp.Sched.run_stats -> Summary.t)
+(** Raises {!Hwfrp.Bind.Unbound} and {!Core.No_block}. *)
+
+val text : Text.ctx -> Event.t list -> Summary.t -> unit
+(** The first writes, up to the context's limit, the summary and the writes by PC. *)

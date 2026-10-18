@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "name": "tile",
+  "configurations": [
+    { "name": "tile-core", "top_level": "Core", "trace_root": ["TOP", "core"] }
+  ],
+  "clock": "io_aclk",
+  "sample": "after_falling",
+  "blocks": {
+    "vme": { "scope": ["vme"], "blocks": 1, "ports_per_block": 1, "tiles": 4, "subtiles": 4, "subtile_bytes": 4 }
+  }
+}

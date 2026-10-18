@@ -12,6 +12,16 @@
     Each is matched to a fault by explicit validity and PC, never by assuming that a request faults or
     that a CSR change is a new fault. A fault's record ends at the next fault or at the end of the trace. *)
 
+val name : string
+val doc : string
+val needs : string list
+
+module Config : sig
+  type t = unit
+
+  val default : t
+end
+
 type retirement = { at : int; trapped : bool }
 
 type fault = {
@@ -21,30 +31,39 @@ type fault = {
   cause : int;
   value : int;  (** [mtval]. *)
   handler : int;  (** [mtvec] at the fault, mode bits cleared. *)
-  mutable csr : int option;
+  csr : int option;
       (** First later cycle where the CSRs hold the fault's cause, PC and value, whether or not they
           already did. *)
-  mutable retired_before : retirement option;
-      (** The faulting PC's last retirement up to the fault. *)
-  mutable retired_after : retirement option;  (** Its first retirement after the fault. *)
-  mutable dispatched : int option;  (** First dispatch of the handler's first instruction. *)
-  mutable delivered : int option;  (** First retirement of it. *)
-  mutable until : int;  (** The record's last cycle. *)
+  retired_before : retirement option;  (** The faulting PC's last retirement up to the fault. *)
+  retired_after : retirement option;  (** Its first retirement after the fault. *)
+  dispatched : int option;  (** First dispatch of the handler's first instruction. *)
+  delivered : int option;  (** First retirement of it. *)
+  until : int;  (** The record's last cycle. *)
 }
 
 type csr_change = { c_cycle : int; c_mcause : int; c_mepc : int; c_mtval : int }
 
-type summary = {
-  cycles : int;
-  faults : fault list;  (** In order. *)
-  unmatched : csr_change list;  (** CSR changes that match no fault. *)
-}
+module Event : sig
+  type t =
+    | Fault of fault  (** When its record ends: at the next fault, or at the end. *)
+    | Csr_change of csr_change  (** A CSR change that matches no fault, as it comes. *)
 
-val model : string
-val needs : string list
+  val jsont : t Jsont.t
+  val cycle : t -> int
+  val pc : t -> int option
+end
+
+module Summary : sig
+  type t = { cycles : int; faults : int; delivered : int; unmatched : int  (** CSR changes. *) }
+
+  val jsont : t Jsont.t
+end
+
 val cause_name : int -> string
 
-val graph : 'c Core.t -> Hwfrp.Sched.run_stats -> summary
+val build :
+  Config.t -> 'c Core.t -> (Event.t list, 'c) Hwfrp.Ev.t * (Hwfrp.Sched.run_stats -> Summary.t)
 (** Raises {!Hwfrp.Bind.Unbound} and {!Core.No_block}. *)
 
-val run : Platform.t -> Hwfrp.Trace.t -> summary
+val text : Text.ctx -> Event.t list -> Summary.t -> unit
+(** Faults and unmatched CSR changes in cycle order, then the summary. *)

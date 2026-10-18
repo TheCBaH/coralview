@@ -31,3 +31,32 @@ Without the LSU's PC the description does not match the trace:
   platform axi-core does not match the trace (model axi):
     missing io_ebus_dbus_pc_q
   [3]
+
+The same transactions as JSON lines: a header, the events in acceptance order with the instance each
+is pinned to, the unmatched ones as they came, and the summary. The window and the limit select
+events; the summary covers the whole trace:
+
+  $ coralview axi --platform axi-core.json --format jsonl --limit 2 axi.vcd
+  {"type":"coralview","schema_version":1,"model":"axi","platform":"axi-core","trace":"axi.vcd"}
+  {"type":"axi.transaction","transaction":{"id":0,"write":false,"address":536870912,"bytes":16,"beats":1,"requested":2,"accepted":3,"first_data":6,"completed":6,"status":0,"outstanding":1},"source":"lsu","origin":{"issued":1,"request":536870912,"write":false,"agrees":true,"instance":{"pc":256,"word":337155,"dispatched":0,"issued":1,"retired":7}},"burst":1,"beat_bytes":16}
+  {"type":"axi.transaction","transaction":{"id":1,"write":false,"address":536875008,"bytes":16,"beats":1,"requested":4,"accepted":4,"first_data":5,"completed":5,"status":0,"outstanding":2},"source":"fetch","origin":{"issued":3,"request":536875012,"agrees":true},"burst":1,"beat_bytes":16}
+  {"type":"axi.summary","cycles":21,"reads":3,"read_bytes":32,"writes":2,"write_bytes":8,"unmatched":1,"read_latency":{"n":2,"min":1,"max":3,"sum":4},"write_latency":{"n":2,"min":2,"max":2,"sum":4},"incomplete":1,"first":1,"last":20,"occupancy":[5,11,2],"max_reads":2,"max_writes":1,"sources":[{"id":0,"source":"lsu","transactions":4,"bytes":24,"pinned":4,"instances":4,"disagreeing":1},{"id":1,"source":"fetch","transactions":1,"bytes":16,"pinned":1,"instances":0,"disagreeing":0}],"resyncs":0,"words":[{"pc":256,"word":337155},{"pc":260,"word":11872291},{"pc":264,"word":33891587}]}
+  $ coralview axi --platform axi-core.json --format jsonl axi.vcd | jq -c 'select(.type == "axi.transaction") | [.transaction.accepted, .transaction.address, .origin.instance.pc, .origin.instance.retired]'
+  [3,536870912,256,7]
+  [4,536875008,null,null]
+  [9,536870928,260,9]
+  [13,536870932,260,10]
+  [18,536870960,264,null]
+  $ coralview axi --platform axi-core.json --format jsonl axi.vcd | jq -r .type | uniq -c
+        1 coralview
+        4 axi.transaction
+        1 axi.unmatched
+        1 axi.transaction
+        1 axi.summary
+
+--output writes what the standard output would get:
+
+  $ coralview axi --platform axi-core.json --profile 3 --output axi.txt axi.vcd
+  $ coralview axi --platform axi-core.json --profile 3 axi.vcd | cmp - axi.txt
+  $ coralview axi --platform axi-core.json --format jsonl -o axi.jsonl axi.vcd
+  $ coralview axi --platform axi-core.json --format jsonl axi.vcd | cmp - axi.jsonl

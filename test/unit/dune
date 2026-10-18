@@ -1,0 +1,13 @@
+(library
+ (name coralview_test)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect))
+ (libraries
+  coralview
+  hwfrp
+  ovcd
+  ovcd.vcd_types
+  qcheck-core
+  jsont
+  jsont.bytesrw))

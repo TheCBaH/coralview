@@ -18,83 +18,116 @@
     queue and to its retirement through {!Commits}. A vector or tile access makes several requests, all
     pinned to the same instance. *)
 
-type origin = {
-  issued : int;  (** The cycle the originator's request began. *)
-  pc : int option;  (** The instruction that made it, if the originator carries one. *)
-  dispatched : int option;  (** When its operation entered the originator's queue: its dispatch. *)
-  started : int option;  (** When that operation left the queue to make its requests. *)
-  retired : int option;
-      (** That instance's retirement, as {!Commits} pairs it with the dispatch; [None] if it had not
-          retired by the end, or the originator describes no queue. A store can retire before its
-          request is made. *)
-  o_addr : int;
-  o_write : bool option;
-  agrees : bool;
-      (** Its address, rounded down to the description's [align], is the AXI address, and its direction
-          the transaction's. *)
-}
-
-type transaction = {
-  write : bool;
-  id : int;
-  source : string option;  (** The description's name for the ID. *)
-  origin : origin option;
-      (** [None] when the source has no described origin, or its request was not valid at acceptance. *)
-  addr : int;
-  beats : int;
-  beat_bytes : int;  (** [1 lsl AxSIZE]. *)
-  burst : int;
-  bytes : int;  (** Bytes moved: for reads [beats * beat_bytes], for writes the strobed bytes. *)
-  requested : int;  (** The cycle the address was first valid. *)
-  accepted : int;  (** The address handshake. *)
-  first_data : int option;
-      (** The first data handshake; for a write it can precede [accepted]. [None] if it never came. *)
-  completed : int option;
-      (** The last read data beat, or the write response; [None] if the trace ends first. *)
-  resp : int;  (** The worst response: 0 OKAY, 1 EXOKAY, 2 SLVERR, 3 DECERR. *)
-  outstanding : int;  (** Transactions outstanding when this one was accepted, itself included. *)
-}
-
-type unmatched = { u_cycle : int; u_write : bool; u_id : int; what : string }
-(** A read data beat or write response with no outstanding transaction of its ID, or write data with
-    no write to belong to by the end. *)
-
-type summary = {
-  cycles : int;  (** Of the trace. *)
-  transactions : transaction list;  (** Every transaction, in order of acceptance. *)
-  unmatched : unmatched list;
-  occupancy : int array;
-      (** [occupancy.(k)]: the cycles with [k] transactions outstanding, from the first acceptance to the
-          last completion; a transaction is outstanding from its acceptance to its completion, both
-          included. *)
-  max_reads : int;
-  max_writes : int;  (** The most outstanding reads, and writes, at once. *)
-  instructions : (int, int) Hashtbl.t;  (** The word of each PC retired or in flight. *)
-  resyncs : int;
-      (** Queued operations passed over because a younger one issued: flushed, or with no requests. *)
-}
-
-val model : string
+val name : string
+val doc : string
 
 val needs : string list
 (** The platform blocks it binds. *)
 
-val latency : transaction -> int option
-(** From acceptance to completion. *)
+module Config : sig
+  type t = { region : Region.t  (** Names the transactions' regions in the events. *) }
 
-val start : transaction -> int
+  val default : t
+end
+
+(** The originator's request that a transaction serves. *)
+module Origin : sig
+  type t = {
+    issued : int;  (** The cycle the originator's request began. *)
+    request : int;  (** Its address. *)
+    write : bool option;
+    agrees : bool;
+        (** Its address, rounded down to the description's [align], is the AXI address, and its
+            direction the transaction's. *)
+    instance : Instance.t option;
+        (** The instruction, if the originator carries a PC: [dispatched] is when its operation
+            entered the originator's queue, [issued] when it left it to make its requests, [retired]
+            its retirement as {!Commits} pairs it with the dispatch. A store can retire before its
+            request is made. *)
+  }
+
+  val jsont : t Jsont.t
+end
+
+module Event : sig
+  type transaction = {
+    txn : Hwfrp.Transaction.t;
+    source : string option;  (** The description's name for the ID. *)
+    region : string option;
+    origin : Origin.t option;
+        (** [None] when the source has no described origin, or its request was not valid at
+            acceptance. *)
+    burst : int;
+    beat_bytes : int;  (** [1 lsl AxSIZE]. *)
+  }
+
+  type unmatched = { cycle : int; write : bool; id : int; what : string }
+
+  type t =
+    | Transaction of transaction
+        (** In acceptance order, once complete and its instance retired, or at the end. *)
+    | Unmatched of unmatched
+        (** A read data beat or write response with no outstanding transaction of its ID, or write
+            data with no write to belong to by the end. *)
+
+  val jsont : t Jsont.t
+  val cycle : t -> int
+  val pc : t -> int option
+end
+
+module Summary : sig
+  type source = {
+    id : int;
+    source : string;
+    transactions : int;
+    bytes : int;
+    pinned : int;  (** To a request. *)
+    instances : int;  (** To an instruction instance. *)
+    disagreeing : int;
+  }
+
+  type t = {
+    cycles : int;
+    reads : int;
+    read_bytes : int;
+    writes : int;
+    write_bytes : int;
+    unmatched : int;
+    read_latency : Hwfrp.Reduce.Stats.t;  (** Address accepted to done. *)
+    write_latency : Hwfrp.Reduce.Stats.t;
+    incomplete : int;  (** Not done when the trace ends. *)
+    first : int option;  (** The earliest {!start}. *)
+    last : int option;  (** The latest completion, the last cycle for those not done. *)
+    occupancy : int list;
+        (** The [k]th: the cycles with [k] transactions outstanding, from the first acceptance to the
+            last completion; a transaction is outstanding from its acceptance to its completion, both
+            included. *)
+    max_reads : int;
+    max_writes : int;  (** The most outstanding reads, and writes, at once. *)
+    sources : source list;  (** By ID. *)
+    resyncs : int;
+        (** Queued operations passed over because a younger one issued: flushed, or with no
+            requests. *)
+    words : (int * int) list;  (** The word of each PC the transactions are pinned to. *)
+  }
+
+  val jsont : t Jsont.t
+end
+
+val build :
+  Config.t -> 'c Core.t -> (Event.t list, 'c) Hwfrp.Ev.t * (Hwfrp.Sched.run_stats -> Summary.t)
+(** Raises {!Hwfrp.Bind.Unbound} and {!Core.No_block}. *)
+
+val start : Event.transaction -> int
 (** The originator's request, or else the AXI request. *)
 
-val span : transaction -> int option
+val span : Event.transaction -> int option
 (** Cycles from {!start} to completion, both included. *)
 
-val throughput : transaction -> float option
+val throughput : Event.transaction -> float option
 (** [bytes] over {!span}. *)
 
 val resp_name : int -> string
 
-val graph : 'c Core.t -> (transaction -> unit) -> Hwfrp.Sched.run_stats -> summary
-(** Builds the model on a bound core, calling the function as each transaction completes; the returned
-    function reads the outcome after the run. Raises {!Hwfrp.Bind.Unbound} and {!Core.No_block}. *)
-
-val run : Platform.t -> Hwfrp.Trace.t -> (transaction -> unit) -> summary
+val text : Text.ctx -> Event.t list -> Summary.t -> unit
+(** The rows the context selects, the unmatched ones, the summary and the profile by instruction. *)

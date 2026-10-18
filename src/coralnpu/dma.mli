@@ -10,49 +10,82 @@
 
     The model follows that sequence on the ports and reports what does not fit it. *)
 
-type descriptor = {
-  at : int;  (** Its address. *)
-  src : int;
-  dst : int;
-  len : int;  (** Bytes. *)
-  beat : int;  (** Bytes per beat, [1 lsl xfer_width]. *)
-  src_fixed : bool;
-  dst_fixed : bool;
-  poll : (int * int * int) option;  (** Address, mask and value, when polling is enabled. *)
-  next : int;
-  fetch : int * int;  (** First request and last response of its fetch. *)
-}
+val name : string
+val doc : string
+val needs : string list
 
-type beat = { read : Tlul.transaction; write : Tlul.transaction option }
+module Config : sig
+  type t = { region : Region.t  (** Names the descriptors' source and destination regions. *) }
 
-type job = {
-  started : int;  (** The CTRL write that started it. *)
-  pc : int option;  (** The instruction that wrote CTRL, from the requester. *)
-  first : int;  (** The descriptor address written before. *)
-  descriptors : descriptor list;
-  beats : beat list;
-  polls : int;  (** Poll reads by the engine. *)
-  finished : int option;  (** The response that ended it: the last write, an error, or [None]. *)
-  error : bool;
-  aborted : bool;
-  status_reads : int;  (** STATUS reads by software from the start until it saw done. *)
-  observed : (int * int option) option;  (** When software first read done, and the instruction. *)
-}
+  val default : t
+end
 
-val bytes : job -> int
+module Descriptor : sig
+  type t = {
+    at : int;  (** Its address. *)
+    src : Access.t;  (** [bytes] is [len]. *)
+    dst : Access.t;
+    len : int;  (** Bytes. *)
+    beat : int;  (** Bytes per beat, [1 lsl xfer_width]. *)
+    src_fixed : bool;
+    dst_fixed : bool;
+    poll : (int * int * int) option;  (** Address, mask and value, when polling is enabled. *)
+    next : int;
+    fetch : Hwfrp.Span.t;  (** First request and last response of its fetch. *)
+  }
+
+  val jsont : t Jsont.t
+end
+
+module Event : sig
+  type beat = { read : Hwfrp.Transaction.t; write : Hwfrp.Transaction.t option }
+  type observed = { cycle : int; pc : int option }
+
+  type job = {
+    span : Hwfrp.Span.t;
+        (** From the CTRL write that started it to the response that ended it: the last write, an
+            error, or [None]. *)
+    pc : int option;  (** The instruction that wrote CTRL, from the requester. *)
+    first : int;  (** The descriptor address written before. *)
+    descriptors : Descriptor.t list;
+    beats : beat list;  (** Host port transactions, {!Tlul.to_transaction}. *)
+    polls : int;  (** Poll reads by the engine. *)
+    error : bool;
+    aborted : bool;
+    status_reads : int;  (** STATUS reads by software from the start until it saw done. *)
+    observed : observed option;  (** When software first read done, and the instruction. *)
+  }
+
+  type stray = { cycle : int; what : string }
+
+  type t =
+    | Job of job
+        (** Once it no longer runs and software saw it done or started another, or at the end: in
+            start order. *)
+    | Stray of stray  (** Port activity outside the sequence, as it comes. *)
+
+  val jsont : t Jsont.t
+  val cycle : t -> int
+  val pc : t -> int option
+end
+
+val bytes : Event.job -> int
 (** Moved: the beats written. *)
 
-val latency : job -> int option
-(** From start to finish. *)
+module Summary : sig
+  type t = {
+    cycles : int;
+    jobs : int;
+    bytes : int;
+    max_outstanding : int;  (** On the host port. *)
+    stray : int;
+  }
 
-type summary = {
-  cycles : int;
-  jobs : job list;
-  stray : (int * string) list;  (** Port activity outside the sequence: cycle and what. *)
-  max_outstanding : int;  (** On the host port. *)
-}
+  val jsont : t Jsont.t
+end
 
-val model : string
-val needs : string list
-val graph : 'c Core.t -> Hwfrp.Sched.run_stats -> summary
-val run : Platform.t -> Hwfrp.Trace.t -> summary
+val build :
+  Config.t -> 'c Core.t -> (Event.t list, 'c) Hwfrp.Ev.t * (Hwfrp.Sched.run_stats -> Summary.t)
+
+val text : Text.ctx -> beats:int -> Event.t list -> Summary.t -> unit
+(** Each job with its first [beats] beats, then the stray activity and the summary. *)

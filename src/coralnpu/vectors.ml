@@ -15,6 +15,8 @@ type summary = {
 }
 
 let model = "vectors"
+let name = model
+let doc = "The vector register file, related to its writes and retirements."
 let needs = "v_registers" :: Commits.needs
 let code = "vectors.storage"
 let retired_code = "vectors.retired"
@@ -29,7 +31,7 @@ let of_bits n f =
 (* A replayed register: which bytes have been written, and their values. *)
 type written = { known : Bits.t; value : Bits.t }
 
-let graph ?at (c : _ Core.t) f =
+let graph ?at (c : _ Core.t) =
   let v = Core.block c "v_registers" c.platform.blocks.v_registers in
   let sc = Core.scope c v.vr_scope in
   let commits, _ = Commits.events c in
@@ -79,7 +81,6 @@ let graph ?at (c : _ Core.t) f =
   let always = Sig.const c.clk true in
   let nonempty e = Ev.filter (fun l -> l <> []) e in
   let fired = nonempty (Ev.when_ always writes) in
-  Ev.subscribe fired (List.iter f);
   let merged =
     Ev.map
       (fun ws ->
@@ -159,28 +160,135 @@ let graph ?at (c : _ Core.t) f =
   Ev.subscribe
     (Ev.tag (Sig.cycle c.clk) storage.changes)
     (fun (_, cycle) -> history := (cycle, Sig.peek storage.state) :: !history);
-  fun (st : Sched.run_stats) ->
-    let diags = List.of_seq (Diag.stream c.net) in
-    let mine code = List.filter (fun (d : Diag.t) -> d.code = code) diags in
-    {
-      cycles = st.ticks.(0);
-      relations =
-        [
-          (code, !comparisons, List.length (mine code));
-          (retired_code, !retired, List.length (mine retired_code));
-        ];
-      failures =
-        List.filteri
-          (fun i _ -> i < 20)
-          (List.filter (fun (d : Diag.t) -> List.mem d.code [ code; retired_code ]) diags);
-      storage = State.bindings (Sig.peek storage.state);
-      storage_at =
-        Option.bind at (fun at ->
-            List.find_opt (fun (cycle, _) -> cycle <= at) !history
-            |> Option.map (fun (cycle, s) -> (cycle, State.bindings s)));
-    }
+  ( fired,
+    fun (st : Sched.run_stats) ->
+      let diags = List.of_seq (Diag.stream c.net) in
+      let mine code = List.filter (fun (d : Diag.t) -> d.code = code) diags in
+      {
+        cycles = st.ticks.(0);
+        relations =
+          [
+            (code, !comparisons, List.length (mine code));
+            (retired_code, !retired, List.length (mine retired_code));
+          ];
+        failures =
+          List.filteri
+            (fun i _ -> i < 20)
+            (List.filter (fun (d : Diag.t) -> List.mem d.code [ code; retired_code ]) diags);
+        storage = State.bindings (Sig.peek storage.state);
+        storage_at =
+          Option.bind at (fun at ->
+              List.find_opt (fun (cycle, _) -> cycle <= at) !history
+              |> Option.map (fun (cycle, s) -> (cycle, State.bindings s)));
+      } )
 
-let run ?at p tr f =
-  let (Core.Any c) = Core.bind p tr ~model in
-  let finish = graph ?at c f in
-  finish (Core.run c)
+module Config = struct
+  type t = { at : int option  (** Also keep the storage as of this cycle. *) }
+
+  let default = { at = None }
+end
+
+module Event = struct
+  type t = Vreg_write of write
+
+  let write =
+    Codec.case "vectors.write"
+      (fun w -> Vreg_write w)
+      (Jsont.Object.map (fun cycle port pc reg strobe data ->
+           { cycle; port; pc; reg; strobe; data })
+      |> Jsont.Object.mem "cycle" Jsont.int ~enc:(fun w -> w.cycle)
+      |> Jsont.Object.mem "port" Jsont.int ~enc:(fun w -> w.port)
+      |> Codec.opt (fun w -> w.pc) "pc" Jsont.int
+      |> Jsont.Object.mem "reg" Jsont.int ~enc:(fun w -> w.reg)
+      |> Jsont.Object.mem "strobe" Codec.bits ~enc:(fun w -> w.strobe)
+      |> Jsont.Object.mem "data" Codec.bits ~enc:(fun w -> w.data)
+      |> Jsont.Object.finish)
+
+  let jsont =
+    Codec.cases "vectors.event"
+      (fun (Vreg_write w) -> Jsont.Object.Case.value write w)
+      Jsont.Object.Case.[ make write ]
+
+  let cycle (Vreg_write w) = w.cycle
+  let pc (Vreg_write w) = w.pc
+end
+
+module Summary = struct
+  type t = summary
+
+  let relation =
+    Jsont.Object.map ~kind:"relation" (fun code comparisons failures ->
+        (code, comparisons, failures))
+    |> Jsont.Object.mem "code" Jsont.string ~enc:(fun (c, _, _) -> c)
+    |> Jsont.Object.mem "comparisons" Jsont.int ~enc:(fun (_, n, _) -> n)
+    |> Jsont.Object.mem "failures" Jsont.int ~enc:(fun (_, _, f) -> f)
+    |> Jsont.Object.finish
+
+  let reg =
+    Jsont.Object.map ~kind:"register" (fun reg value -> (reg, value))
+    |> Jsont.Object.mem "reg" Jsont.int ~enc:fst
+    |> Jsont.Object.mem "value" Codec.bits ~enc:snd
+    |> Jsont.Object.finish
+
+  let at =
+    Jsont.Object.map ~kind:"storage_at" (fun cycle storage -> (cycle, storage))
+    |> Jsont.Object.mem "cycle" Jsont.int ~enc:fst
+    |> Jsont.Object.mem "storage" (Jsont.list reg) ~enc:snd
+    |> Jsont.Object.finish
+
+  let jsont =
+    Codec.record "vectors.summary" (fun cycles relations failures storage storage_at ->
+        { cycles; relations; failures; storage; storage_at })
+    |> Jsont.Object.mem "cycles" Jsont.int ~enc:(fun s -> s.cycles)
+    |> Jsont.Object.mem "relations" (Jsont.list relation) ~enc:(fun s -> s.relations)
+    |> Jsont.Object.mem "failures" (Jsont.list Codec.diag) ~enc:(fun s -> s.failures)
+    |> Jsont.Object.mem "storage" (Jsont.list reg) ~enc:(fun s -> s.storage)
+    |> Codec.opt (fun s -> s.storage_at) "storage_at" at
+    |> Jsont.Object.finish
+end
+
+let build (cfg : Config.t) (c : _ Core.t) =
+  let fired, summary = graph ?at:cfg.at c in
+  (Ev.map (List.map (fun w -> Event.Vreg_write w)) fired, summary)
+
+let status (s : summary) = if s.failures <> [] then 1 else 0
+
+let text (ctx : Text.ctx) events (s : summary) =
+  let shown = ref 0 in
+  let by_pc =
+    List.fold_left
+      (fun m (Event.Vreg_write w) ->
+        if !shown < ctx.limit then begin
+          incr shown;
+          Printf.printf "%8d port%d %s %-3s strobe %s %s\n" w.cycle w.port
+            (match w.pc with Some pc -> Printf.sprintf "pc %08x" pc | None -> "-")
+            (Core.reg_name w.reg) (Bits.to_hex w.strobe) (Bits.to_hex w.data)
+        end;
+        let c, regs, first, _ =
+          Option.value (List.assoc_opt w.pc m) ~default:(0, [], w.cycle, w.cycle)
+        in
+        (w.pc, (c + 1, List.sort_uniq Int.compare (w.reg :: regs), first, w.cycle))
+        :: List.remove_assoc w.pc m)
+      [] events
+  in
+  Printf.printf "root %s: %d cycles, %d vector register writes from %d PCs\n" ctx.root s.cycles
+    (List.length events) (List.length by_pc);
+  List.sort compare by_pc
+  |> List.iter (fun (pc, (c, regs, first, last)) ->
+      Printf.printf "  %s: %d writes to %s, cycles %d-%d\n"
+        (match pc with Some pc -> Printf.sprintf "pc %08x" pc | None -> "-")
+        c
+        (String.concat " " (List.map Core.reg_name regs))
+        first last);
+  List.iter
+    (fun (code, checks, n) -> Printf.printf "%-26s %8d comparisons, %d failures\n" code checks n)
+    s.relations;
+  let table title regs =
+    Printf.printf "%s:\n" title;
+    List.iter (fun (r, v) -> Printf.printf "  %-4s %s\n" (Core.reg_name r) (Bits.to_hex v)) regs
+  in
+  Option.iter
+    (fun (cycle, regs) -> table (Printf.sprintf "storage at cycle %d" cycle) regs)
+    s.storage_at;
+  table "storage at the end" s.storage;
+  List.iter (Format.printf "%a@." Diag.pp) s.failures

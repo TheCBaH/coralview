@@ -15,6 +15,8 @@ type summary = {
 }
 
 let model = "registers"
+let name = model
+let doc = "The x/f register files, related to writes, scoreboards and retirements."
 
 let needs =
   [
@@ -217,3 +219,84 @@ let run ?at p tr =
   let (Core.Any c) = Core.bind p tr ~model in
   let finish = graph ?at c in
   finish (Core.run c)
+
+module Config = struct
+  type t = { at : int option  (** Also keep the storage as of this cycle. *) }
+
+  let default = { at = None }
+end
+
+module Event = struct
+  type t = |
+
+  let jsont =
+    Jsont.map ~kind:"registers.event"
+      ~dec:(fun () -> invalid_arg "registers has no events")
+      ~enc:(function (_ : t) -> .)
+      (Jsont.null ())
+
+  let cycle : t -> int = function _ -> .
+  let pc : t -> int option = function _ -> .
+end
+
+module Summary = struct
+  type t = summary
+
+  let relation =
+    Jsont.Object.map ~kind:"relation" (fun code comparisons failures ->
+        (code, comparisons, failures))
+    |> Jsont.Object.mem "code" Jsont.string ~enc:(fun (c, _, _) -> c)
+    |> Jsont.Object.mem "comparisons" Jsont.int ~enc:(fun (_, n, _) -> n)
+    |> Jsont.Object.mem "failures" Jsont.int ~enc:(fun (_, _, f) -> f)
+    |> Jsont.Object.finish
+
+  let reg =
+    Jsont.Object.map ~kind:"register" (fun reg value -> (reg, value))
+    |> Jsont.Object.mem "reg" Jsont.int ~enc:fst
+    |> Jsont.Object.mem "value" Jsont.int ~enc:snd
+    |> Jsont.Object.finish
+
+  let at =
+    Jsont.Object.map ~kind:"storage_at" (fun cycle storage -> (cycle, storage))
+    |> Jsont.Object.mem "cycle" Jsont.int ~enc:fst
+    |> Jsont.Object.mem "storage" (Jsont.list reg) ~enc:snd
+    |> Jsont.Object.finish
+
+  let jsont =
+    Codec.record "registers.summary"
+      (fun cycles relations flushes failures storage architectural storage_at ->
+        { cycles; relations; flushes; failures; storage; architectural; storage_at })
+    |> Jsont.Object.mem "cycles" Jsont.int ~enc:(fun s -> s.cycles)
+    |> Jsont.Object.mem "relations" (Jsont.list relation) ~enc:(fun s -> s.relations)
+    |> Jsont.Object.mem "flushes" Jsont.int ~enc:(fun s -> s.flushes)
+    |> Jsont.Object.mem "failures" (Jsont.list Codec.diag) ~enc:(fun s -> s.failures)
+    |> Jsont.Object.mem "storage" (Jsont.list reg) ~enc:(fun s -> s.storage)
+    |> Jsont.Object.mem "architectural" (Jsont.list reg) ~enc:(fun s -> s.architectural)
+    |> Codec.opt (fun s -> s.storage_at) "storage_at" at
+    |> Jsont.Object.finish
+end
+
+let build (cfg : Config.t) (c : _ Core.t) = (Ev.never c.clk, graph ?at:cfg.at c)
+let status (s : summary) = if s.failures <> [] then 1 else 0
+
+let text (ctx : Text.ctx) (_ : Event.t list) (s : summary) =
+  Printf.printf "root %s: %d cycles\n" ctx.root s.cycles;
+  List.iter
+    (fun (code, checks, n) -> Printf.printf "%-26s %8d comparisons, %d failures\n" code checks n)
+    s.relations;
+  Printf.printf "%d pipeline flushes\n" s.flushes;
+  let table title regs =
+    Printf.printf "%s:\n" title;
+    List.iteri
+      (fun i (r, v) ->
+        Printf.printf "  %-4s %08x%s" (Core.reg_name r) v (if i mod 6 = 5 then "\n" else ""))
+      regs;
+    print_newline ()
+  in
+  Option.iter
+    (fun (cycle, regs) -> table (Printf.sprintf "storage at cycle %d" cycle) regs)
+    s.storage_at;
+  table "storage at the end" s.storage;
+  let differ = List.filter (fun (r, v) -> List.assoc_opt r s.storage <> Some v) s.architectural in
+  if differ <> [] then table "architectural values that differ from storage at the end" differ;
+  List.iteri (fun i d -> if i < ctx.limit then Format.printf "%a@." Diag.pp d) s.failures

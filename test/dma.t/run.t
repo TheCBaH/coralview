@@ -20,3 +20,12 @@ With the host port misnamed the description does not match the trace:
   $ coralview dma --platform renamed.json dma.vcd 2>&1 | head -3
   platform dma-sub does not match the trace (model dma):
     missing io_tl_hst_a_valid
+
+As JSON lines, each job once it is done with, its beats as transactions, then the summary:
+
+  $ coralview dma --platform dma-sub.json --format jsonl dma.vcd | jq -c 'select(.type == "dma.job") | [.span, .pc, [.descriptors[] | [.src.address, .dst.address, .len]], (.beats | length), .observed]'
+  [{"start":3,"stop":25},260,[[536887296,65600,4],[536887312,65616,4]],2,{"cycle":27,"pc":268}]
+  $ coralview dma --platform dma-sub.json --format jsonl dma.vcd | jq -c 'select(.type != "dma.job")'
+  {"type":"coralview","schema_version":1,"model":"dma","platform":"dma-sub","trace":"dma.vcd"}
+  {"type":"dma.stray","cycle":29,"what":"host write 00010060 with no job"}
+  {"type":"dma.summary","cycles":32,"jobs":1,"bytes":8,"max_outstanding":1,"stray":1}

@@ -1,0 +1,104 @@
+$timescale 1ps $end
+$scope module TOP $end
+$scope module core $end
+$var wire 1 ck io_aclk $end
+$scope module dispatch $end
+$var wire 1 a0 io_inst_0_valid $end
+$var wire 1 b0 io_inst_0_ready $end
+$var wire 32 c0 io_inst_0_bits_addr $end
+$var wire 32 d0 io_inst_0_bits_inst $end
+$var wire 1 a1 io_inst_1_valid $end
+$var wire 1 b1 io_inst_1_ready $end
+$var wire 32 c1 io_inst_1_bits_addr $end
+$var wire 32 d1 io_inst_1_bits_inst $end
+$var wire 1 t0 tryDispatch $end
+$var wire 1 t1 tryDispatch_1 $end
+$var wire 32 s0 io_scoreboard_comb $end
+$var wire 32 s1 comb_1 $end
+$var wire 1 h io_halted $end
+$var wire 1 i io_interlock $end
+$var wire 32 r io_scoreboard_regd $end
+$var wire 4 n io_retirement_buffer_nSpace $end
+$var wire 1 e io_retirement_buffer_empty $end
+$var wire 1 p io_retirement_buffer_trap_pending $end
+$var wire 4 q io_lsuQueueCapacity $end
+$upscope $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+0ck
+b0 a0
+b0 b0
+b0 c0
+b0 d0
+b0 a1
+b0 b1
+b0 c1
+b0 d1
+b0 t0
+b0 t1
+b0 s0
+b0 s1
+b0 h
+b0 i
+b0 r
+b0 n
+b0 e
+b0 p
+b0 q
+$end
+#1
+1ck
+#2
+0ck
+b0100 n
+b0100 q
+b1 e
+b1 a0
+b1 b0
+b00000000000000000000000100000000 c0
+b00000010101000000000010100010011 d0
+b1 a1
+b00000000000000000000000100000100 c1
+b00000000101001010000010110110011 d1
+b00000000000000000000010000000000 s1
+b00000000000000000000010000000000 s0
+#3
+1ck
+#4
+0ck
+b0 b0
+b00000000000000000000000100000100 c0
+b00000000101001010000010110110011 d0
+b00000000000000000000000100001000 c1
+b00000000101101010000011000110011 d1
+#5
+1ck
+#6
+0ck
+#7
+1ck
+#8
+0ck
+b1 b0
+b00000000000000000000000000000000 s0
+b00000000000000000000000000000000 s1
+b0 a1
+#9
+1ck
+#10
+0ck
+b0 a0
+#11
+1ck
+#12
+0ck
+b1 a0
+b0 b0
+b00000000000000000000000100001000 c0
+b00000000101101010000011000110011 d0
+b1 h
+#13
+1ck

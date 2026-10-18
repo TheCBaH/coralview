@@ -50,3 +50,29 @@ val raw :
 val to_string : Hwfrp.Logic.t -> string
 (** [0x] and hex digits when every bit is known; otherwise [0b] and the bits, with [x] for unknown bits
     (and [h] for weak 1s). *)
+
+module Event : sig
+  type sample = {
+    phase : string;  (** [raw], or the platform's sample rule. *)
+    cycle : int option;  (** [None] for raw value changes. *)
+    time : int64;
+    path : string;
+    width : int;
+    value : string;  (** {!to_string}. *)
+  }
+
+  type t = Sample of sample
+
+  val json : sample Jsont.t
+  (** Without a [type] member: the lines of [--json]. *)
+
+  val jsont : t Jsont.t
+end
+
+module Summary : sig
+  type t = { samples : int }
+
+  val jsont : t Jsont.t
+end
+
+val sample : phase:string -> record -> Event.sample

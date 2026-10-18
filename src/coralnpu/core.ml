@@ -4,12 +4,15 @@
 
 open Hwfrp
 
+type 'c dep = ..
+
 type 'c t = {
   net : Net.t;
   trace : Trace.t;
   clk : 'c Clock.t;
   platform : Platform.t;
   model : string;
+  deps : (string, 'c dep) Hashtbl.t;
 }
 
 type any = Any : 'c t -> any
@@ -22,15 +25,17 @@ let bind (p : Platform.t) tr ~model =
     Bind.clock net tr ~model ~purpose:"core clock" ~name:p.clock p.sample
       (Platform.scope p [ p.clock ])
   in
-  Any { net; trace = tr; clk; platform = p; model }
+  Any { net; trace = tr; clk; platform = p; model; deps = Hashtbl.create 4 }
 
 let block c name = function Some b -> b | None -> raise (No_block (c.platform.name, name))
 let scope c rel = Bind.root c.net c.trace c.clk ~model:c.model (Platform.scope c.platform rel)
 
-let run c =
+let start c =
   match Sched.compile c.net with
-  | Ok sched -> Sched.run sched (Sampler.create c.trace (Net.domains c.net))
-  | Error _ -> invalid_arg "Core.run: the net does not compile"
+  | Ok sched -> Run.start sched (Sampler.create c.trace (Net.domains c.net))
+  | Error _ -> invalid_arg "Core.start: the net does not compile"
+
+let run c = Run.finish (start c)
 
 let lane_sig valid payload =
   let open Sig in

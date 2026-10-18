@@ -21,6 +21,7 @@ type transaction = {
   responded : int option;  (** The D handshake. *)
   response : Hwfrp.Bits.t;  (** D data: what a Get read. *)
   error : bool;
+  outstanding : int;  (** Requests outstanding at acceptance, itself included. *)
 }
 
 val is_get : request -> bool
@@ -36,14 +37,30 @@ type event =
 
 type 'c t
 
-val bind : 'c Core.t -> string list -> Platform.tlul -> 'c t
-(** Raises {!Hwfrp.Bind.Unbound}. *)
+type names = {
+  prefix : string;
+      (** Of the channel wires: [a_valid], [a_ready], [a_bits_{opcode,size,source,address,mask,data}],
+          [d_valid], [d_ready], [d_bits_{source,data,error}]. *)
+  d_ready : bool;  (** [false] for a device that does not read it: a response is taken when valid. *)
+}
+
+val bind : 'c Hwfrp.Bind.scope -> names -> data_bytes:int -> 'c t
+(** A port with a [data_bytes]-wide data bus. Raises {!Hwfrp.Bind.Unbound}. *)
 
 type sample
 
 val sample : 'c t -> (sample, 'c) Hwfrp.Sig.t
 
-val step : 'c t -> int -> sample -> event list
+type state
+(** The requests outstanding: an immutable value. *)
+
+val init : state
+
+val step : 'c t -> state -> int -> sample -> state * event list
 (** Advances the port by one cycle, given its sample: that cycle's acceptance and then its response. *)
 
-val max_outstanding : 'c t -> int
+val max_outstanding : state -> int
+
+val to_transaction : transaction -> Hwfrp.Transaction.t
+(** [id] is the source, [bytes] the request size, [status] 2 for [d_error]; a Get's data comes with the
+    response, a Put's with the request. *)

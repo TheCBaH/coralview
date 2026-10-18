@@ -46,3 +46,15 @@ A layout without the byte enables is not a vector register file:
   File "no-strobe.json": in member blocks of
   File "no-strobe.json", lines 1-27, characters 0-3: platform object
   [2]
+
+As JSON lines, the writes, then the relation failures as diagnostics, and the exit status the same:
+
+  $ coralview vectors --platform vector-core.json --format jsonl vectors.vcd | jq -c 'select(.type == "vectors.write") | [.cycle, .port, .reg, .strobe]'
+  [1,0,64,"1"]
+  [2,0,64,"2"]
+  [2,1,64,"1"]
+  [3,0,64,"2"]
+  [3,1,65,"3"]
+  $ coralview vectors --platform vector-core.json --format jsonl bad.vcd | jq -c 'select(.type == "diag") | [.code, .cycle, .message]'
+  ["vectors.storage",3,"key 64: v0 byte 0 holds ab, last written 11"]
+  ["vectors.retired",4,"pc 0000010c retired v1, last written at cycle 3 by pc 00000108"]

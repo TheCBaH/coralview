@@ -11,6 +11,47 @@ exception Stop
 
 let model = "signals"
 
+module Event = struct
+  type sample = {
+    phase : string;
+    cycle : int option;
+    time : int64;
+    path : string;
+    width : int;
+    value : string;
+  }
+
+  type t = Sample of sample
+
+  let body m =
+    m
+    |> Jsont.Object.mem "phase" Jsont.string ~enc:(fun s -> s.phase)
+    |> Codec.opt (fun s -> s.cycle) "cycle" Jsont.int
+    |> Jsont.Object.mem "time" Jsont.int64 ~enc:(fun s -> s.time)
+    |> Jsont.Object.mem "path" Jsont.string ~enc:(fun s -> s.path)
+    |> Jsont.Object.mem "width" Jsont.int ~enc:(fun s -> s.width)
+    |> Jsont.Object.mem "value" Jsont.string ~enc:(fun s -> s.value)
+    |> Jsont.Object.finish
+
+  let make phase cycle time path width value = { phase; cycle; time; path; width; value }
+  let json = body (Jsont.Object.map ~kind:"sample" make)
+  let sample = Codec.case "signals.sample" (fun s -> Sample s) json
+
+  let jsont =
+    Codec.cases "signals.event"
+      (fun (Sample s) -> Jsont.Object.Case.value sample s)
+      Jsont.Object.Case.[ make sample ]
+end
+
+module Summary = struct
+  type t = { samples : int }
+
+  let jsont =
+    Codec.record "signals.summary" (fun samples -> { samples })
+    |> Jsont.Object.mem "samples" Jsont.int ~enc:(fun s -> s.samples)
+    |> Jsont.Object.finish
+end
+
 let sample_rule_name : Trace.sample_rule -> string = function
   | After_falling -> "after_falling"
   | Before_rising -> "before_rising"
@@ -21,6 +62,16 @@ let same (a : Logic.t) (b : Logic.t) = Bits.equal a.bits b.bits && Bits.equal a.
 
 let to_string (v : Logic.t) =
   if Logic.is_known v then "0x" ^ Bits.to_hex v.bits else "0b" ^ Logic.to_string v
+
+let sample ~phase (r : record) =
+  {
+    Event.phase;
+    cycle = r.cycle;
+    time = r.time;
+    path = r.path;
+    width = r.width;
+    value = to_string r.value;
+  }
 
 let require tr paths =
   List.iter

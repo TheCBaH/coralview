@@ -1,0 +1,63 @@
+$timescale 1ps $end
+$scope module TOP $end
+$scope module core $end
+$var wire 1 ck io_aclk $end
+$scope module vme $end
+$var wire 4 e writeEn $end
+$var wire 4 p peWriteEn $end
+$var wire 32 c peWritePc $end
+$var wire 2 t writeMtIdx $end
+$var wire 2 s writeSubIdx $end
+$var wire 32 d writeData $end
+$upscope $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+0ck
+b0 e
+b0 p
+b0 c
+b0 t
+b0 s
+b0 d
+$end
+#1
+1ck
+#2
+0ck
+b1111 e
+b01 t
+b10 s
+b00010001001000100011001101000100 d
+#3
+1ck
+#4
+0ck
+b0000 e
+#5
+1ck
+#6
+0ck
+b1111 e
+b1111 p
+b00000000000000000000001000000000 c
+b11 t
+b00 s
+b10101010101110111100110011011101 d
+#7
+1ck
+#8
+0ck
+b1100 e
+b1100 p
+b01010101011001100000000000000000 d
+#9
+1ck
+#10
+0ck
+b0000 e
+b0000 p
+#11
+1ck

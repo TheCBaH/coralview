@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "name": "stall",
+  "configurations": [
+    { "name": "stall-core", "top_level": "Core", "trace_root": ["TOP", "core"] }
+  ],
+  "clock": "io_aclk",
+  "sample": "after_falling",
+  "blocks": {
+    "dispatch": {
+      "scope": ["dispatch"], "lanes": 2,
+      "try_dispatch": ["tryDispatch", "tryDispatch_1"],
+      "comb": ["io_scoreboard_comb", "comb_1"]
+    }
+  }
+}
