@@ -83,6 +83,7 @@ type op =
   | Filter of int
   | Resample of int
   | Gather of int * int
+  | Current of int
 
 let op_name = function
   | Map (f, a) -> Printf.sprintf "map%d s%d" f a
@@ -102,11 +103,12 @@ let op_name = function
   | Filter e -> Printf.sprintf "filter e%d" e
   | Resample a -> Printf.sprintf "resample s%d" a
   | Gather (a, b) -> Printf.sprintf "gather s%d s%d" a b
+  | Current e -> Printf.sprintf "current e%d" e
 
 let gen_op =
   let open QCheck2.Gen in
   let i = int_bound 1000 in
-  int_bound 16 >>= function
+  int_bound 17 >>= function
   | 0 -> map2 (fun f a -> Map (f, a)) (int_bound 3) i
   | 1 -> map2 (fun a b -> Map2 (a, b)) i i
   | 2 -> map (fun a -> Pre a) i
@@ -123,7 +125,8 @@ let gen_op =
   | 13 -> map (fun e -> Scan e) i
   | 14 -> map (fun e -> Filter e) i
   | 15 -> map (fun a -> Resample a) i
-  | _ -> map2 (fun a b -> Gather (a, b)) i i
+  | 16 -> map2 (fun a b -> Gather (a, b)) i i
+  | _ -> map (fun e -> Current e) i
 
 let gen_prog = QCheck2.Gen.(pair gen_wave (list_size (int_range 1 40) (pair (int_bound 1) gen_op)))
 
@@ -189,12 +192,13 @@ let apply p = function
       let some s = Sig.map (fun x -> if odd x then Some x else None) s in
       add_ev p
         (Ev.map (List.fold_left ( + ) 1) (Ev.gather [ some (get p.sigs a); some (get p.sigs b) ]))
+  | Current e ->
+      add_sig p (Sig.map (function Some x -> x | None -> -1) (Ev.current (get p.evs e)))
   | Resample _ -> ()
 
 let decode : Value.t -> int = function Int n -> n | Scalar B0 -> 0 | Scalar B1 -> 1 | _ -> -1
 
-(* Everything every node computes, sample by sample. *)
-let observe strategy (w, ops) =
+let build (w, ops) =
   let tr = Trace.of_string (vcd w) in
   let net = Net.create () in
   let pools =
@@ -225,6 +229,22 @@ let observe strategy (w, ops) =
       | Resample a, P p, P q -> add_sig p (Clock_cross.resample (get q.sigs a) p.clk)
       | op, P p, _ -> apply p op)
     ops;
+  (tr, net, pools)
+
+(* A run to the end: [Sched.run], or the same through [Run]. *)
+let run_all ~stepped sched sampler =
+  if stepped then begin
+    let r = Run.start sched sampler in
+    while Run.step r do
+      ()
+    done;
+    Run.finish r
+  end
+  else Sched.run sched sampler
+
+(* Everything every node computes, sample by sample. *)
+let observe ?(stepped = false) strategy prog =
+  let tr, net, pools = build prog in
   let log = Buffer.create 4096 in
   Array.iteri
     (fun d (P p) ->
@@ -238,8 +258,8 @@ let observe strategy (w, ops) =
       Array.iteri (fun i e -> Ev.subscribe e (fun v -> Printf.bprintf log " e%d=%d" i v)) p.evs)
     pools;
   let sched = Result.get_ok (Sched.compile ~strategy net) in
-  let st = Sched.run sched (Sampler.create tr (Net.domains net)) in
-  (Buffer.contents log, st.node_evals)
+  let st = run_all ~stepped sched (Sampler.create tr (Net.domains net)) in
+  (Buffer.contents log, st.node_evals, st.ticks)
 
 (* The reference: the program interpreted directly, each operator knowing its own inputs, so a
    dependency the engine fails to record shows up as a difference. *)
@@ -384,6 +404,9 @@ module Ref = struct
     | Resample a ->
         let a = get other.sigs a in
         add_sig d (node ~every:true d ~init:a.v [] (fun n -> set n a.v))
+    | Current x ->
+        let x = e x in
+        add_sig d (node ~every:true d ~init:(-1) [ x ] (fun n -> set n (if x.ch then x.v else -1)))
     | Gather (a, b) ->
         (* An option as [min_int] for None; a fresh [Some] is a change even to an equal value. *)
         let some a =
@@ -492,7 +515,7 @@ let evals = ref (0, 0)
 let equivalence =
   QCheck2.Test.make ~name:"incremental = sweep = reference" ~count:1000 ~print:print_prog gen_prog
     (fun prog ->
-      let a, ea = observe Sched.Incremental prog and b, eb = observe Sched.Sweep prog in
+      let a, ea, _ = observe Sched.Incremental prog and b, eb, _ = observe Sched.Sweep prog in
       let r = Ref.run prog in
       evals := (fst !evals + ea, snd !evals + eb);
       if a <> r then QCheck2.Test.fail_reportf "incremental:%s\nreference:%s" a r;
@@ -542,10 +565,74 @@ let sampled_state =
       in
       go ())
 
+let stepped =
+  QCheck2.Test.make ~name:"Sched.run = Run.step loop" ~count:1000 ~print:print_prog gen_prog
+    (fun prog ->
+      let a, _, ta = observe Sched.Incremental prog
+      and b, _, tb = observe ~stepped:true Sched.Incremental prog in
+      if ta <> tb then QCheck2.Test.fail_reportf "ticks differ";
+      if a <> b then QCheck2.Test.fail_reportf "run:%s\nstepped:%s" a b;
+      true)
+
+(* Up to three events of a random program, each read through a port in a random interleaving and
+   also subscribed to: the two must see the same occurrences. *)
+let gen_pull =
+  QCheck2.Gen.(triple gen_prog (list_size (int_range 1 3) (int_bound 1000)) (list (int_bound 2)))
+
+let print_pull (prog, evs, _) =
+  print_prog prog ^ "\nports " ^ String.concat "," (List.map string_of_int evs)
+
+let pull_push =
+  QCheck2.Test.make ~name:"Port pull = push" ~count:1000 ~print:print_pull gen_pull
+    (fun (((w, _) as prog), evs, picks) ->
+      let tr, net, pools = build prog in
+      let chosen =
+        List.mapi
+          (fun i k ->
+            match pools.((i + k) mod w.nclk) with
+            | P p ->
+                let e = Ev.map (fun x -> (i, x)) (get p.evs k) in
+                let pushed = ref [] in
+                Ev.subscribe e (fun x -> pushed := x :: !pushed);
+                (Port.create e, pushed))
+          evs
+      in
+      let sched = Result.get_ok (Sched.compile net) in
+      let run = Run.start sched (Sampler.create tr (Net.domains net)) in
+      let n = List.length chosen in
+      let seqs = Array.of_list (List.map (fun (p, _) -> Port.seq run p) chosen) in
+      let pulled = Array.make n [] and ended = Array.make n false in
+      let pull i =
+        (not ended.(i))
+        &&
+        match seqs.(i) () with
+        | Seq.Nil ->
+            ended.(i) <- true;
+            false
+        | Cons (x, rest) ->
+            pulled.(i) <- x :: pulled.(i);
+            seqs.(i) <- rest;
+            true
+      in
+      List.iter (fun k -> ignore (pull (k mod n))) picks;
+      for i = 0 to n - 1 do
+        while pull i do
+          ()
+        done
+      done;
+      List.iteri
+        (fun i (port, pushed) ->
+          if pulled.(i) <> !pushed then QCheck2.Test.fail_reportf "port %d: pulled <> pushed" i;
+          if Port.pending port <> 0 then QCheck2.Test.fail_reportf "port %d: left pending" i)
+        chosen;
+      true)
+
 let%expect_test "properties" =
   let rand = Random.State.make [| 2026 |] in
   QCheck2.Test.check_exn ~rand equivalence;
   QCheck2.Test.check_exn ~rand sampled_state;
+  QCheck2.Test.check_exn ~rand stepped;
+  QCheck2.Test.check_exn ~rand pull_push;
   let inc, sweep = !evals in
   Printf.printf "evals: incremental %s sweep\n" (if inc <= sweep then "<=" else ">");
   [%expect {| evals: incremental <= sweep |}]

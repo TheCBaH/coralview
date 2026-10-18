@@ -97,6 +97,10 @@ module Ev : sig
   (** Fires at every sample where some of the signals are [Some], with their values in list order: the
       valid lanes of a cycle. *)
 
+  val current : ('a, 'c) t -> ('a option, 'c) Sig.t
+  (** [Some x] at the samples where the event fires with [x], [None] at the others: an event as an
+      input of a {!Machine} stepped at every sample. *)
+
   val subscribe : ('a, 'c) t -> ('a -> unit) -> unit
   (** Runs after the sample has settled, in registration order. *)
 end
@@ -187,6 +191,27 @@ module Diag : sig
   val pp : Format.formatter -> t -> unit
 end
 
+module Track : sig
+  (** Entries that open and close over time, each emitted once it is known how it ended: an outcome
+      that is decided later than it starts (a job and its completion, a request and its response). *)
+
+  type ('k, 'v) op =
+    | Open of 'k * 'v
+    | Update of 'k * ('v -> 'v)
+    | Close of 'k  (** Emits the entry as it is now. *)
+
+  type 'v out =
+    | Closed of 'v
+    | Open_at_end of 'v  (** Still open when the trace ended. *)
+    | Displaced of 'v  (** Its key was opened again while it was open; a diagnostic is recorded. *)
+
+  val run : ?name:string -> (('k, 'v) op list, 'c) Ev.t -> ('v out list, 'c) Ev.t
+  (** Applies each sample's operations in order. Keys are compared structurally and may be reused once
+      closed. Updating or closing a key that is not open is a diagnostic. At the end of the trace,
+      after the operations that finishers emit, the open entries are emitted in the order they were
+      opened. *)
+end
+
 module Sched : sig
   type t
   type node_stats = { evals : int; changes : int }
@@ -210,4 +235,41 @@ module Sched : sig
   (** The sampler must have been created with {!Net.domains}. *)
 
   val dump_dot : t -> out_channel -> unit
+end
+
+module Run : sig
+  (** A run of a compiled net that the caller advances. {!Sched.run} is {!start}, {!step} until it
+      returns [false], then {!finish}. *)
+
+  type t
+
+  val start : Sched.t -> Sampler.t -> t
+
+  val step : t -> bool
+  (** Evaluates the next sample; [false] once the sampler has none left. *)
+
+  val finish : t -> Sched.run_stats
+  (** Evaluates the remaining samples, then runs the finishers and delivers the events they fire. Later
+      calls return the same statistics. *)
+end
+
+module Port : sig
+  (** An event read as a sequence: pulling from it advances the run. *)
+
+  type 'a t
+
+  val create : ('a, 'c) Ev.t -> 'a t
+  (** Before {!Sched.compile}. The port queues every occurrence from then on. *)
+
+  val seq : Run.t -> 'a t -> 'a Seq.t
+  (** The occurrences in sample order, and in a sample in emission order, the same as a subscriber sees;
+      those that finishers fire come last. When the queue is empty it steps the run until it is not or
+      the run has finished. Several ports of a run share its samples, so reading one fills the queues of
+      the others.
+
+      The sequence is ephemeral: traversing it a second time raises [Invalid_argument], and so does a
+      second call for the same port. *)
+
+  val pending : 'a t -> int
+  (** Occurrences queued and not yet read. *)
 end

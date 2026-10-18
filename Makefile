@@ -3,7 +3,7 @@ DUNE = $(OPAM_EXEC) dune
 CORALNPU ?= /opt/coralnpu
 export RIVET_EXTERNAL_DEPS = true
 
-.PHONY: deps versions build test fmt fmt-check smoke zvt-check ci clean
+.PHONY: deps versions build test fmt fmt-check hwfrp-boundary smoke zvt-check ci clean
 
 deps:
 	opam install . --deps-only --with-test -y
@@ -25,6 +25,19 @@ fmt:
 
 fmt-check:
 	$(DUNE) build @fmt
+
+# hwfrp builds and tests as a package of its own, and its libraries use ovcd
+# and unix only (its tests add qcheck and ppx_expect): no Rivet, jsont or Coral.
+HWFRP_DEPS = hwfrp ovcd ovcd.fst ovcd.vcd_types ovcd.vcd_filter unix qcheck-core ppx_expect
+
+hwfrp-boundary:
+	$(DUNE) build --build-dir $(CURDIR)/_build/hwfrp -p hwfrp @install @hwfrp/runtest
+	deps=$$($(DUNE) describe external-lib-deps \
+	  | awk '/\(source_dir /{h = $$0 ~ /source_dir hwfrp\//; d = 0} h && /_deps/{d = 1} h && d' \
+	  | grep -o '([a-z][a-z0-9_.-]* required' | cut -c2- | cut -d' ' -f1 | sort -u); \
+	test -n "$$deps"; \
+	bad=$$(for d in $$deps; do case " $(HWFRP_DEPS) " in *" $$d "*) ;; *) echo $$d ;; esac; done); \
+	if [ -n "$$bad" ]; then echo "hwfrp must not depend on:" $$bad; exit 1; fi
 
 # RTL simulations with tracing, read back by coralview: every model on the VME
 # core, the external traffic of memory.elf on the scalar core, and the DMA jobs
@@ -75,7 +88,7 @@ zvt-check:
 	  echo "release $$(cat $(CORALNPU)/RELEASE) has no isa/zvt.jsonl; not compared"; \
 	fi
 
-ci: fmt-check build test zvt-check smoke
+ci: fmt-check build test hwfrp-boundary zvt-check smoke
 
 clean:
 	$(DUNE) clean

@@ -108,6 +108,65 @@ let transfers_raw text =
   flush ()
 (* [doc:end] *)
 
+(* [doc:pull] *)
+let transfers_seq tr =
+  let net = Net.create () in
+  let at path = Reference.of_list path in
+  let (Clock.Any clk) =
+    Bind.clock net tr ~model:"demo" ~name:"clk" After_falling (at [ "top"; "clk" ])
+  in
+  let scope = Bind.root net tr clk ~model:"demo" (at [ "top" ]) in
+  let out = Bundle.valid scope "io_out" in
+  let data = Bundle.get out.v_bits "data" Bind.uint in
+  let port = Port.create (Ev.tag (Sig.cycle clk) (Ev.when_ out.v_valid data)) in
+  let sched = Result.get_ok (Sched.compile net) in
+  Port.seq (Run.start sched (Sampler.create tr (Net.domains net))) port
+(* [doc:end] *)
+
+(* [doc:track] *)
+let bursts tr =
+  let net = Net.create () in
+  let at path = Reference.of_list path in
+  let (Clock.Any clk) =
+    Bind.clock net tr ~model:"demo" ~name:"clk" After_falling (at [ "top"; "clk" ])
+  in
+  let scope = Bind.root net tr clk ~model:"demo" (at [ "top" ]) in
+  let valid = (Bundle.valid scope "io_out").v_valid in
+  let edges = Sig.map2 (fun now before -> (now, before)) valid (Sig.pre ~init:false valid) in
+  let ops =
+    Ev.filter_map
+      (fun ((now, before), c) ->
+        match (now, before) with
+        | true, false -> Some [ Track.Open ((), { Span.start = c; stop = None }) ]
+        | false, true ->
+            Some [ Track.Update ((), fun s -> { s with stop = Some (c - 1) }); Close () ]
+        | _ -> None)
+      (Ev.tag (Sig.cycle clk) (Ev.when_ (Sig.const clk true) edges))
+  in
+  Ev.subscribe (Track.run ops)
+    (List.iter (function Track.Closed s | Open_at_end s | Displaced s ->
+        Printf.printf "burst from cycle %d, %s\n" s.Span.start
+          (match Span.length s with Some n -> Printf.sprintf "%d cycles" n | None -> "open")));
+  ignore (Sched.run (Result.get_ok (Sched.compile net)) (Sampler.create tr (Net.domains net)))
+(* [doc:end] *)
+
+(* [doc:stats] *)
+let stats tr = Reduce.Stats.of_seq (Seq.map fst (transfers_seq tr))
+(* [doc:end] *)
+
+let%expect_test "pull, track, reduce" =
+  Seq.iter
+    (fun (d, c) -> Printf.printf "%d at cycle %d\n" d c)
+    (Seq.take 1 (transfers_seq (Trace.of_string vcd)));
+  [%expect {| 42 at cycle 0 |}];
+  bursts (Trace.of_string vcd);
+  [%expect {|
+    burst from cycle 0, 1 cycles
+    burst from cycle 3, 2 cycles |}];
+  let s = stats (Trace.of_string vcd) in
+  Printf.printf "n %d, min %d, max %d, mean %.2f\n" s.n s.min s.max (Reduce.Stats.mean s);
+  [%expect {| n 3, min 7, max 42, mean 19.00 |}]
+
 let%expect_test "quick start" =
   transfers (Trace.of_string vcd);
   [%expect

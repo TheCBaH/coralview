@@ -362,6 +362,13 @@ module Ev = struct
         s.rc.every <- P n :: s.rc.every;
         n
 
+  let current e =
+    let n = mk ~kind:K_signal e.rc e.value in
+    n.eval <- (fun () -> set_if ( == ) n e.value);
+    dep n e;
+    e.rc.every <- P n :: e.rc.every;
+    n
+
   let subscribe e f =
     check_open e.rc.net;
     e.rc.subs <- (fun () -> match e.value with Some x -> f x | None -> ()) :: e.rc.subs
@@ -516,6 +523,64 @@ module Diag = struct
     Option.iter (Format.fprintf ppf " time %a" Timestamp.pp) d.time;
     Format.fprintf ppf ": %s" d.message;
     List.iter (fun r -> Format.fprintf ppf "@ %s" (Reference.to_string r)) d.paths
+end
+
+module Track = struct
+  type ('k, 'v) op = Open of 'k * 'v | Update of 'k * ('v -> 'v) | Close of 'k
+  type 'v out = Closed of 'v | Open_at_end of 'v | Displaced of 'v
+
+  let run ?(name = "track") e =
+    let n = mk_event ~name e.rc in
+    let net = e.rc.net in
+    let live = Hashtbl.create 16 and serial = ref 0 in
+    let diag code msg = Diag.record net (Diag.make ~source:name ~code msg) in
+    let apply acc = function
+      | Open (k, v) ->
+          incr serial;
+          let acc =
+            match Hashtbl.find_opt live k with
+            | Some (_, old) ->
+                diag "track.reopened" "opened a key that is still open";
+                Displaced old :: acc
+            | None -> acc
+          in
+          Hashtbl.replace live k (!serial, v);
+          acc
+      | Update (k, f) -> (
+          match Hashtbl.find_opt live k with
+          | Some (i, v) ->
+              Hashtbl.replace live k (i, f v);
+              acc
+          | None ->
+              diag "track.not-open" "updated a key that is not open";
+              acc)
+      | Close k -> (
+          match Hashtbl.find_opt live k with
+          | Some (_, v) ->
+              Hashtbl.remove live k;
+              Closed v :: acc
+          | None ->
+              diag "track.not-open" "closed a key that is not open";
+              acc)
+    in
+    n.eval <-
+      (fun () ->
+        let acc = match e.value with Some ops -> List.fold_left apply [] ops | None -> [] in
+        let acc =
+          if net.finishing then begin
+            let rest = Hashtbl.fold (fun _ iv l -> iv :: l) live [] in
+            Hashtbl.reset live;
+            List.fold_left
+              (fun acc (_, v) -> Open_at_end v :: acc)
+              acc
+              (List.sort (fun (a, _) (b, _) -> Int.compare a b) rest)
+          end
+          else acc
+        in
+        acc <> [] && fire n (List.rev acc));
+    dep n e;
+    e.rc.finishers <- (fun () -> if Hashtbl.length live = 0 then [] else [ P n ]) :: e.rc.finishers;
+    n
 end
 
 module Heap = struct
@@ -705,32 +770,64 @@ module Sched = struct
             Array.iter (fun f -> f ()) t.subs.(d))
       t.clocks
 
-  let run t sampler =
+  type running = {
+    sched : t;
+    sampler : Sampler.t;
+    ticks : int array;
+    t0 : float;
+    mutable ended : bool;
+    mutable stats : run_stats option;
+  }
+
+  let start t sampler =
     t.net.sampler <- Some sampler;
-    let t0 = Unix.gettimeofday () in
-    let ticks = Array.make (Array.length t.clocks) 0 in
-    let rec loop () =
-      match Sampler.next sampler with
-      | None -> ()
-      | Some tick ->
-          step t sampler tick;
-          ticks.(tick.domain) <- ticks.(tick.domain) + 1;
-          loop ()
-    in
-    loop ();
-    finish t;
-    let per_node =
-      Array.to_list
-        (Array.map
-           (function P n -> (n.name, { evals = n.st.evals; changes = n.st.changes }))
-           t.nodes)
-    in
     {
-      ticks;
-      node_evals = List.fold_left (fun a (_, (s : node_stats)) -> a + s.evals) 0 per_node;
-      wall_s = Unix.gettimeofday () -. t0;
-      per_node;
+      sched = t;
+      sampler;
+      ticks = Array.make (Array.length t.clocks) 0;
+      t0 = Unix.gettimeofday ();
+      ended = false;
+      stats = None;
     }
+
+  let step_run r =
+    (not r.ended)
+    &&
+    match Sampler.next r.sampler with
+    | None ->
+        r.ended <- true;
+        false
+    | Some tick ->
+        step r.sched r.sampler tick;
+        r.ticks.(tick.domain) <- r.ticks.(tick.domain) + 1;
+        true
+
+  let finish_run r =
+    match r.stats with
+    | Some s -> s
+    | None ->
+        while step_run r do
+          ()
+        done;
+        finish r.sched;
+        let per_node =
+          Array.to_list
+            (Array.map
+               (function P n -> (n.name, { evals = n.st.evals; changes = n.st.changes }))
+               r.sched.nodes)
+        in
+        let s =
+          {
+            ticks = r.ticks;
+            node_evals = List.fold_left (fun a (_, (s : node_stats)) -> a + s.evals) 0 per_node;
+            wall_s = Unix.gettimeofday () -. r.t0;
+            per_node;
+          }
+        in
+        r.stats <- Some s;
+        s
+
+  let run t sampler = finish_run (start t sampler)
 
   let dump_dot t oc =
     let shape = function
@@ -753,4 +850,40 @@ module Sched = struct
             List.iter (edge " [style=dashed]") n.lagged)
       t.nodes;
     Printf.fprintf oc "}\n"
+end
+
+module Run = struct
+  type t = Sched.running
+
+  let start = Sched.start
+  let step = Sched.step_run
+  let finish = Sched.finish_run
+end
+
+module Port = struct
+  type 'a t = { queue : 'a Queue.t; mutable read : bool }
+
+  let create e =
+    let p = { queue = Queue.create (); read = false } in
+    Ev.subscribe e (fun x -> Queue.push x p.queue);
+    p
+
+  let pending p = Queue.length p.queue
+
+  let seq run p =
+    if p.read then invalid_arg "Port.seq: the port is already read";
+    p.read <- true;
+    let rec next () =
+      match Queue.take_opt p.queue with
+      | Some _ as x -> x
+      | None when Run.step run -> next ()
+      | None ->
+          ignore (Run.finish run);
+          Queue.take_opt p.queue
+    in
+    let s = Seq.of_dispenser next and started = ref false in
+    fun () ->
+      if !started then invalid_arg "Port.seq: the sequence is ephemeral and was already traversed";
+      started := true;
+      s ()
 end
