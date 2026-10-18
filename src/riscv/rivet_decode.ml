@@ -8,14 +8,25 @@ type t = {
   cache : (int, string) Hashtbl.t;
 }
 
-let create ?features () =
-  match Driver.Registry.find "riscv32" with
-  | None -> Error "Rivet has no riscv32 target"
-  | Some driver -> (
-      match Option.map Target_config.parse_spec features with
-      | Some (Error e) -> Error e
-      | Some (Ok spec) -> Ok { driver; features = Some spec; cache = Hashtbl.create 256 }
-      | None -> Ok { driver; features = None; cache = Hashtbl.create 256 })
+let driver definition =
+  let module C =
+    Riscv_family.Make_with
+      (Riscv32_encode.Profile)
+      (struct
+        let definition = definition
+      end)
+  in
+  let module D = Driver.Pipeline.Make (C) in
+  (module D : Target_intf.Target.DRIVER)
+
+let create ?(features = "+" ^ Coral_zvt.feature) () =
+  match Coral_zvt.definition () with
+  | Error e -> Error e
+  | Ok definition -> (
+      match Target_config.parse_spec features with
+      | Error e -> Error e
+      | Ok spec ->
+          Ok { driver = driver definition; features = Some spec; cache = Hashtbl.create 256 })
 
 let decode t word =
   let (module D) = t.driver in

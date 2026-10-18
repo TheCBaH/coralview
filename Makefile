@@ -3,7 +3,7 @@ DUNE = $(OPAM_EXEC) dune
 CORALNPU ?= /opt/coralnpu
 export RIVET_EXTERNAL_DEPS = true
 
-.PHONY: deps versions build test fmt fmt-check smoke ci clean
+.PHONY: deps versions build test fmt fmt-check smoke zvt-check ci clean
 
 deps:
 	opam install . --deps-only --with-test -y
@@ -48,7 +48,15 @@ smoke: build
 	$(DUNE) exec -- coralview signals $$p --changes --to-cycle 600 $$fst VVmeCoreMiniAxi.core/VmeCoreMiniAxi/io_halted; \
 	$(DUNE) exec -- coralview bench $$p $$fst
 
-ci: fmt-check build test smoke
+# The committed Zvt table must be the one the image's emulator archive ships.
+zvt-check:
+	if [ -e $(CORALNPU)/emulators/isa/zvt.jsonl ]; then \
+	  cmp src/riscv/zvt.jsonl $(CORALNPU)/emulators/isa/zvt.jsonl; \
+	else \
+	  echo "release $$(cat $(CORALNPU)/RELEASE) has no isa/zvt.jsonl; not compared"; \
+	fi
+
+ci: fmt-check build test zvt-check smoke
 
 clean:
 	$(DUNE) clean
