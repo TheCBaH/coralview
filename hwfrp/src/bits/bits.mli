@@ -18,8 +18,8 @@ val of_int64 : width:int -> int64 -> t
 
 val of_bytes_le : width:int -> bytes -> t
 
-val of_bytes_msb_first : width:int -> bytes -> t
-(** ovcd's [Value.Bytes] packing of a [width]-character record: MSB first, left-aligned. *)
+val of_bytes_be : width:int -> bytes -> t option
+(** A big-endian number, as ovcd's [Value.Bytes]; [None] when a bit at or above [width] is set. *)
 
 val to_int : t -> int option
 (** [None] when a bit at or above 62 is set. *)

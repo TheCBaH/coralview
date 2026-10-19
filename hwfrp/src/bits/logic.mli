@@ -9,9 +9,7 @@ type t = private { bits : Bits.t; unknown : Bits.t }
 
 type decode_error =
   | Not_a_vector of Vcd_types.Value.t  (** Real, String, Port or Other. *)
-  | Byte_count of { width : int; bytes : int }
-      (** ovcd's [Bytes] does not keep the record length, so values wider than 64 bits must be written at full
-          width (Verilator and fst2vcd do). *)
+  | Too_wide of { width : int; bytes : int }  (** A [Bytes] value with a 1 at or above [width]. *)
 
 val known : Bits.t -> t
 val unknown : int -> t

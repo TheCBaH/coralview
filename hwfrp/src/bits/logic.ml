@@ -5,7 +5,7 @@
 open Vcd_types
 
 type t = { bits : Bits.t; unknown : Bits.t }
-type decode_error = Not_a_vector of Value.t | Byte_count of { width : int; bytes : int }
+type decode_error = Not_a_vector of Value.t | Too_wide of { width : int; bytes : int }
 
 let known bits = { bits; unknown = Bits.zero (Bits.width bits) }
 let width t = Bits.width t.bits
@@ -46,9 +46,10 @@ let of_value ~width (v : Value.t) =
   match v with
   | Int n -> Ok (known (Bits.of_int ~width n))
   | Int64 n -> Ok (known (Bits.of_int64 ~width n))
-  | Bytes b ->
-      if Bytes.length b = (width + 7) / 8 then Ok (known (Bits.of_bytes_msb_first ~width b))
-      else Error (Byte_count { width; bytes = Bytes.length b })
+  | Bytes b -> (
+      match Bits.of_bytes_be ~width b with
+      | Some bits -> Ok (known bits)
+      | None -> Error (Too_wide { width; bytes = Bytes.length b }))
   | Scalar l -> Ok (of_logic_list ~width [ l ])
   | Scalars ls -> Ok (of_logic_list ~width ls)
   | Real _ | Other _ | Port _ | String _ -> Error (Not_a_vector v)
@@ -64,5 +65,5 @@ let to_string t =
 
 let pp_decode_error ppf = function
   | Not_a_vector v -> Format.fprintf ppf "not a bit vector: %s" (Value.to_string v)
-  | Byte_count { width; bytes } ->
-      Format.fprintf ppf "%d-bit signal with a %d-byte value" width bytes
+  | Too_wide { width; bytes } ->
+      Format.fprintf ppf "%d-byte value wider than its %d-bit signal" bytes width

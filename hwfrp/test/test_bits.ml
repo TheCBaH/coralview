@@ -78,7 +78,9 @@ let%expect_test "four-state values" =
       (6, Value.Scalars [ U; W; L; H; Dont_care; B1 ]);
       (4, Value.Scalar B1);
       (4, Value.Int 5);
-      (70, Value.Bytes (Bytes.make 2 '\255'));
+      (66, Value.Bytes (Bytes.make 2 '\255'));
+      (66, Value.Bytes (Bytes.of_string "\x03\x00\x00\x00\x00\x00\x00\x00\x01"));
+      (66, Value.Bytes (Bytes.of_string "\x04\x00\x00\x00\x00\x00\x00\x00\x00"));
       (8, Value.Real 1.5);
     ];
   [%expect
@@ -88,7 +90,9 @@ let%expect_test "four-state values" =
     6 xxxhx1 known=false
     4 0001 known=true
     4 0101 known=true
-    70 error: 70-bit signal with a 2-byte value
+    66 000000000000000000000000000000000000000000000000001111111111111111 known=true
+    66 110000000000000000000000000000000000000000000000000000000000000001 known=true
+    66 error: 9-byte value wider than its 66-bit signal
     8 error: not a bit vector: 1.5 |}]
 
 let%expect_test "concat and compare" =

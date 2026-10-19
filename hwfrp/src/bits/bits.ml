@@ -70,15 +70,22 @@ let of_bytes_le ~width src =
   Bytes.blit src 0 b 0 (min (Bytes.length src) (Bytes.length b));
   of_le width (trim width b)
 
-let of_bytes_msb_first ~width src =
+let of_bytes_be ~width src =
   check_width width;
-  let b = Bytes.make (nbytes width) '\000' in
-  for k = 0 to width - 1 do
-    let i = width - 1 - k in
-    if i lsr 3 < Bytes.length src && (Bytes.get_uint8 src (i lsr 3) lsr (7 - (i land 7))) land 1 = 1
-    then set_byte_bit b k
-  done;
-  of_le width b
+  let n = Bytes.length src in
+  let fits j =
+    let byte = Bytes.get_uint8 src (n - 1 - j) and lo = 8 * j in
+    if lo >= width then byte = 0 else lo + 8 <= width || byte lsr (width - lo) = 0
+  in
+  let rec all j = j >= n || (fits j && all (j + 1)) in
+  if not (all 0) then None
+  else begin
+    let b = Bytes.make (nbytes width) '\000' in
+    for j = 0 to min n (nbytes width) - 1 do
+      Bytes.set_uint8 b j (Bytes.get_uint8 src (n - 1 - j))
+    done;
+    Some (of_le width b)
+  end
 
 let high_clear b ~from =
   let rec go k = k >= Bytes.length b * 8 || ((not (byte_bit b k)) && go (k + 1)) in
