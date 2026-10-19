@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0",
+  "name": "ops",
+  "configurations": [
+    { "name": "ops-core", "top_level": "Core", "trace_root": ["TOP", "core"] }
+  ],
+  "clock": "io_aclk",
+  "sample": "after_falling",
+  "blocks": {
+    "dispatch_debug": { "scope": [], "lanes": 1 },
+    "v_dispatch": {
+      "scope": ["backend"],
+      "lanes": 2, "valid": "uv", "ready": "ur", "uop": "uop",
+      "layout": [
+        { "name": "uop_pc", "width": 32 },
+        { "name": "uop_exe_unit", "width": 5 },
+        { "name": "csr_vl", "width": 8 },
+        { "name": "csr_vstart", "width": 7 },
+        { "name": "csr_sew", "width": 3 },
+        { "name": "csr_lmul", "width": 3 },
+        { "name": "first_uop_valid", "width": 1 }
+      ],
+      "units": ["alu", "mul", "mac", "pmt", "rdt", "cmp", "div", "lsu", "fma"]
+    }
+  }
+}

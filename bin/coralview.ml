@@ -229,6 +229,16 @@ let models =
           ignore (Analysis.subscribe (module Tiles) () c ignore : Hwfrp.Sched.run_stats -> _));
     };
     {
+      name = Ops.name;
+      about = "vector operations at the RVV backend's dispatch";
+      needs = Ops.needs;
+      build =
+        (fun c ->
+          ignore
+            (Analysis.subscribe (module Ops) Ops.Config.default c ignore
+              : Hwfrp.Sched.run_stats -> _));
+    };
+    {
       name = Traps.name;
       about = "faults, the CSR updates they cause and whether the handler ran";
       needs = Traps.needs;
@@ -514,6 +524,16 @@ let entries =
           profile;
           perfetto;
           status = ok;
+        } );
+    ( "ops",
+      E
+        {
+          a = (module Ops);
+          cfg = (fun _ -> Ops.Config.default);
+          text = plain Ops.text;
+          status = ok;
+          profile = Some Ops.profile;
+          perfetto = Some Ops.perfetto;
         } );
     ( "registers",
       E
@@ -914,6 +934,23 @@ let commands =
             redirect output;
             analyze (module Tiles) () p ~format ~ctx:(ctx p ~limit ()) Tiles.text path)
         $ limit $ format $ output);
+    model "ops" Ops.doc
+      Term.(
+        const (fun features gap peak_window limit profile format output p path ->
+            redirect output;
+            analyze
+              (module Ops)
+              { gap; peak_window; features } p ~format ~ctx:(ctx p ~limit ~profile ()) Ops.text path)
+        $ features
+        $ Arg.(
+            value & opt int Ops.Config.default.gap
+            & info [ "gap" ] ~docv:"N"
+                ~doc:"End a burst after $(docv) cycles with no vector arithmetic dispatched.")
+        $ Arg.(
+            value
+            & opt int Ops.Config.default.peak_window
+            & info [ "peak-window" ] ~docv:"N" ~doc:"Take the peak rate over $(docv) cycles.")
+        $ limit $ profile $ format $ output);
     model "registers" Registers.doc
       Term.(
         const (fun at limit format output p path ->

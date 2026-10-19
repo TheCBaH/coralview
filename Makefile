@@ -39,7 +39,7 @@ hwfrp-boundary:
 	bad=$$(for d in $$deps; do case " $(HWFRP_DEPS) " in *" $$d "*) ;; *) echo $$d ;; esac; done); \
 	if [ -n "$$bad" ]; then echo "hwfrp must not depend on:" $$bad; exit 1; fi
 
-VME_MODELS = commits stalls memory axi registers tiles traps vectors
+VME_MODELS = commits stalls memory axi registers tiles ops traps vectors
 
 # RTL simulations with tracing, read back by coralview: every model on the VME
 # core, the external traffic of memory.elf on the scalar core, and the DMA jobs

@@ -92,6 +92,16 @@ type vector_registers = {
 
 and vector_writes = { w_ports : int; w_valid : string; w_data : string; layout : field list }
 
+type vector_dispatch = {
+  vd_scope : string list;
+  vd_lanes : int;
+  vd_valid : string;
+  vd_ready : string;
+  vd_uop : string;
+  vd_layout : field list;
+  units : string list;
+}
+
 type traps = {
   t_scope : string list;
   valid : string;
@@ -127,6 +137,7 @@ type blocks = {
   x_registers : register_file option;
   f_registers : register_file option;
   v_registers : vector_registers option;
+  v_dispatch : vector_dispatch option;
   traps : traps option;
 }
 
@@ -347,6 +358,26 @@ let vector_registers =
   |> Jsont.Object.mem "writes" vector_writes ~enc:(fun r -> r.writes)
   |> finish
 
+let vector_dispatch =
+  obj "vector dispatch" (fun vd_scope vd_lanes vd_valid vd_ready vd_uop vd_layout units ->
+      let need name =
+        if not (List.exists (fun f -> f.field = name) vd_layout) then
+          Jsont.Error.msgf Jsont.Meta.none "v_dispatch.layout: no %s" name
+      in
+      List.iter need
+        [
+          "uop_pc"; "uop_exe_unit"; "csr_vl"; "csr_vstart"; "csr_sew"; "csr_lmul"; "first_uop_valid";
+        ];
+      { vd_scope; vd_lanes; vd_valid; vd_ready; vd_uop; vd_layout; units })
+  |> Jsont.Object.mem "scope" scope ~enc:(fun d -> d.vd_scope)
+  |> Jsont.Object.mem "lanes" Jsont.int ~enc:(fun d -> d.vd_lanes)
+  |> Jsont.Object.mem "valid" Jsont.string ~enc:(fun d -> d.vd_valid)
+  |> Jsont.Object.mem "ready" Jsont.string ~enc:(fun d -> d.vd_ready)
+  |> Jsont.Object.mem "uop" Jsont.string ~enc:(fun d -> d.vd_uop)
+  |> Jsont.Object.mem "layout" Jsont.(list field) ~enc:(fun d -> d.vd_layout)
+  |> Jsont.Object.mem "units" Jsont.(list string) ~enc:(fun d -> d.units)
+  |> finish
+
 let csr =
   obj "csr" (fun csr_scope csr_mcause csr_mepc csr_mtval csr_mtvec ->
       { csr_scope; csr_mcause; csr_mepc; csr_mtval; csr_mtvec })
@@ -388,6 +419,7 @@ let blocks =
       x_registers
       f_registers
       v_registers
+      v_dispatch
       traps
     ->
       {
@@ -403,6 +435,7 @@ let blocks =
         x_registers;
         f_registers;
         v_registers;
+        v_dispatch;
         traps;
       })
   |> Jsont.Object.opt_mem "dispatch_debug" dispatch_debug ~enc:(fun b -> b.dispatch_debug)
@@ -417,6 +450,7 @@ let blocks =
   |> Jsont.Object.opt_mem "x_registers" register_file ~enc:(fun b -> b.x_registers)
   |> Jsont.Object.opt_mem "f_registers" register_file ~enc:(fun b -> b.f_registers)
   |> Jsont.Object.opt_mem "v_registers" vector_registers ~enc:(fun b -> b.v_registers)
+  |> Jsont.Object.opt_mem "v_dispatch" vector_dispatch ~enc:(fun b -> b.v_dispatch)
   |> Jsont.Object.opt_mem "traps" traps ~enc:(fun b -> b.traps)
   |> finish
 
@@ -523,6 +557,7 @@ let blocks p =
       ("x_registers", b.x_registers <> None);
       ("f_registers", b.f_registers <> None);
       ("v_registers", b.v_registers <> None);
+      ("v_dispatch", b.v_dispatch <> None);
       ("traps", b.traps <> None);
     ]
 

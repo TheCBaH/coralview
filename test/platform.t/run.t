@@ -4,14 +4,14 @@ The built-in platforms and the models their blocks allow:
   core-mini-axi (core-mini, CoreMiniAxi): commits, stalls, memory, axi, registers, traps
   core-mini-highmem-axi (core-mini, CoreMiniHighmemAxi): commits, stalls, memory, axi, registers, traps
   core-mini-itcm512kb-dtcm512kb-axi (core-mini, CoreMini_ITCM512KB_DTCM512KBAxi): commits, stalls, memory, axi, registers, traps
-  rvv-core-mini-axi (rvv-core-mini, RvvCoreMiniAxi): commits, stalls, memory, axi, registers, traps, vectors
-  rvv-core-mini-highmem-axi (rvv-core-mini, RvvCoreMiniHighmemAxi): commits, stalls, memory, axi, registers, traps, vectors
-  rvv-core-mini-itcm512kb-dtcm512kb-axi (rvv-core-mini, RvvCoreMini_ITCM512KB_DTCM512KBAxi): commits, stalls, memory, axi, registers, traps, vectors
+  rvv-core-mini-axi (rvv-core-mini, RvvCoreMiniAxi): commits, stalls, memory, axi, registers, ops, traps, vectors
+  rvv-core-mini-highmem-axi (rvv-core-mini, RvvCoreMiniHighmemAxi): commits, stalls, memory, axi, registers, ops, traps, vectors
+  rvv-core-mini-itcm512kb-dtcm512kb-axi (rvv-core-mini, RvvCoreMini_ITCM512KB_DTCM512KBAxi): commits, stalls, memory, axi, registers, ops, traps, vectors
   subsystem-vector-normal (subsystem, chip_verilator): dma
   subsystem-vector-highmem (subsystem, chip_verilator): dma
   subsystem-matrix-normal (subsystem, chip_verilator): dma
   subsystem-matrix-highmem (subsystem, chip_verilator): dma
-  vme-core-mini-axi (vme-core-mini, VmeCoreMiniAxi): commits, stalls, memory, axi, registers, tiles, traps, vectors
+  vme-core-mini-axi (vme-core-mini, VmeCoreMiniAxi): commits, stalls, memory, axi, registers, tiles, ops, traps, vectors
 
 A platform description for a one-lane test core. Every signal its blocks
 imply is in core.vcd:

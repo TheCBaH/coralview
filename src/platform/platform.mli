@@ -126,6 +126,21 @@ and vector_writes = { w_ports : int; w_valid : string; w_data : string; layout :
     out as [layout], most significant field first, which must have [rt_index], [rt_data] ([vlen] bits) and
     [rt_strobe] (a byte enable per byte) and may have the writing instruction's [uop_pc]. *)
 
+type vector_dispatch = {
+  vd_scope : string list;
+  vd_lanes : int;
+  vd_valid : string;
+  vd_ready : string;
+  vd_uop : string;
+  vd_layout : field list;
+  units : string list;
+}
+(** The RVV backend's uop dispatch ([rvv_backend_dispatch.sv]): [vd_lanes] uops a cycle, each taken when
+    its bit of [vd_valid] and of [vd_ready] are set. [vd_uop] is the packed array of the uops, each laid
+    out as [vd_layout], most significant field first, which must have [uop_pc], [uop_exe_unit],
+    [csr_vl], [csr_vstart], [csr_sew], [csr_lmul] and [first_uop_valid]. [units] names the values of
+    [uop_exe_unit], in order. *)
+
 type traps = {
   t_scope : string list;
   valid : string;
@@ -165,6 +180,7 @@ type blocks = {
   x_registers : register_file option;
   f_registers : register_file option;
   v_registers : vector_registers option;
+  v_dispatch : vector_dispatch option;
   traps : traps option;
 }
 
