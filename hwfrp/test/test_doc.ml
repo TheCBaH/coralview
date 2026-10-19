@@ -1,4 +1,4 @@
-(* The examples of doc/hwfrp.md, kept compiling and producing the output shown there. *)
+(* The examples of hwfrp/README.md, kept compiling and producing the output shown there. *)
 open Hwfrp
 module Reference = Vcd_types.Reference
 

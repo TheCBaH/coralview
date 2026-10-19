@@ -1,2 +1,9 @@
 (cram
  (deps %{bin:coralview}))
+
+(cram
+ (applies_to doc)
+ (deps
+  (source_tree .)
+  ../doc/coralnpu.md
+  ../tools/jsonl-schema.sh))
