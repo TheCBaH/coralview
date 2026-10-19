@@ -18,10 +18,11 @@ type signal = {
 
 type t
 
-val open_file : string -> t
-(** VCD or FST, by content. Raises [Vcd.Parse_error] or [Sys_error]. *)
+val open_file : ?select:bool -> string -> t
+(** VCD or FST, by content. Raises [Vcd.Parse_error] or [Sys_error]. With [select] (the default),
+    only the changes of the signals tracked by the time {!events} is called are read. *)
 
-val of_string : string -> t
+val of_string : ?select:bool -> string -> t
 val format : t -> Vcd_fst.format
 val header : t -> Vcd_ast.header
 val resolver : t -> Vcd.Resolver.t
@@ -39,7 +40,8 @@ val tracked : t -> signal array
 val freeze : t -> unit
 
 val events : t -> Vcd_ast.event Seq.t
-(** The raw value changes. Raises [Invalid_argument] when called twice. *)
+(** The raw value changes, of the tracked signals only unless opened with [~select:false]. Freezes
+    the trace. Raises [Invalid_argument] when called twice. *)
 
 type sample_rule =
   | After_falling  (** State after the changes of the timestamp at which the clock went 1 to 0. *)

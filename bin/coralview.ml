@@ -4,6 +4,9 @@
 
 open Coralview
 
+(* Set by --no-select, which comes with every FILE. *)
+let select = ref true
+
 let probe path =
   let { Vcd.header; simulation } = Vcd_fst.open_file path in
   let signals = Vcd.Resolver.fold (fun _ n -> n + 1) (Vcd.Resolver.make header) 0 in
@@ -90,7 +93,9 @@ let analyze (type k e s)
     (module A : Analysis.S with type Config.t = k and type Event.t = e and type Summary.t = s)
     (cfg : k) (p : Platform.t) ?(status = fun _ -> 0) ~format ~(ctx : Text.ctx)
     (text : Text.ctx -> e list -> s -> unit) path =
-  let pulled = guard p (fun () -> Analysis.pull (module A) cfg p (Hwfrp.Trace.open_file path)) in
+  let pulled =
+    guard p (fun () -> Analysis.pull (module A) cfg p (Hwfrp.Trace.open_file ~select:!select path))
+  in
   (match format with
   | `Text -> text ctx (List.of_seq pulled.events) (pulled.summary ())
   | `Jsonl ->
@@ -118,7 +123,7 @@ let ctx p ?(features = None) ?(region = Region.none) ?(window = Text.everything)
 let signals platform ~raw ~format ~changes ~cycles:(from_cycle, to_cycle)
     ~times:(from_time, to_time) path paths =
   let jsonl = format = `Jsonl in
-  let tr = Hwfrp.Trace.open_file path in
+  let tr = Hwfrp.Trace.open_file ~select:!select path in
   (try Signals.require tr paths
    with Signals.Missing p -> fail ~code:3 ("no signal " ^ p ^ " in the trace"));
   let phase, run =
@@ -296,7 +301,7 @@ let check p names ~format path =
       (Codec.to_line Jsonl.header_jsont (Jsonl.header ~model:"check" ~platform:p.name ~trace:path));
   List.iter
     (fun m ->
-      let tr = Hwfrp.Trace.open_file path in
+      let tr = Hwfrp.Trace.open_file ~select:!select path in
       guard p (fun () ->
           let (Core.Any c) = Core.bind p tr ~model:m.name in
           m.build c;
@@ -328,7 +333,18 @@ let platform =
     const load
     $ Arg.(required & opt (some string) None & info [ "platform"; "p" ] ~docv:"P" ~doc:platform_doc))
 
-let file = Arg.(required & pos 0 (some file) None & info [] ~docv:"FILE" ~doc:"A VCD or FST trace.")
+let file =
+  Term.(
+    const (fun no_select path ->
+        if no_select then select := false;
+        path)
+    $ Arg.(
+        value & flag
+        & info [ "no-select" ]
+            ~doc:
+              "Decode the changes of every signal of the trace, not only of those the analysis \
+               reads. The output is the same; for comparing timings.")
+    $ Arg.(required & pos 0 (some file) None & info [] ~docv:"FILE" ~doc:"A VCD or FST trace."))
 
 let limit =
   Term.(
@@ -603,7 +619,7 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
     ctx p ~features:o.o_features ~region:o.o_region ~window:o.o_window ~limit:o.o_limit
       ~profile:o.o_profile ()
   in
-  let tr = Hwfrp.Trace.open_file path in
+  let tr = Hwfrp.Trace.open_file ~select:!select path in
   let (Core.Any c) = Core.bind p tr ~model:"run" in
   let finishers =
     guard p (fun () ->
@@ -1073,7 +1089,7 @@ let commands =
         $ jsonl_file);
     model "bench" "Time opening, decoding and sampling a trace."
       Term.(
-        const (fun nodes p path -> Bench.run p ~nodes path)
+        const (fun nodes p path -> Bench.run p ~select:!select ~nodes path)
         $ Arg.(
             value & opt int 300 & info [ "nodes" ] ~docv:"N" ~doc:"Nodes in the synthetic graph."));
   ]

@@ -19,8 +19,17 @@ let read path =
   let { Vcd.simulation; _ } = Vcd_fst.open_file path in
   Seq.fold_left (fun n _ -> n + 1) 0 simulation
 
-let sample (p : Platform.t) path =
-  let tr, open_s = time (fun () -> Trace.open_file path) in
+(* Decoding alone, of what sampling would read. *)
+let read_tracked (p : Platform.t) ~select path =
+  let tr = Trace.open_file ~select path in
+  let root = Platform.root p in
+  let find n = ignore (Option.get (Trace.find tr (Reference.to_list root @ [ n ]))) in
+  find p.clock;
+  List.iter find (inputs p tr root);
+  Seq.fold_left (fun n _ -> n + 1) 0 (Trace.events tr)
+
+let sample (p : Platform.t) ~select path =
+  let tr, open_s = time (fun () -> Trace.open_file ~select path) in
   let root = Platform.root p in
   let find n = Option.get (Trace.find tr (Reference.to_list root @ [ n ])) in
   let clk = find p.clock in
@@ -31,8 +40,8 @@ let sample (p : Platform.t) path =
   let ticks, drain_s = time (fun () -> go 0) in
   (open_s, ticks, List.length names, drain_s, Sampler.stats s)
 
-let engine (p : Platform.t) ~nodes ~strategy path =
-  let tr = Trace.open_file path in
+let engine (p : Platform.t) ~select ~nodes ~strategy path =
+  let tr = Trace.open_file ~select path in
   let root = Platform.root p in
   let net = Net.create () in
   let (Clock.Any c) =
@@ -64,20 +73,23 @@ let engine (p : Platform.t) ~nodes ~strategy path =
   let sched = Result.get_ok (Sched.compile ~strategy net) in
   Sched.run sched (Sampler.create tr (Net.domains net))
 
-let run p ~nodes path =
+let run p ~select ~nodes path =
   let { Vcd.header; _ }, header_s = time (fun () -> Vcd_fst.open_file path) in
   let resolver, resolver_s = time (fun () -> Vcd.Resolver.make header) in
   Printf.printf "header  %.3f s, resolver %.3f s for %d signals\n" header_s resolver_s
     (Vcd.Resolver.fold (fun _ n -> n + 1) resolver 0);
   let events, read_s = time (fun () -> read path) in
   Printf.printf "decode  %d events in %.3f s, header included\n" events read_s;
-  let open_s, ticks, inputs, drain_s, (st : Sampler.stats) = sample p path in
+  let events, read_s = time (fun () -> read_tracked p ~select path) in
+  Printf.printf "decode  %d events in %.3f s, header included, %s\n" events read_s
+    (if select then "tracked signals only" else "no selection");
+  let open_s, ticks, inputs, drain_s, (st : Sampler.stats) = sample p ~select path in
   Printf.printf "open    %.3f s\n" open_s;
   Printf.printf "sample  %d inputs, %d ticks in %.3f s; %d of %d changes tracked\n" inputs ticks
     drain_s st.changes_tracked st.changes_seen;
   List.iter
     (fun (name, strategy) ->
-      let st = engine p ~nodes ~strategy path in
+      let st = engine p ~select ~nodes ~strategy path in
       let eval_s = st.wall_s -. drain_s in
       Printf.printf "%-12s %d nodes, %d evals in %.3f s" name (List.length st.per_node)
         st.node_evals st.wall_s;

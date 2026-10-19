@@ -27,7 +27,13 @@ type t = {
   mutable events : Vcd_ast.event Seq.t option;
 }
 
-let make format { Vcd.header; simulation } =
+(* The parse reads only the tracked signals' changes: ovcd asks [select] on the first pull, after
+   [events] has frozen the tracked set. *)
+let make ~select format parse =
+  let by_id = Hashtbl.create 256 in
+  let { Vcd.header; simulation } =
+    parse (if select then Some (fun id -> Hashtbl.mem by_id (ID.to_string id)) else None)
+  in
   let var_types = Hashtbl.create 1024 in
   let rec walk (s : Vcd_ast.scope_node) =
     List.iter
@@ -41,15 +47,19 @@ let make format { Vcd.header; simulation } =
     header;
     resolver = Vcd.Resolver.make header;
     var_types;
-    by_id = Hashtbl.create 256;
+    by_id;
     tracked = [];
     count = 0;
     frozen = false;
     events = Some simulation;
   }
 
-let open_file path = make (Vcd_fst.detect_file path) (Vcd_fst.open_file path)
-let of_string s = make (Vcd_fst.detect_string s) (Vcd_fst.open_string s)
+let open_file ?(select = true) path =
+  make ~select (Vcd_fst.detect_file path) (fun select -> Vcd_fst.open_file ?select path)
+
+let of_string ?(select = true) s =
+  make ~select (Vcd_fst.detect_string s) (fun select -> Vcd_fst.open_string ?select s)
+
 let format t = t.format
 let header t = t.header
 let resolver t = t.resolver
@@ -87,6 +97,7 @@ let tracked t = Array.of_list (List.rev t.tracked)
 let freeze t = t.frozen <- true
 
 let events t =
+  t.frozen <- true;
   match t.events with
   | Some e ->
       t.events <- None;

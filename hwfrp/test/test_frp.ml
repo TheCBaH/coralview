@@ -71,7 +71,7 @@ let%expect_test "after falling" =
     #4 cycle 1 en=false data=00000011 changed=[1,2]
     #6 cycle 2 en=false data=00000111 changed=[1]
     #8 cycle 3 en=false data=00000111 changed=[]
-    events=29 seen=18 tracked=16 timestamps=9 |}]
+    events=27 seen=16 tracked=16 timestamps=9 |}]
 
 let%expect_test "before rising" =
   sample Trace.Before_rising;
@@ -81,7 +81,7 @@ let%expect_test "before rising" =
     #3 cycle 1 en=true data=00000001 changed=[1]
     #5 cycle 2 en=false data=00000011 changed=[1,2]
     #7 cycle 3 en=false data=00000111 changed=[1]
-    events=29 seen=18 tracked=16 timestamps=9 |}]
+    events=27 seen=16 tracked=16 timestamps=9 |}]
 
 let%expect_test "after rising" =
   sample Trace.After_rising;
@@ -91,7 +91,7 @@ let%expect_test "after rising" =
     #3 cycle 1 en=true data=00000010 changed=[1]
     #5 cycle 2 en=false data=00000011 changed=[1,2]
     #7 cycle 3 en=false data=00000111 changed=[1]
-    events=29 seen=18 tracked=16 timestamps=9 |}]
+    events=27 seen=16 tracked=16 timestamps=9 |}]
 
 let%expect_test "combinators" =
   let tr = Trace.of_string vcd in

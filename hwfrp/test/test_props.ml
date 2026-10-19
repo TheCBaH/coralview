@@ -627,12 +627,97 @@ let pull_push =
         chosen;
       true)
 
+(* The sampled ticks and values of the clock and a strict subset of the data, and the stats. *)
+let sample_subset ~select w keep =
+  let text = vcd w in
+  let tr = Trace.of_string ~select text in
+  let track n = Option.get (Trace.track_path tr n) in
+  let clk = track "top.clk0" in
+  let data =
+    List.filteri (fun i _ -> List.nth keep i) (List.init w.ndata (Printf.sprintf "top.d%d"))
+    |> List.map track
+  in
+  let signals = clk :: data in
+  let s = Sampler.create tr [| { clock = clk.slot; rule = w.rules.(0); enable = None } |] in
+  let rec go acc =
+    match Sampler.next s with
+    | None -> List.rev acc
+    | Some tk ->
+        go
+          (( tk.index,
+             Timestamp.to_int64 tk.time,
+             List.map (fun (sg : Trace.signal) -> (sg.id, Sampler.value s sg.slot)) signals )
+          :: acc)
+  in
+  let ticks = go [] in
+  (ticks, Sampler.stats s, text)
+
+(* Untracked signals keep changing, alone at some timestamps: selection must change what is
+   read, never what is sampled. *)
+let selected_subset =
+  QCheck2.Test.make ~name:"selected sampler = unselected = Stateful, on a subset" ~count:500
+    ~print:(fun (w, _) -> rule_name w.rules.(0) ^ "\n" ^ vcd w)
+    QCheck2.Gen.(
+      gen_wave >>= fun w ->
+      list_size (return w.ndata) bool >|= fun keep ->
+      (* With one clock, one data signal at least stays untracked. *)
+      let strict = w.nclk > 1 || not (List.for_all Fun.id keep) in
+      (w, if strict then keep else List.mapi (fun i k -> k && i > 0) keep))
+    (fun (w, keep) ->
+      let a, sa, text = sample_subset ~select:true w keep in
+      let b, sb, _ = sample_subset ~select:false w keep in
+      if a <> b then QCheck2.Test.fail_reportf "ticks or values differ with selection";
+      if sa.changes_tracked <> sb.changes_tracked then
+        QCheck2.Test.fail_reportf "tracked %d vs %d" sa.changes_tracked sb.changes_tracked;
+      if sa.changes_seen <> sa.changes_tracked then
+        QCheck2.Test.fail_reportf "selected: %d changes seen, %d tracked" sa.changes_seen
+          sa.changes_tracked;
+      let states = Hashtbl.create 64 in
+      Seq.iter
+        (fun (e : Vcd.Stateful.event) ->
+          let after = Vcd.ID_map.union (fun _ _ c -> Some c) e.state e.changes in
+          Hashtbl.replace states e.time (if w.rules.(0) = Before_rising then e.state else after))
+        (Vcd.Stateful.stream (Vcd.parse_string text).simulation);
+      List.iter
+        (fun (_, time, values) ->
+          let st = Hashtbl.find states (Timestamp.of_int64 time) in
+          List.iter
+            (fun (id, got) ->
+              let want = Option.value (Vcd.Stateful.find st id) ~default:(Value.Scalar X) in
+              if want <> got then
+                QCheck2.Test.fail_reportf "#%Ld %s: sampled %s, Stateful %s" time (ID.to_string id)
+                  (Value.to_string got) (Value.to_string want))
+            values)
+        a;
+      true)
+
+let%expect_test "selection reads fewer changes, samples the same" =
+  let w =
+    {
+      nclk = 2;
+      ndata = 2;
+      rules = [| After_rising |];
+      steps = [ (1, [ (0, 1); (2, 3) ]); (1, [ (3, 5) ]); (1, [ (0, 0); (1, 1) ]); (1, [ (0, 1) ]) ];
+    }
+  in
+  List.iter
+    (fun select ->
+      let ticks, st, _ = sample_subset ~select w [ true; false ] in
+      Printf.printf "select %b: %d ticks, %d of %d changes tracked\n" select (List.length ticks)
+        st.changes_tracked st.changes_seen)
+    [ true; false ];
+  [%expect
+    {|
+    select true: 2 ticks, 6 of 6 changes tracked
+    select false: 2 ticks, 6 of 10 changes tracked |}]
+
 let%expect_test "properties" =
   let rand = Random.State.make [| 2026 |] in
   QCheck2.Test.check_exn ~rand equivalence;
   QCheck2.Test.check_exn ~rand sampled_state;
   QCheck2.Test.check_exn ~rand stepped;
   QCheck2.Test.check_exn ~rand pull_push;
+  QCheck2.Test.check_exn ~rand selected_subset;
   let inc, sweep = !evals in
   Printf.printf "evals: incremental %s sweep\n" (if inc <= sweep then "<=" else ">");
   [%expect {| evals: incremental <= sweep |}]

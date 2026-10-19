@@ -88,8 +88,10 @@ accepts up to 62, the first `Bind` call would raise
 
 `Trace.open_file` opens a VCD or FST (detected by content) and reads its
 header. A signal becomes *tracked* when a model binds it; each tracked
-signal gets a dense integer *slot*. Only tracked signals are kept while the
-trace is read.
+signal gets a dense integer *slot*. The tracked set is frozen when reading
+starts (`Sampler.create` or `Trace.events`), and only the tracked signals'
+changes are decoded: ovcd skips the others' (`~select:false` reads them
+all).
 
 `Sampler` turns the trace's value changes into *samples* of clock
 domains. A clock domain is a 1-bit clock signal, an optional enable, and a
@@ -404,9 +406,8 @@ variables, 1,084 cycles), `coralview bench` measures this split:
 | Decoding every value change and sampling 408 signals | 0.17–0.24 s |
 | Evaluating a 900-node graph (66k–148k node evaluations) | under 0.05 s |
 
-Opening the hierarchy dominates. Planned input-side work (selected-signal
-FST decoding, path lookup without the full resolver) is HO-092/HO-093 in
-the plan.
+Opening the hierarchy dominates. Selected-signal decoding (HO-092) is in;
+path lookup without the full resolver (HO-093) is still planned.
 
 ## Value compared with reading the trace directly
 
