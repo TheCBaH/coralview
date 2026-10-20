@@ -17,41 +17,16 @@ let unknown w =
 let is_known t = Bits.is_zero t.unknown
 let to_known t = if is_known t then Some t.bits else None
 
-let of_logic_list ~width ls =
-  let a = Array.of_list ls in
-  let n = Array.length a in
-  let ext =
-    match a with
-    | [||] -> Value.B0
-    | _ -> ( match a.(0) with (Value.X | Value.Z) as l -> l | _ -> Value.B0)
-  in
-  let nb = (width + 7) / 8 in
-  let bits = Bytes.make nb '\000' and unk = Bytes.make nb '\000' in
-  let set b k =
-    let i = k lsr 3 in
-    Bytes.set_uint8 b i (Bytes.get_uint8 b i lor (1 lsl (k land 7)))
-  in
-  for k = 0 to width - 1 do
-    match if k < n then a.(n - 1 - k) else ext with
-    | Value.B0 -> ()
-    | B1 -> set bits k
-    | H ->
-        set bits k;
-        set unk k
-    | X | Z | U | W | L | Dont_care -> set unk k
-  done;
-  { bits = Bits.of_bytes_le ~width bits; unknown = Bits.of_bytes_le ~width unk }
-
 let of_value ~width (v : Value.t) =
   match v with
   | Int n -> Ok (known (Bits.of_int ~width n))
   | Int64 n -> Ok (known (Bits.of_int64 ~width n))
-  | Bytes b -> (
-      match Bits.of_bytes_be ~width b with
-      | Some bits -> Ok (known bits)
-      | None -> Error (Too_wide { width; bytes = Bytes.length b }))
-  | Scalar l -> Ok (of_logic_list ~width [ l ])
-  | Scalars ls -> Ok (of_logic_list ~width ls)
+  | Bytes _ | Scalar _ | Scalars _ -> (
+      match Packed.of_value ~width v with
+      | Ok { bits; unknown } ->
+          Ok { bits = Bits.of_bytes_le ~width bits; unknown = Bits.of_bytes_le ~width unknown }
+      | Error (Not_a_vector v) -> Error (Not_a_vector v)
+      | Error (Too_wide { width; bytes }) -> Error (Too_wide { width; bytes }))
   | Real _ | Other _ | Port _ | String _ -> Error (Not_a_vector v)
 
 let to_string t =

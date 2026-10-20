@@ -3,6 +3,6 @@ x-ai-provider: "Anthropic"
 # None of these are in opam-repository yet; pin-depends is not transitive.
 pin-depends: [
   ["unlz4.dev" "git+https://github.com/TheCBaH/ocaml-unlz4.git#f5446abf9a4ce4beb92b02ee958f345a6c8171bd"]
-  ["fst.dev" "git+https://github.com/TheCBaH/ocaml-fst.git#804e00817c671ce78bc3a9153a63951992781f8f"]
-  ["ovcd.dev" "git+https://github.com/TheCBaH/ovcd.git#cc2eb4167fe21908eed3a8b1f9918c0160b36a7b"]
+  ["fst.dev" "git+https://github.com/TheCBaH/ocaml-fst.git#32d68870539fb7422c86e5d8fc62db8568b173a7"]
+  ["ovcd.dev" "git+https://github.com/TheCBaH/ovcd.git#621cf77d9eb4b065b2660b15918784beb4f544f5"]
 ]
