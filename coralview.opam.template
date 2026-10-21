@@ -6,4 +6,5 @@ pin-depends: [
   ["fst.dev" "git+https://github.com/TheCBaH/ocaml-fst.git#32d68870539fb7422c86e5d8fc62db8568b173a7"]
   ["ovcd.dev" "git+https://github.com/TheCBaH/ovcd.git#621cf77d9eb4b065b2660b15918784beb4f544f5"]
   ["err_trace.dev" "git+https://github.com/TheCBaH/err_trace.git#1c7a6ba94c81c70008c594c709e7d37feb38f435"]
+  ["rivet.dev" "git+https://github.com/TheCBaH/rivet.git#3a8664b06a173a9fef25770e8ff81b151f6bb285"]
 ]
