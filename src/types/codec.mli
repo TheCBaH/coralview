@@ -46,3 +46,4 @@ val to_line : 'a Jsont.t -> 'a -> string
 (** Minified, without the newline. Raises [Invalid_argument] if the value does not encode. *)
 
 val of_line : 'a Jsont.t -> string -> ('a, string) result
+(** A decoder that raises [Invalid_argument] or [Failure] on a value of the right JSON type is an [Error]. *)

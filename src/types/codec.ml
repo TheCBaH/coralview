@@ -83,7 +83,8 @@ let to_line t v =
   | Ok s -> s
   | Error e -> invalid_arg ("Codec.to_line: " ^ e)
 
-let of_line t s = Jsont_bytesrw.decode_string t s
+let of_line t s =
+  try Jsont_bytesrw.decode_string t s with Invalid_argument e | Failure e -> Error e
 
 let stats =
   Jsont.Object.map ~kind:"stats" (fun n min max sum ->

@@ -44,3 +44,59 @@ let line (type e s) ((module A) : (e, s) Analysis.t) text =
   else Result.map (fun e -> Event e) (Codec.of_line A.Event.jsont text)
 
 let read a ic = Seq.of_dispenser (fun () -> Option.map (line a) (In_channel.input_line ic))
+
+type 'e reader = {
+  events : ('e, string) result Seq.t;
+  header : unit -> header option;
+  diags : unit -> Hwfrp.Diag.t list;
+  errors : unit -> string list;
+  finish : unit -> unit;
+}
+
+let reader (type e) (module O : Output.OUTPUT with type Event.t = e) lines =
+  let header = ref None and diags = ref [] and errors = ref [] in
+  let next_line = Seq.to_dispenser lines in
+  let summary = O.name ^ ".summary" in
+  let fail e =
+    errors := e :: !errors;
+    Some (Error e)
+  in
+  let rec next () =
+    match next_line () with
+    | None -> None
+    | Some text -> (
+        match Codec.of_line type_of text with
+        | Error e -> fail e
+        | Ok "coralview" -> (
+            match Codec.of_line header_jsont text with
+            | Error e -> fail e
+            | Ok h ->
+                if !header = None then header := Some h;
+                next ())
+        | Ok "diag" -> (
+            match Codec.of_line Codec.diag text with
+            | Error e -> fail e
+            | Ok d ->
+                diags := d :: !diags;
+                next ())
+        | Ok ty when ty = summary -> next ()
+        | Ok _ -> (
+            match Output.decode_event (module O) text with Ok e -> Some (Ok e) | Error e -> fail e))
+  in
+  let finished = ref false in
+  let events = Seq.of_dispenser (fun () -> if !finished then None else next ()) in
+  let finish () =
+    while (not !finished) && Option.is_some (next ()) do
+      ()
+    done;
+    finished := true
+  in
+  {
+    events;
+    header = (fun () -> !header);
+    diags = (fun () -> List.rev !diags);
+    errors = (fun () -> List.rev !errors);
+    finish;
+  }
+
+let channel_lines ic = Seq.of_dispenser (fun () -> In_channel.input_line ic)
