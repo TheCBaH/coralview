@@ -26,3 +26,9 @@ diagnostic line:
   {"type":"memory.access","cycle":7,"bus":"external","pc":276,"access":{"address":536870944,"bytes":4,"write":false},"lanes":[0,1,2,3],"data":"00000000000000000000000000000000"}
   {"type":"diag","severity":"warning","source":"memory","code":"bind.unknown-bits","cycle":8,"time":18,"paths":["TOP.core.lsu.io_ebus_dbus_rdata"],"message":"bits of xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
   {"type":"memory.summary","reads":3,"writes":2,"pcs":5,"faults":2}
+
+The same trace as an FST file, made from memory.vcd by tools/vcd2fst.sh (libfst's writer; the file
+holds the date it was written, so regenerating changes its bytes, not its content):
+
+  $ coralview memory --platform mem-core.json --format jsonl memory.fst | tail -n +2 > fst.jsonl
+  $ coralview memory --platform mem-core.json --format jsonl memory.vcd | tail -n +2 | cmp - fst.jsonl

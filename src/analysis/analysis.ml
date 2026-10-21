@@ -70,3 +70,42 @@ let shared (c : _ Core.t) name ~inj ~prj build =
       let x = build () in
       Hashtbl.replace c.deps name (inj x);
       x
+
+type ('e, 's) stream = {
+  events : 'e Seq.t;
+  diags : unit -> Diag.t list;
+  stats : unit -> Sched.run_stats;
+  summary : unit -> 's;
+  pending : unit -> int;
+  finish : unit -> unit;
+}
+
+let stream (type k e s)
+    (module A : S with type Config.t = k and type Event.t = e and type Summary.t = s) (cfg : k) p tr
+    : (e, s) stream =
+  let (Core.Any c) = Core.bind p tr ~model:A.name in
+  let ev, summary = A.build cfg c in
+  let port = Port.create ev in
+  let run = Core.start c in
+  let next = Seq.to_dispenser (Seq.concat_map List.to_seq (Port.seq run port)) in
+  let finished = ref false in
+  let finish () =
+    while (not !finished) && Option.is_some (next ()) do
+      ()
+    done;
+    finished := true
+  in
+  let stats () =
+    finish ();
+    Run.finish run
+  in
+  {
+    events = Seq.of_dispenser (fun () -> if !finished then None else next ());
+    diags = (fun () -> List.of_seq (Diag.stream c.net));
+    stats;
+    summary = (fun () -> summary (stats ()));
+    pending = (fun () -> Port.pending port);
+    finish;
+  }
+
+let events_file m cfg p path = stream m cfg p (Trace.open_file path)
