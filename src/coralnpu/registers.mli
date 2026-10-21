@@ -38,13 +38,29 @@ module Config : sig
   val default : t
 end
 
-(** No events of its own: the relation failures are diagnostics, in every JSONL as [diag] lines. *)
+(** The register files as events. The failures of the relations are still diagnostics, in every JSONL as
+    [diag] lines. *)
 module Event : sig
-  type t = |
+  type write = { cycle : int; reg : int; value : int }
+  (** A change of the register file's own storage: [reg] is the unified register ({!Core.reg_name}). The
+      first sample has one for every register, which is the initial state. *)
+
+  type flush = { cycle : int; file : string  (** ["x"] or ["f"]. *) }
+  (** A sample with a pipeline flush in a register file. *)
+
+  type checks = {
+    cycle : int;
+    relations : (string * int * int) list;  (** Code, comparisons, failures. *)
+  }
+  (** The comparisons made and failed over the whole trace, once, at its end. *)
+
+  type t = Write of write | Flush of flush | Checks of checks
 
   val jsont : t Jsont.t
   val cycle : t -> int
+
   val pc : t -> int option
+  (** Always [None]. *)
 end
 
 module Summary : sig
@@ -62,3 +78,20 @@ val status : summary -> int
 
 val text : Text.ctx -> Event.t list -> summary -> unit
 (** The relations, the storage tables and the first failures, up to the context's limit. *)
+
+(** The events received: the storage they write, the flushes and, once it has arrived, the comparison
+    counts. The comparisons are made at every sample but reported at the end of the trace, so a snapshot
+    before it has [relations = []]. The architectural values are not here: they are the retirements of
+    {!Commits}. *)
+module Accumulator : sig
+  type snapshot = {
+    writes : int;
+    flushes : int;
+    relations : (string * int * int) list;
+    storage : (int * int) list;  (** By unified register. *)
+  }
+
+  include Accumulator.ACCUMULATOR with type event = Event.t and type snapshot := snapshot
+
+  val snapshot_jsont : snapshot Jsont.t
+end

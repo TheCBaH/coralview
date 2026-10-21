@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0",
+  "name": "reg",
+  "configurations": [
+    { "name": "reg-core", "top_level": "Core", "trace_root": ["TOP", "core"] }
+  ],
+  "clock": "io_aclk",
+  "sample": "after_falling",
+  "blocks": {
+    "dispatch_debug": { "scope": [], "lanes": 1 },
+    "retirement_debug": { "scope": [], "lanes": 1, "idx_width": 7, "trap": true },
+    "regfile_writeback": { "scope": [], "ports": 1 },
+    "x_registers": {
+      "scope": ["score", "regfile"],
+      "base": 0, "first": 1, "count": 3,
+      "fields": [{ "name": "regfile_%d", "width": 32 }],
+      "scoreboard": "scoreboard", "flushed_scoreboard": "flushed_scoreboard", "flush": "io_pipelineFlush",
+      "marks": {
+        "scope": [], "ports": 1,
+        "valid": "io_debug_regfile_writeAddr_%d_valid", "addr": "io_debug_regfile_writeAddr_%d_bits"
+      }
+    },
+    "f_registers": {
+      "scope": ["score", "fRegfile"],
+      "base": 32, "first": 0, "count": 1,
+      "fields": [
+        { "name": "fregfile_%d_sign", "width": 1 },
+        { "name": "fregfile_%d_exponent", "width": 8 },
+        { "name": "fregfile_%d_mantissa", "width": 23 }
+      ],
+      "scoreboard": "scoreboard", "flushed_scoreboard": "flushed_scoreboard", "flush": "io_pipelineFlush",
+      "marks": {
+        "scope": [], "ports": 1,
+        "valid": "io_debug_float_writeAddr_valid", "addr": "io_debug_float_writeAddr_bits"
+      }
+    }
+  }
+}

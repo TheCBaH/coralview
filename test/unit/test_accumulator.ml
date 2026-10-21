@@ -170,3 +170,54 @@ let%expect_test "Axi: a snapshot before the end has not seen the incomplete tran
     reads 2 writes 2 unmatched 0 incomplete 0
     reads 2 writes 2 unmatched 1 incomplete 0
     reads 3 writes 2 unmatched 1 incomplete 1 |}]
+
+let registers vcd = pull (module Registers) Registers.Config.default "registers" "reg-core.json" vcd
+
+let%expect_test "Registers: the snapshot of all the events is the summary's" =
+  List.iter
+    (fun vcd ->
+      let p = registers vcd in
+      let acc = Registers.Accumulator.create () in
+      let events = List.of_seq (Accumulator.tap (module Registers.Accumulator) acc p.events) in
+      let s = p.summary () and a = Registers.Accumulator.snapshot acc in
+      Printf.printf "%s: %d events; storage %b, flushes %b, relations %b\n%s\n" vcd
+        (List.length events) (a.storage = s.storage) (a.flushes = s.flushes)
+        (a.relations = s.relations)
+        (line Registers.Accumulator.snapshot_jsont a))
+    [ "registers.vcd"; "bad.vcd" ];
+  [%expect
+    {|
+    registers.vcd: 8 events; storage true, flushes true, relations true
+    {"type":"registers.snapshot","writes":6,"flushes":1,"relations":[{"code":"registers.storage","comparisons":2,"failures":0},{"code":"registers.scoreboard","comparisons":69,"failures":0},{"code":"registers.flushed","comparisons":69,"failures":0},{"code":"registers.architectural","comparisons":2,"failures":0}],"storage":[{"reg":1,"value":42},{"reg":2,"value":7},{"reg":3,"value":0},{"reg":32,"value":0}]}
+    bad.vcd: 8 events; storage true, flushes true, relations true
+    {"type":"registers.snapshot","writes":6,"flushes":1,"relations":[{"code":"registers.storage","comparisons":2,"failures":1},{"code":"registers.scoreboard","comparisons":69,"failures":0},{"code":"registers.flushed","comparisons":69,"failures":0},{"code":"registers.architectural","comparisons":2,"failures":1}],"storage":[{"reg":1,"value":42},{"reg":2,"value":9},{"reg":3,"value":0},{"reg":32,"value":0}]} |}]
+
+let%expect_test "Registers: the comparisons arrive with the end of the trace" =
+  let p = registers "registers.vcd" in
+  let acc = Registers.Accumulator.create () in
+  Seq.iter
+    (fun e ->
+      Registers.Accumulator.add acc e;
+      let s = Registers.Accumulator.snapshot acc in
+      Printf.printf "writes %d flushes %d relations %d\n" s.writes s.flushes
+        (List.length s.relations))
+    p.events;
+  [%expect
+    {|
+    writes 1 flushes 0 relations 0
+    writes 2 flushes 0 relations 0
+    writes 3 flushes 0 relations 0
+    writes 4 flushes 0 relations 0
+    writes 5 flushes 0 relations 0
+    writes 6 flushes 0 relations 0
+    writes 6 flushes 1 relations 0
+    writes 6 flushes 1 relations 4 |}]
+
+let%expect_test "Registers: events round-trip" =
+  let p = registers "registers.vcd" in
+  let events = List.of_seq p.events in
+  let m = (module Registers : Output.OUTPUT with type Event.t = Registers.Event.t) in
+  let back = List.map (fun e -> Output.decode_event m (Output.encode_event m e)) events in
+  Printf.printf "%d events, all equal: %b\n" (List.length events)
+    (back = List.map (fun e -> Ok e) events);
+  [%expect {| 8 events, all equal: true |}]
