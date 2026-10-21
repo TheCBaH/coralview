@@ -1,7 +1,8 @@
 name: opam
 
-# Installs coralview from an archive of the tree without the vendored rivet, the way opam would from a
-# release, on a standard OCaml setup (no devcontainer), then builds tools/consumer against the install.
+# Installs coralview the way a user would, on a standard OCaml setup (no devcontainer) and without a source
+# checkout of the package: opam pins it from the git ref under test and fetches everything else. Only
+# tools/ and test/memory.t are checked out, to build and run a consumer against the install.
 
 on:
   push:
@@ -16,23 +17,43 @@ jobs:
       matrix:
         ocaml-compiler: ["4.14.4", "5.4.1"]
     steps:
-    - name: checkout
+    # For pull_request events github.sha is a synthetic merge commit; pin the PR head instead.
+    - name: resolve git ref
+      id: ref
+      run: |
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          echo "repo=${{ github.event.pull_request.head.repo.full_name }}" >> "$GITHUB_OUTPUT"
+          echo "sha=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+        else
+          echo "repo=${{ github.repository }}" >> "$GITHUB_OUTPUT"
+          echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+        fi
+    - name: checkout the consumer and its trace
       uses: actions/checkout@v7
+      with:
+        ref: ${{ steps.ref.outputs.sha }}
+        repository: ${{ steps.ref.outputs.repo }}
+        sparse-checkout: |
+          tools
+          test/memory.t
+        sparse-checkout-cone-mode: true
     - name: ocaml
       uses: ocaml/setup-ocaml@v3
       with:
         ocaml-compiler: ${{ matrix.ocaml-compiler }}
-    - name: archive
+        opam-pin: false
+    - name: pin
       run: |
-        mkdir "$RUNNER_TEMP/src"
-        git archive HEAD | tar -x -C "$RUNNER_TEMP/src"
-        # git archive leaves submodules out: rivet must come from opam
-        test -z "$(ls -A "$RUNNER_TEMP/src/vendor/rivet")"
-    - name: install
-      run: |
+        url="git+https://github.com/${{ steps.ref.outputs.repo }}.git#${{ steps.ref.outputs.sha }}"
         # Same commit as the devcontainer's pin-packages: zipc 0.2.0 mis-reads zlib streams at an offset.
         opam pin add -n -y zipc git+https://github.com/dbuenzli/zipc.git#076e6168a222dfe46b7ba598dc87a9a2e58b2569
-        opam pin add -n -y --kind=path "$RUNNER_TEMP/src"
-        opam install -y coralview
+        opam pin add -n -y hwfrp "$url"
+        opam pin add -n -y coralview "$url"
+    - name: install deps
+      run: opam install -y coralview --deps-only
+    - name: install
+      run: opam install -y coralview
+    - name: rivet is a declared dependency
+      run: opam list --installed --silent rivet
     - name: consumer
       run: opam exec -- tools/check-install.sh test/memory.t/mem-core.json test/memory.t/memory.fst
