@@ -806,3 +806,86 @@ let perfetto (ctx : Text.ctx) events (s : Summary.t) =
         (List.map (fun (t : Event.transaction) -> (t.txn.accepted, t.txn.completed)) transactions)
         ~last;
   }
+
+module Accumulator = struct
+  type event = Event.t
+
+  type snapshot = {
+    reads : int;
+    read_bytes : int;
+    writes : int;
+    write_bytes : int;
+    unmatched : int;
+    read_latency : Reduce.Stats.t;
+    write_latency : Reduce.Stats.t;
+    incomplete : int;
+    first : int option;
+    sources : Summary.source list;
+  }
+
+  type t = { mutable totals : totals }
+
+  let create () = { totals = zero }
+
+  let add t = function
+    | Event.Transaction x -> t.totals <- account ~cycles:0 t.totals x
+    | Unmatched _ -> t.totals <- { t.totals with t_unmatched = t.totals.t_unmatched + 1 }
+
+  let snapshot { totals = tot } : snapshot =
+    {
+      reads = tot.t_reads;
+      read_bytes = tot.t_read_bytes;
+      writes = tot.t_writes;
+      write_bytes = tot.t_write_bytes;
+      unmatched = tot.t_unmatched;
+      read_latency = tot.t_rlat;
+      write_latency = tot.t_wlat;
+      incomplete = tot.t_incomplete;
+      first = (if tot.t_reads + tot.t_writes > 0 then Some tot.t_first else None);
+      sources =
+        List.map
+          (fun ((id, source), (transactions, bytes, pinned, instances, disagreeing)) ->
+            { Summary.id; source; transactions; bytes; pinned; instances; disagreeing })
+          (SM.bindings tot.t_sources);
+    }
+
+  let snapshot_jsont =
+    Codec.record "axi.snapshot"
+      (fun
+        reads
+        read_bytes
+        writes
+        write_bytes
+        unmatched
+        read_latency
+        write_latency
+        incomplete
+        first
+        sources
+        :
+        snapshot
+      ->
+        {
+          reads;
+          read_bytes;
+          writes;
+          write_bytes;
+          unmatched;
+          read_latency;
+          write_latency;
+          incomplete;
+          first;
+          sources;
+        })
+    |> Jsont.Object.mem "reads" Jsont.int ~enc:(fun (s : snapshot) -> s.reads)
+    |> Jsont.Object.mem "read_bytes" Jsont.int ~enc:(fun (s : snapshot) -> s.read_bytes)
+    |> Jsont.Object.mem "writes" Jsont.int ~enc:(fun (s : snapshot) -> s.writes)
+    |> Jsont.Object.mem "write_bytes" Jsont.int ~enc:(fun (s : snapshot) -> s.write_bytes)
+    |> Jsont.Object.mem "unmatched" Jsont.int ~enc:(fun (s : snapshot) -> s.unmatched)
+    |> Jsont.Object.mem "read_latency" Codec.stats ~enc:(fun (s : snapshot) -> s.read_latency)
+    |> Jsont.Object.mem "write_latency" Codec.stats ~enc:(fun (s : snapshot) -> s.write_latency)
+    |> Jsont.Object.mem "incomplete" Jsont.int ~enc:(fun (s : snapshot) -> s.incomplete)
+    |> Codec.opt (fun (s : snapshot) -> s.first) "first" Jsont.int
+    |> Jsont.Object.mem "sources" (Jsont.list Summary.source) ~enc:(fun (s : snapshot) -> s.sources)
+    |> Jsont.Object.finish
+end

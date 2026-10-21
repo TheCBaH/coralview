@@ -137,3 +137,27 @@ val text : Text.ctx -> Event.t list -> Summary.t -> unit
 
 val perfetto : Text.ctx -> Event.t list -> Summary.t -> Perfetto.process
 (** A track per AXI ID with a slice per transaction, and the outstanding count. *)
+
+(** The totals of the transactions and unmatched responses received. Every transaction counts, whether
+    complete or emitted at the end of the trace; only a complete one adds a latency. A transaction is
+    emitted once it is complete and its instruction retired, so a snapshot covers the events received, not
+    what is outstanding in the model at that cycle. The cycles of the trace, outstanding counts,
+    resynchronizations and the PC words are the model's state, not in the events. *)
+module Accumulator : sig
+  type snapshot = {
+    reads : int;
+    read_bytes : int;
+    writes : int;
+    write_bytes : int;
+    unmatched : int;
+    read_latency : Hwfrp.Reduce.Stats.t;  (** Of the complete reads. *)
+    write_latency : Hwfrp.Reduce.Stats.t;
+    incomplete : int;  (** Not done when the trace ended; they arrive last. *)
+    first : int option;  (** The earliest start. *)
+    sources : Summary.source list;  (** By ID. *)
+  }
+
+  include Accumulator.ACCUMULATOR with type event = Event.t and type snapshot := snapshot
+
+  val snapshot_jsont : snapshot Jsont.t
+end
