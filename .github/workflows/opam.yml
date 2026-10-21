@@ -44,7 +44,8 @@ jobs:
         opam-pin: false
     - name: pin
       run: |
-        url="git+https://github.com/${{ steps.ref.outputs.repo }}.git#${{ steps.ref.outputs.sha }}"
+        # A tarball, not git+: opam would check out vendor/rivet, which then clashes with the installed rivet.
+        url="https://github.com/${{ steps.ref.outputs.repo }}/archive/${{ steps.ref.outputs.sha }}.tar.gz"
         # Same commit as the devcontainer's pin-packages: zipc 0.2.0 mis-reads zlib streams at an offset.
         opam pin add -n -y zipc git+https://github.com/dbuenzli/zipc.git#076e6168a222dfe46b7ba598dc87a9a2e58b2569
         opam pin add -n -y hwfrp "$url"
