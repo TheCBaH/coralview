@@ -5,8 +5,11 @@ export RIVET_EXTERNAL_DEPS = true
 
 .PHONY: deps versions build test fmt fmt-check hwfrp-boundary smoke zvt-check ci clean
 
+# rivet is a dependency of the package, for installs from opam. In this tree dune builds the vendored copy,
+# and an installed one next to it makes dune fail with "rivet.fmt is already defined".
 deps:
 	opam install . --deps-only --with-test -y
+	if opam list --installed --silent rivet; then opam remove -y rivet; fi
 
 versions:
 	$(OPAM_EXEC) ocamlfind ocamlopt -version
