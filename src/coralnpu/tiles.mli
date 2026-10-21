@@ -54,3 +54,7 @@ val build :
 
 val text : Text.ctx -> Event.t list -> Summary.t -> unit
 (** The first writes, up to the context's limit, the summary and the writes by PC. *)
+
+(** The totals of the events: the {!Summary}, in full. A sub-tile never written starts as zeros, as in the
+    model. *)
+module Accumulator : Accumulator.ACCUMULATOR with type event = Event.t and type snapshot = Summary.t

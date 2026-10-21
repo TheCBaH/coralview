@@ -1,6 +1,15 @@
 (library
  (name coralview_test)
- (inline_tests)
+ (inline_tests
+  (deps
+   ../memory.t/mem-core.json
+   ../axi.t/axi-core.json
+   ../axi.t/axi.vcd
+   ../memory.t/memory.vcd
+   ../tiles.t/tile-core.json
+   ../tiles.t/tiles.vcd
+   ../stalls.t/stall-core.json
+   ../stalls.t/stalls.vcd))
  (preprocess
   (pps ppx_expect))
  (libraries
