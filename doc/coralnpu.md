@@ -815,6 +815,60 @@ Three views come only from `run`:
 $ coralview run --platform vme-core-mini-axi --model axi --model stalls --perfetto vme.json --report vme.md vme_external_matmul.fst
 ```
 
+### Reading the events from OCaml
+
+The `coralview` library exports the events and their codecs, so a program
+need not run the CLI or parse the lines itself:
+
+- `Output.OUTPUT` is the part of an analysis a consumer needs (`name`,
+  `Event.t`, `Event.jsont`); every analysis module satisfies it.
+  `Output.decode_event (module Axi)` turns one line into an `Axi.Event.t`,
+  or an `Error` for malformed JSON, a wrong tag or a field of the wrong
+  type; `decode_events` maps a sequence of lines and `encode_event` goes
+  the other way.
+- `Jsonl.reader (module Axi) lines` reads a saved file: its `events` are
+  `Ok event` or `Error message` per line (reading goes on after an error),
+  and the header, diagnostics and error messages are kept apart. The
+  diagnostics follow the events in a file, so call `finish` before
+  trusting `diags ()`. Only the analysis' own `<name>.summary` line is
+  skipped; a header is not required.
+- `Analysis.stream (module Axi) config platform trace`, or `events_file`
+  on a path (FST or VCD), gives the same `Axi.Event.t` from a waveform,
+  with the diagnostics and a `finish` that runs the trace to its end
+  without keeping the events nobody read.
+- `Accumulator.ACCUMULATOR` keeps totals of the events as they arrive:
+  `add` an event, take a `snapshot` at any time, and `tap` adds the
+  events of a sequence as it is pulled. `Memory`, `Tiles`, `Stalls`, `Axi` and
+  `Registers` have one; a snapshot holds only what the events carry. `Memory` and
+  `Tiles` rebuild their whole summary. `Stalls` counts the cycles of closed
+  spans and lists the open ones with their start. `Axi` leaves out what is
+  the model's state: the cycles of the trace, outstanding counts,
+  resynchronizations and the PC words. Accumulating a filtered stream
+  gives the totals of that stream, not of the trace; do not add a saved
+  summary to them.
+
+### The JSONL contract
+
+For a program that reads the lines without the library:
+
+- One JSON object per line, with a `type` member. The header comes first;
+  the events follow in the order the analysis produced them, then the
+  diagnostics, then the summary. A reader should accept diagnostics
+  anywhere and a file with no header or summary.
+- `schema_version` is 1. It is there for readers to check; coralview does
+  not enforce it yet.
+- Integers are JSON numbers: cycles, addresses and PCs. A `cycle` counts
+  the samples of the platform's clock; a `time` is the trace's timestamp.
+- `span` is `{"start", "stop"}` in cycles, both included; `stop` is left
+  out for a span still open when the trace ended.
+- `data` is hex, most significant digit first, four bits a digit, so its
+  width is `4 × length`. Unknown bits in the trace are reported by a `diag`
+  line and read as 0 in an event; `signals` keeps them, in binary with `x`.
+- A member with no value is left out, never `null`.
+- An event of a stream cut by `--from-cycle`, `--to-cycle`, `--pc` or
+  `--limit` is still the same record; only the summary covers the whole
+  trace.
+
 ### JSONL schema
 
 The members of each record type, as dotted paths (`[]` for the elements

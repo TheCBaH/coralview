@@ -1,0 +1,60 @@
+name: opam
+
+# Installs coralview the way a user would, on a standard OCaml setup (no devcontainer) and without a source
+# checkout of the package: opam pins it from the git ref under test and fetches everything else. Only
+# tools/ and test/memory.t are checked out, to build and run a consumer against the install.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  install:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        ocaml-compiler: ["4.14.4", "5.4.1"]
+    steps:
+    # For pull_request events github.sha is a synthetic merge commit; pin the PR head instead.
+    - name: resolve git ref
+      id: ref
+      run: |
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          echo "repo=${{ github.event.pull_request.head.repo.full_name }}" >> "$GITHUB_OUTPUT"
+          echo "sha=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+        else
+          echo "repo=${{ github.repository }}" >> "$GITHUB_OUTPUT"
+          echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+        fi
+    - name: checkout the consumer and its trace
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ steps.ref.outputs.sha }}
+        repository: ${{ steps.ref.outputs.repo }}
+        sparse-checkout: |
+          tools
+          test/memory.t
+        sparse-checkout-cone-mode: true
+    - name: ocaml
+      uses: ocaml/setup-ocaml@v3
+      with:
+        ocaml-compiler: ${{ matrix.ocaml-compiler }}
+        opam-pin: false
+    - name: pin
+      run: |
+        # A tarball, not git+: opam would check out vendor/rivet, which then clashes with the installed rivet.
+        url="https://github.com/${{ steps.ref.outputs.repo }}/archive/${{ steps.ref.outputs.sha }}.tar.gz"
+        # Same commit as the devcontainer's pin-packages: zipc 0.2.0 mis-reads zlib streams at an offset.
+        opam pin add -n -y zipc git+https://github.com/dbuenzli/zipc.git#076e6168a222dfe46b7ba598dc87a9a2e58b2569
+        opam pin add -n -y hwfrp "$url"
+        opam pin add -n -y coralview "$url"
+    - name: install deps
+      run: opam install -y coralview --deps-only
+    - name: install
+      run: opam install -y coralview
+    - name: rivet is a declared dependency
+      run: opam list --installed --silent rivet
+    - name: consumer
+      run: opam exec -- tools/check-install.sh test/memory.t/mem-core.json test/memory.t/memory.fst
