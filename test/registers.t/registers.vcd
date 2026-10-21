@@ -1,0 +1,126 @@
+$timescale 1ps $end
+$scope module TOP $end
+$scope module core $end
+$var wire 1 ck io_aclk $end
+$var wire 1 df io_debug_dispatch_0_instFire $end
+$var wire 32 da io_debug_dispatch_0_instAddr $end
+$var wire 32 di io_debug_dispatch_0_instInst $end
+$var wire 1 rv io_debug_rb_inst_0_valid $end
+$var wire 32 rp io_debug_rb_inst_0_bits_pc $end
+$var wire 7 ri io_debug_rb_inst_0_bits_idx $end
+$var wire 1 rt io_debug_rb_inst_0_bits_trap $end
+$var wire 1 gv io_debug_regfile_writeData_0_valid $end
+$var wire 5 ga io_debug_regfile_writeData_0_bits_addr $end
+$var wire 32 gd io_debug_regfile_writeData_0_bits_data $end
+$var wire 1 mv io_debug_regfile_writeAddr_0_valid $end
+$var wire 5 ma io_debug_regfile_writeAddr_0_bits $end
+$var wire 1 fv io_debug_float_writeAddr_valid $end
+$var wire 5 fa io_debug_float_writeAddr_bits $end
+$scope module score $end
+$scope module regfile $end
+$var wire 32 r1 regfile_1 $end
+$var wire 32 r2 regfile_2 $end
+$var wire 32 r3 regfile_3 $end
+$var wire 32 xs scoreboard $end
+$var wire 32 xf flushed_scoreboard $end
+$var wire 1 xl io_pipelineFlush $end
+$upscope $end
+$scope module fRegfile $end
+$var wire 1 s0 fregfile_0_sign $end
+$var wire 8 e0 fregfile_0_exponent $end
+$var wire 23 m0 fregfile_0_mantissa $end
+$var wire 32 fs scoreboard $end
+$var wire 32 ff flushed_scoreboard $end
+$var wire 1 fl io_pipelineFlush $end
+$upscope $end
+$upscope $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+0ck
+b0 da
+b0 df
+b0 di
+b0 fs
+b0 fv
+b0 fl
+b0 fa
+b0 ff
+b0 s0
+b0 xf
+b0 xl
+b0 xs
+b0 mv
+b0 ma
+b0 m0
+b0 r3
+b0 r2
+b0 r1
+b0 rv
+b0 rt
+b0 rp
+b0 ri
+b0 e0
+b0 ga
+b0 gd
+b0 gv
+$end
+#1
+1ck
+#2
+0ck
+b1 df
+b00000000000000000000000100000000 da
+b00000010101000000000000010010011 di
+b1 mv
+b00001 ma
+#3
+1ck
+#4
+0ck
+b00000000000000000000000000000010 xs
+b1 gv
+b00001 ga
+b00000000000000000000000000101010 gd
+b00000000000000000000000100000100 da
+b00000000011100000000000100010011 di
+b00010 ma
+#5
+1ck
+#6
+0ck
+b00000000000000000000000000000100 xs
+b00000000000000000000000000101010 r1
+b00010 ga
+b00000000000000000000000000000111 gd
+b0 df
+b0 mv
+b1 rv
+b00000000000000000000000100000000 rp
+b0000001 ri
+#7
+1ck
+#8
+0ck
+b00000000000000000000000000000000 xs
+b00000000000000000000000000000111 r2
+b0 gv
+b00000000000000000000000100000100 rp
+b0000010 ri
+#9
+1ck
+#10
+0ck
+b0 rv
+b1 xl
+#11
+1ck
+#12
+0ck
+b0 xl
+#13
+1ck
+#14
+0ck

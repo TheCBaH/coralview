@@ -568,6 +568,25 @@ storage at the end:
   f11  00000000  f12  00000000  f13  00000000  f14  41a00000  f15  41a00000  f16  00000000
 ```
 
+**Events.** The model is also a data source (`--format jsonl`):
+
+- `registers.write`: a change of the register file's own storage, `{cycle,
+  reg, value}` with `reg` the unified register (`x1` is 1, `f0` is 32). The
+  first sample has one for every register, so the initial state is in the
+  stream. An f register's value is its sign, exponent and mantissa as one
+  32-bit number.
+- `registers.flush`: a sample with a pipeline flush, `{cycle, file}` with
+  `file` `x` or `f`.
+- `registers.checks`: once, at the end, `{cycle, relations}`: for each
+  relation the comparisons made and the failures over the whole trace. The
+  comparisons are made at every sample but only counted here, so a
+  consumer has them once the trace has ended.
+
+The failures themselves are `diag` lines, and the architectural values are
+the retirements of `commits`: the stream does not repeat them. In OCaml,
+`Registers.Accumulator` rebuilds the storage, the flushes and the counts
+from the events.
+
 What the results show:
 
 - **All relations hold** on traces from all six simulated configurations,
@@ -575,8 +594,9 @@ What the results show:
 - **The checks bite.** Four deliberate mistakes each made exactly their
   relation fail (22 to 144 failures): drop either one-sample lag, drop the
   pending guard, or apply `set` before `clr`.
-- **Flushes are not covered yet.** None of the example programs flushes
-  the pipeline, so the flush rule has not been exercised.
+- **Flushes.** `trap-x0.fst` flushes the pipeline six times and every
+  relation still holds. `test/registers.t` flushes once, with nothing
+  pending.
 - **`--at` prints the storage** as of the last change at or before the
   given cycle. Snapshots are persistent, so every past state is kept.
 - **Exit status.** The command exits 1 when a relation fails, and `make
@@ -822,6 +842,10 @@ memory.summary: faults pcs reads writes
 ops.burst: first flops instructions last ops
 ops.op: cycle elements float kind lmul mnemonic ops pc sew unit vl vstart
 ops.summary: bursts busy cycles flops instructions ops peak.last peak.ops peak.window undecoded units[].elements units[].instructions units[].ops units[].unit
+registers.checks: cycle relations[].code relations[].comparisons relations[].failures
+registers.flush: cycle file
+registers.summary: architectural[].reg architectural[].value cycles flushes relations[].code relations[].comparisons relations[].failures storage[].reg storage[].value
+registers.write: cycle reg value
 signals.sample: cycle path phase time value width
 signals.summary: samples
 stalls.span: lane pc reason span.start span.stop word

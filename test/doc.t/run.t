@@ -10,6 +10,7 @@ The JSONL schema in doc/coralnpu.md is what the analyses write on the test fixtu
   $ coralview ops --platform $t/ops.t/ops-core.json --format jsonl $t/ops.t/ops.vcd > ops.jsonl
   $ coralview vectors --platform $t/vectors.t/vector-core.json --format jsonl $t/vectors.t/bad.vcd > vectors.jsonl
   [1]
+  $ coralview registers --platform $t/registers.t/reg-core.json --format jsonl $t/registers.t/registers.vcd > registers.jsonl
   $ coralview traps --platform $t/traps.t/trap-core.json --format jsonl $t/traps.t/traps.vcd > traps.jsonl
   $ coralview signals --platform $t/signals.t/sig.json --format jsonl $t/signals.t/sig.vcd TOP.sim/core/data > signals.jsonl
   $ coralview check --platform $t/platform.t/test-core.json --format jsonl $t/platform.t/core.vcd > check.jsonl

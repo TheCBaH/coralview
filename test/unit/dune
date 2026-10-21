@@ -5,6 +5,9 @@
    ../memory.t/mem-core.json
    ../axi.t/axi-core.json
    ../axi.t/axi.vcd
+   ../registers.t/reg-core.json
+   ../registers.t/registers.vcd
+   ../registers.t/bad.vcd
    ../memory.t/memory.fst
    ../memory.t/memory.vcd
    ../tiles.t/tile-core.json
