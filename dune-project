@@ -25,6 +25,7 @@
   ovcd
   fst
   err_trace
+  rivet
   fmt
   menhir
   (jsont
