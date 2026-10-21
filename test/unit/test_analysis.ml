@@ -164,3 +164,117 @@ let%expect_test "JSONL" =
     event 2:14
     event 4:18
     summary 3 |}]
+
+let long_vcd n =
+  let b = Buffer.create (64 * n) in
+  Buffer.add_string b
+    "$timescale 1ps $end\n\
+     $scope module TOP $end\n\
+     $scope module core $end\n\
+     $var wire 1 c io_aclk $end\n\
+     $var wire 1 f io_debug_dispatch_0_instFire $end\n\
+     $var wire 32 a io_debug_dispatch_0_instAddr $end\n\
+     $var wire 32 i io_debug_dispatch_0_instInst $end\n\
+     $upscope $end\n\
+     $upscope $end\n\
+     $enddefinitions $end\n";
+  for k = 0 to n - 1 do
+    Printf.bprintf b "#%d\n1c\n#%d\n0c\n1f\nb%s a\nb10011 i\n" (2 * k)
+      ((2 * k) + 1)
+      (String.init 32 (fun j -> if 4 * k land (1 lsl (31 - j)) <> 0 then '1' else '0'))
+  done;
+  Buffer.contents b
+
+let replace_all s sub by =
+  let n = String.length sub in
+  let b = Buffer.create (String.length s) in
+  let i = ref 0 in
+  while !i < String.length s do
+    if !i + n <= String.length s && String.sub s !i n = sub then (
+      Buffer.add_string b by;
+      i := !i + n)
+    else (
+      Buffer.add_char b s.[!i];
+      incr i)
+  done;
+  Buffer.contents b
+
+let%expect_test "stream: the events, diagnostics and summary of pull" =
+  let s = Analysis.stream (module Toy) () platform (Trace.of_string vcd) in
+  let pulled = List.of_seq s.events in
+  Printf.printf "events %s; diags %d; summary %d; pending %d\n"
+    (String.concat " " (List.map show pulled))
+    (List.length (s.diags ()))
+    (s.summary ()).dispatches (s.pending ());
+  [%expect {| events 1:10 2:14 4:18; diags 0; summary 3; pending 0 |}]
+
+let%expect_test "stream: finish after a partial read, twice, then nothing" =
+  let s = Analysis.stream (module Toy) () platform (Trace.of_string vcd) in
+  (match s.events () with Seq.Cons (e, _) -> Printf.printf "first %s\n" (show e) | Nil -> ());
+  s.finish ();
+  s.finish ();
+  Printf.printf "after finish: %d events; summary %d; diags %d; pending %d\n" (Seq.length s.events)
+    (s.summary ()).dispatches
+    (List.length (s.diags ()))
+    (s.pending ());
+  [%expect {|
+    first 1:10
+    after finish: 0 events; summary 3; diags 0; pending 0 |}]
+
+let%expect_test "stream: finish does not queue the events it skips" =
+  let peak = ref 0 and hook = ref (fun () -> 0) in
+  let module Probe = struct
+    include Toy
+
+    let name = "probe"
+
+    let build () c =
+      let ev, s = Toy.build () c in
+      Ev.subscribe ev (fun _ -> peak := max !peak (!hook ()));
+      (ev, s)
+  end in
+  let n = 5000 in
+  let s = Analysis.stream (module Probe) () platform (Trace.of_string (long_vcd n)) in
+  hook := s.pending;
+  (match s.events () with Seq.Cons _ -> () | Nil -> ());
+  s.finish ();
+  Printf.printf "dispatches %d; peak backlog under 3: %b\n" (s.summary ()).dispatches (!peak < 3);
+  [%expect {| dispatches 5000; peak backlog under 3: true |}]
+
+let%expect_test "stream: a diagnostic of the bind is there once finished" =
+  let unknown = replace_all vcd "b10011 i" "bx0011 i" in
+  let s = Analysis.stream (module Toy) () platform (Trace.of_string unknown) in
+  s.finish ();
+  List.iter (fun (d : Diag.t) -> Printf.printf "%s %s\n" d.source d.code) (s.diags ());
+  [%expect {| toy bind.unknown-bits |}]
+
+let%expect_test "events_file: a trace file" =
+  let file = Filename.temp_file "toy" ".vcd" in
+  Out_channel.with_open_text file (fun oc -> output_string oc vcd);
+  let s = Analysis.events_file (module Toy) () platform file in
+  Printf.printf "%s\n" (String.concat " " (List.map show (List.of_seq s.events)));
+  Sys.remove file;
+  [%expect {| 1:10 2:14 4:18 |}]
+
+let%expect_test "events_file: an FST file gives the events of its VCD" =
+  let lines file =
+    let s =
+      Analysis.events_file
+        (module Memory)
+        Memory.Config.default
+        (let f = In_channel.with_open_bin "../memory.t/mem-core.json" In_channel.input_all in
+         match Platform.of_string f with
+         | Ok f -> List.hd (Platform.configurations f)
+         | Error e -> failwith e)
+        file
+    in
+    let events = List.map (Codec.to_line Memory.Event.jsont) (List.of_seq s.events) in
+    (events, List.map (fun (d : Diag.t) -> d.code) (s.diags ()), s.summary ())
+  in
+  let ((events, diags, _) as fst) = lines "../memory.t/memory.fst" in
+  Printf.printf "%d events; same as the VCD's: %b\n" (List.length events)
+    (fst = lines "../memory.t/memory.vcd");
+  print_endline (String.concat " " diags);
+  [%expect {|
+    7 events; same as the VCD's: true
+    bind.unknown-bits |}]

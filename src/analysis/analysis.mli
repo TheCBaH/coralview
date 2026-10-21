@@ -84,3 +84,36 @@ val shared :
 (** [shared c name ~inj ~prj build] is the value an analysis named [name] was built to in [c]'s net, or
     [build ()], kept under [name] for the analyses built after it: an analysis that others depend on
     is built once per net. [inj] and [prj] are the analysis' own constructor of {!Core.dep}. *)
+
+type ('e, 's) stream = {
+  events : 'e Seq.t;  (** Ephemeral: it advances the run, and ends after [finish]. *)
+  diags : unit -> Hwfrp.Diag.t list;  (** Recorded so far; all of them once finished. *)
+  stats : unit -> Hwfrp.Sched.run_stats;  (** Finishes the run, as [finish] does. *)
+  summary : unit -> 's;  (** Finishes the run, as [finish] does, then reads the model's summary. *)
+  pending : unit -> int;  (** Events the model has produced and the sequence has not yet given. *)
+  finish : unit -> unit;
+      (** Runs to the end, dropping the events not yet pulled: they are not queued, so the memory held does
+          not grow with the trace. Afterwards [diags] is complete and [events] has ended. Repeating it
+          does nothing. *)
+}
+(** The events of one analysis, with what a caller needs to end the run: unlike {!pulled}, finishing does
+    not keep the events it skips. The trace is read in the run's own pace; the FST file closes when the run
+    reaches its end, and [Hwfrp.Trace] has no earlier close, so a stream abandoned before [finish] holds the
+    file until it is collected. An exception of the model is raised by the sequence or by [finish]. *)
+
+val stream :
+  (module S with type Config.t = 'k and type Event.t = 'e and type Summary.t = 's) ->
+  'k ->
+  Platform.t ->
+  Hwfrp.Trace.t ->
+  ('e, 's) stream
+(** Binds the platform to the trace and builds the analysis alone, as {!pull}. *)
+
+val events_file :
+  (module S with type Config.t = 'k and type Event.t = 'e and type Summary.t = 's) ->
+  'k ->
+  Platform.t ->
+  string ->
+  ('e, 's) stream
+(** {!stream} on a trace file, FST or VCD by content. The platform is the caller's: a trace does not say
+    which of its signals the analysis reads. *)
