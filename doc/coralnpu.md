@@ -594,9 +594,9 @@ What the results show:
 - **The checks bite.** Four deliberate mistakes each made exactly their
   relation fail (22 to 144 failures): drop either one-sample lag, drop the
   pending guard, or apply `set` before `clr`.
-- **Flushes are covered only by a fixture.** None of the example programs
-  flushes the pipeline; `test/registers.t` flushes once, with nothing
-  pending, so the flush rule has not been exercised on a real trace.
+- **Flushes.** `trap-x0.fst` flushes the pipeline six times and every
+  relation still holds. `test/registers.t` flushes once, with nothing
+  pending.
 - **`--at` prints the storage** as of the last change at or before the
   given cycle. Snapshots are persistent, so every past state is kept.
 - **Exit status.** The command exits 1 when a relation fails, and `make
