@@ -1,0 +1,38 @@
+name: opam
+
+# Installs coralview from an archive of the tree without the vendored rivet, the way opam would from a
+# release, on a standard OCaml setup (no devcontainer), then builds tools/consumer against the install.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  install:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        ocaml-compiler: ["4.14.4", "5.4.1"]
+    steps:
+    - name: checkout
+      uses: actions/checkout@v7
+    - name: ocaml
+      uses: ocaml/setup-ocaml@v3
+      with:
+        ocaml-compiler: ${{ matrix.ocaml-compiler }}
+    - name: archive
+      run: |
+        mkdir "$RUNNER_TEMP/src"
+        git archive HEAD | tar -x -C "$RUNNER_TEMP/src"
+        # git archive leaves submodules out: rivet must come from opam
+        test -z "$(ls -A "$RUNNER_TEMP/src/vendor/rivet")"
+    - name: install
+      run: |
+        # Same commit as the devcontainer's pin-packages: zipc 0.2.0 mis-reads zlib streams at an offset.
+        opam pin add -n -y zipc git+https://github.com/dbuenzli/zipc.git#076e6168a222dfe46b7ba598dc87a9a2e58b2569
+        opam pin add -n -y --kind=path "$RUNNER_TEMP/src"
+        opam install -y coralview
+    - name: consumer
+      run: opam exec -- tools/check-install.sh test/memory.t/mem-core.json test/memory.t/memory.fst
