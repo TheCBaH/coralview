@@ -82,3 +82,118 @@ let%expect_test "a decoder that raises is an error" =
       error: int_of_string
       ok
     |}]
+
+module Pt = struct
+  let name = "pt"
+
+  module Event = struct
+    type t = { x : int }
+
+    let jsont =
+      Codec.record "pt.p" (fun x -> { x })
+      |> Jsont.Object.mem "x" Jsont.int ~enc:(fun e -> e.x)
+      |> Jsont.Object.finish
+  end
+end
+
+let pt = (module Pt : Output.OUTPUT with type Event.t = Pt.Event.t)
+
+let header_line =
+  Codec.to_line Jsonl.header_jsont (Jsonl.header ~model:"pt" ~platform:"p" ~trace:"t")
+
+let diag_line code = Codec.to_line Codec.diag (Hwfrp.Diag.make ~source:"pt" ~code "d")
+let report = function Ok (e : Pt.Event.t) -> Printf.printf "event %d\n" e.x | Error _ -> ()
+
+let dump (r : Pt.Event.t Jsonl.reader) =
+  Printf.printf "header %s; diags %s; errors %d\n"
+    (match r.header () with Some h -> h.model | None -> "-")
+    (String.concat "," (List.map (fun (d : Hwfrp.Diag.t) -> d.code) (r.diags ())))
+    (List.length (r.errors ()))
+
+let%expect_test "a saved file: header, events, diagnostics, summary" =
+  let r =
+    Jsonl.reader pt
+      (List.to_seq
+         [
+           header_line;
+           {|{"type":"pt.p","x":1}|};
+           diag_line "a";
+           {|{"type":"pt.p","x":2}|};
+           diag_line "b";
+           {|{"type":"pt.summary","n":2}|};
+         ])
+  in
+  dump r;
+  (match r.events () with
+  | Seq.Cons (e, _) ->
+      report e;
+      dump r
+  | Nil -> ());
+  r.finish ();
+  r.finish ();
+  dump r;
+  print_endline (string_of_bool (List.of_seq r.events = []));
+  [%expect
+    {|
+    header -; diags ; errors 0
+    event 1
+    header pt; diags ; errors 0
+    header pt; diags a,b; errors 0
+    true |}]
+
+let%expect_test "event lines alone" =
+  let r = Jsonl.reader pt (List.to_seq [ {|{"type":"pt.p","x":7}|}; {|{"type":"pt.p","x":8}|} ]) in
+  Seq.iter report r.events;
+  dump r;
+  [%expect {|
+    event 7
+    event 8
+    header -; diags ; errors 0 |}]
+
+let%expect_test "an error does not end the stream and a trailing one is kept" =
+  let r =
+    Jsonl.reader pt
+      (List.to_seq
+         [
+           {|{"type":"pt.p","x":1}|};
+           "{";
+           {|{"type":"pt.p","x":2}|};
+           {|{"type":"pt.q"}|};
+           {|{"type":"pt.summaryx"}|};
+         ])
+  in
+  Seq.iter
+    (function
+      | Error m -> print_endline ("error " ^ List.hd (String.split_on_char (Char.chr 10) m))
+      | ok -> report ok)
+    r.events;
+  dump r;
+  let r = Jsonl.reader pt (List.to_seq [ {|{"type":"pt.p","x":1}|}; "}" ]) in
+  (match r.events () with Seq.Cons (e, _) -> report e | _ -> ());
+  Printf.printf "before finish: %d\n" (List.length (r.errors ()));
+  r.finish ();
+  Printf.printf "after finish: %d\n" (List.length (r.errors ()));
+  [%expect
+    {|
+    event 1
+    error Unclosed line object
+    event 2
+    error Unexpected type enum string value: pt.q. Should it be pt.p ?
+    error Unexpected type enum string value: pt.summaryx. Must be pt.p.
+    header -; diags ; errors 3
+    event 1
+    before finish: 0
+    after finish: 1 |}]
+
+let%expect_test "from a channel" =
+  let file = Filename.temp_file "pt" ".jsonl" in
+  Out_channel.with_open_text file (fun oc ->
+      output_string oc (header_line ^ "\n{\"type\":\"pt.p\",\"x\":5}\n"));
+  In_channel.with_open_text file (fun ic ->
+      let r = Jsonl.reader pt (Jsonl.channel_lines ic) in
+      Seq.iter report r.events;
+      dump r);
+  Sys.remove file;
+  [%expect {|
+    event 5
+    header pt; diags ; errors 0 |}]
