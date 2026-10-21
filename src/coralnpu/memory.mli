@@ -65,3 +65,6 @@ val value : Event.access -> int
 
 val text : Text.ctx -> Event.t list -> Summary.t -> unit
 (** The requests the context selects, up to its limit, and the faults it selects. *)
+
+(** The totals of the events: the {!Summary}, in full. *)
+module Accumulator : Accumulator.ACCUMULATOR with type event = Event.t and type snapshot = Summary.t

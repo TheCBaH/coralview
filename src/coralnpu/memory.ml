@@ -254,3 +254,26 @@ let text (ctx : Text.ctx) events (s : Summary.t) =
     events;
   Printf.printf "root %s: %d read and %d write requests from %d PCs, %d faults\n" ctx.root s.reads
     s.writes s.pcs s.faults
+
+module Accumulator = struct
+  type event = Event.t
+  type snapshot = Summary.t
+
+  type t = {
+    mutable reads : int;
+    mutable writes : int;
+    mutable pcs : unit IM.t;
+    mutable faults : int;
+  }
+
+  let create () = { reads = 0; writes = 0; pcs = IM.empty; faults = 0 }
+
+  let add t = function
+    | Event.Access a ->
+        if a.access.write then t.writes <- t.writes + 1 else t.reads <- t.reads + 1;
+        t.pcs <- IM.add a.pc () t.pcs
+    | Event.Fault _ -> t.faults <- t.faults + 1
+
+  let snapshot t =
+    { Summary.reads = t.reads; writes = t.writes; pcs = IM.cardinal t.pcs; faults = t.faults }
+end

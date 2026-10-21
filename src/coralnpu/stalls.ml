@@ -365,3 +365,48 @@ let perfetto (ctx : Text.ctx) events (s : Summary.t) =
         events;
     counters = [];
   }
+
+module Accumulator = struct
+  type event = Event.t
+  type open_span = { lane : int; reason : reason; start : int }
+  type snapshot = { spans : int; counts : Summary.count list; open_spans : open_span list }
+  type t = { mutable spans : int; mutable counts : int CM.t; mutable open_ : open_span list }
+
+  let create () = { spans = 0; counts = CM.empty; open_ = [] }
+
+  let add t (Event.Stall_span s) =
+    match s.span.stop with
+    | Some stop ->
+        t.spans <- t.spans + 1;
+        t.counts <-
+          CM.update (s.lane, s.reason)
+            (fun n -> Some (stop - s.span.start + 1 + Option.value n ~default:0))
+            t.counts
+    | None -> t.open_ <- { lane = s.lane; reason = s.reason; start = s.span.start } :: t.open_
+
+  let snapshot t =
+    {
+      spans = t.spans;
+      counts =
+        List.map
+          (fun ((lane, reason), cycles) -> { Summary.lane; reason; cycles })
+          (CM.bindings t.counts);
+      open_spans = List.rev t.open_;
+    }
+
+  let open_span =
+    Jsont.Object.map ~kind:"open span" (fun lane reason start -> { lane; reason; start })
+    |> Jsont.Object.mem "lane" Jsont.int ~enc:(fun (o : open_span) -> o.lane)
+    |> Jsont.Object.mem "reason" Event.reason ~enc:(fun (o : open_span) -> o.reason)
+    |> Jsont.Object.mem "start" Jsont.int ~enc:(fun (o : open_span) -> o.start)
+    |> Jsont.Object.finish
+
+  let snapshot_jsont =
+    Codec.record "stalls.snapshot" (fun spans counts open_spans : snapshot ->
+        { spans; counts; open_spans })
+    |> Jsont.Object.mem "spans" Jsont.int ~enc:(fun (s : snapshot) -> s.spans)
+    |> Jsont.Object.mem "counts" (Jsont.list Summary.count) ~enc:(fun (s : snapshot) -> s.counts)
+    |> Jsont.Object.mem "open_spans" (Jsont.list open_span) ~enc:(fun (s : snapshot) ->
+        s.open_spans)
+    |> Jsont.Object.finish
+end

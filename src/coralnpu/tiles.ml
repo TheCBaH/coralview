@@ -180,3 +180,22 @@ let text (ctx : Text.ctx) events (s : Summary.t) =
       Printf.printf "  %s: %d writes, cycles %d-%d\n"
         (match pc with Some pc -> Printf.sprintf "pc %08x" pc | None -> "tile loads ")
         c first last)
+
+module Accumulator = struct
+  type event = Event.t
+  type snapshot = Summary.t
+  type t = { mutable writes : int; mutable file : Bits.t TM.t }
+
+  let create () = { writes = 0; file = TM.empty }
+
+  let add t (Event.Tile_write w) =
+    let old =
+      match TM.find_opt (w.tile, w.sub) t.file with
+      | Some b -> b
+      | None -> Bits.zero (Bits.width w.data)
+    in
+    t.file <- TM.add (w.tile, w.sub) (merge old w.mask w.data) t.file;
+    t.writes <- t.writes + 1
+
+  let snapshot t = { Summary.writes = t.writes; file = TM.bindings t.file }
+end

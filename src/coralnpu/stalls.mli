@@ -76,3 +76,21 @@ val text : Text.ctx -> Event.t list -> Summary.t -> unit
 
 val perfetto : Text.ctx -> Event.t list -> Summary.t -> Perfetto.process
 (** A track per lane with a slice per span, named by its reason. *)
+
+(** The cycles of the spans received. The spans still running at the end arrive last, open, and their
+    extent is not in the events: a snapshot lists them apart from the totals instead of guessing it. *)
+module Accumulator : sig
+  type open_span = { lane : int; reason : reason; start : int }
+
+  type snapshot = {
+    spans : int;  (** Closed spans. *)
+    counts : Summary.count list;
+        (** Cycles of the closed spans by lane, then reason: the {!Summary} counts less the cycles of
+            the open spans. *)
+    open_spans : open_span list;  (** In arrival order. *)
+  }
+
+  include Accumulator.ACCUMULATOR with type event = Event.t and type snapshot := snapshot
+
+  val snapshot_jsont : snapshot Jsont.t
+end
