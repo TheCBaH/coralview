@@ -44,7 +44,7 @@ let driver definition spec =
           | Error _ -> Error (Printf.sprintf "no instruction form for %08x" word))
   in
   let assemble text =
-    let source = Foundation.Span.source ~name:"coral.s" ~contents:text in
+    let source = Foundation.Span.source ~name:"coral.s" ~contents:(".text\n" ^ text) in
     let features = Option.some spec in
     match D.assemble ?features ~unit_name:"coral" ~source () with
     | Error e -> Error (render e)
@@ -55,8 +55,7 @@ let driver definition spec =
         in
         match Image.bind_image laid_out ~addresses with
         | Error e -> Error (render e)
-        | Ok img -> (
-            match img.Image.segments with s :: _ -> Ok s.Image.bytes | [] -> Ok ""))
+        | Ok img -> ( match img.Image.segments with s :: _ -> Ok s.Image.bytes | [] -> Ok ""))
   in
   ((module D : Target_intf.Target.DRIVER), instruction, assemble)
 

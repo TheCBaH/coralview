@@ -41,7 +41,8 @@ module Config : sig
   type t = {
     gap : int;  (** Idle cycles that end a burst. *)
     peak_window : int;  (** Cycles over which the peak rate is taken. *)
-    features : string option;  (** Rivet's feature spec, as {!Coral_isa.Rivet_decode.create} takes. *)
+    features : string option;
+        (** Rivet's feature spec, as {!Coral_isa.Rivet_decode.create} takes. *)
   }
 
   val default : t

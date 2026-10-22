@@ -340,7 +340,9 @@ let build (cfg : Config.t) (c : _ Core.t) =
       match Option.bind o.pc (fun pc -> IM.find_opt pc words) with
       | None -> None
       | Some w -> (
-          match Coral_isa.Rivet_decode.instruction rivet w with Ok i -> Some i.mnemonic | Error _ -> None)
+          match Coral_isa.Rivet_decode.instruction rivet w with
+          | Ok i -> Some i.mnemonic
+          | Error _ -> None)
     in
     let kind = classify o.unit mnemonic in
     let elements =

@@ -180,7 +180,6 @@ let definition =
      Result.map_error (String.concat "; ") (Ext.make ~xlen:32 def))
 
 let definition () = Lazy.force definition
-
 let patterns = [ 0L; -1L; 0x5555_5555L; 0xaaaa_aaaaL ]
 
 let samples () =

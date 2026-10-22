@@ -37,7 +37,7 @@ let run () =
   let fail fmt = Printf.ksprintf (fun s -> failures := s :: !failures) fmt in
   (match Rivet_decode.create () with
   | Error e -> fail "create: %s" e
-  | Ok d ->
+  | Ok d -> (
       let check ?mnemonic word =
         incr checked;
         match Rivet_decode.decode d word with
@@ -49,8 +49,7 @@ let run () =
             | _ -> ());
             match Rivet_decode.assemble d (text ^ "\n") with
             | Error e -> fail "%08x: %S does not assemble: %s" word text e
-            | Ok b ->
-                if b <> bytes word then fail "%08x: %S assembles to %s" word text (hex b))
+            | Ok b -> if b <> bytes word then fail "%08x: %S assembles to %s" word text (hex b))
       in
       (match Coral_zvt.samples () with
       | Error e -> fail "samples: %s" e
@@ -65,7 +64,7 @@ let run () =
       (match Rivet_decode.decode d 0x72007007 with
       | Ok t -> fail "72007007: decodes as %S, but the RTL traps on vtle64" t
       | Error _ -> ());
-      (match Rivet_decode.assemble d "vtle64 x11, 0(x10)\n" with
+      match Rivet_decode.assemble d "vtle64 x11, 0(x10)\n" with
       | Ok b -> fail "vtle64 assembles to %s" (hex b)
       | Error _ -> ()));
   (match Rivet_decode.create ~features:"none,+m,+zve32x" () with
