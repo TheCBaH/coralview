@@ -57,5 +57,7 @@
    (>= 4.14))
   rivet
   (jsont
-   (>= 0.4.0))
-  bytesrw))
+   (and
+    :build
+    (>= 0.4.0)))
+  (bytesrw :build)))

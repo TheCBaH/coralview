@@ -4,45 +4,26 @@
 
 module Row = Riscv_family_encode.Riscv_table_row
 module Ext = Riscv_family_encode.Extensions
-module Smap = Map.Make (String)
 
 let feature = "xcoralzvt"
 
 (* RTL decodes nf 0..2 only; MPACT M4 also decodes the 64-bit forms. *)
 let excluded = [ "vtle64"; "vtse64" ]
 
-type instruction = {
+type instruction = Zvt_rows.instruction = {
   mnemonic : string;
   mask : string;
   match_ : string;
-  fields : int list Smap.t;
+  fields : (string * int list) list;
   disasm : string;
   operands : string list;
 }
-
-let obj kind f = Jsont.Object.map ~kind f
-let finish m = Jsont.Object.(finish (skip_unknown m))
-let kind = obj "zvt record" Fun.id |> Jsont.Object.mem "record" Jsont.string |> finish
-
-let provenance =
-  obj "zvt provenance" Fun.id |> Jsont.Object.mem "schema_version" Jsont.int |> finish
-
-let instruction =
-  obj "zvt instruction" (fun mnemonic mask match_ fields disasm operands ->
-      { mnemonic; mask; match_; fields; disasm; operands })
-  |> Jsont.Object.mem "mnemonic" Jsont.string
-  |> Jsont.Object.mem "mask" Jsont.string
-  |> Jsont.Object.mem "match" Jsont.string
-  |> Jsont.Object.mem "fields" (Jsont.Object.as_string_map Jsont.(list int))
-  |> Jsont.Object.mem "disasm" Jsont.string
-  |> Jsont.Object.mem "operands" Jsont.(list string)
-  |> finish
 
 let ( let* ) = Result.bind
 
 (* A field's least significant bit; MPACT lists its bits most significant first. *)
 let lsb i name =
-  match Smap.find_opt name i.fields with
+  match List.assoc_opt name i.fields with
   | Some (_ :: _ as bits) ->
       let low = List.nth bits (List.length bits - 1) in
       if List.mapi (fun k b -> b - (List.length bits - 1 - k)) bits |> List.for_all (( = ) low) then
@@ -134,42 +115,17 @@ let component mnemonics : Target_component.t =
         mnemonics;
   }
 
-let lines text = String.split_on_char '\n' text |> List.filter (fun l -> String.trim l <> "")
-let decode codec line = Jsont_bytesrw.decode_string ~file:"zvt.jsonl" codec line
-
-let instructions text =
-  let rec go acc = function
-    | [] -> Ok (List.rev acc)
-    | line :: rest -> (
-        let* record = decode kind line in
-        match record with
-        | "instruction" ->
-            let* i = decode instruction line in
-            go (if List.mem i.mnemonic excluded then acc else i :: acc) rest
-        | r -> Error ("zvt.jsonl: unexpected record " ^ r))
-  in
-  match lines text with
-  | first :: rest -> (
-      let* record = decode kind first in
-      let* version =
-        if record = "provenance" then decode provenance first
-        else Error ("zvt.jsonl: the first record is " ^ record ^ ", not provenance")
-      in
-      match version with
-      | 1 -> go [] rest
-      | v -> Error (Printf.sprintf "zvt.jsonl: schema version %d, expected 1" v))
-  | [] -> Error "zvt.jsonl: empty"
+let instructions = List.filter (fun i -> not (List.mem i.mnemonic excluded)) Zvt_rows.instructions
 
 let definition =
   lazy
-    (let* is = Result.map_error (fun e -> "zvt.jsonl: " ^ e) (instructions Zvt_jsonl.text) in
-     let* rows =
+    (let* rows =
        List.fold_right
          (fun i acc ->
            let* r = row i in
            let* acc = acc in
            Ok (r :: acc))
-         is (Ok [])
+         instructions (Ok [])
      in
      let def : Ext.definition =
        {
@@ -184,7 +140,6 @@ let patterns = [ 0L; -1L; 0x5555_5555L; 0xaaaa_aaaaL ]
 
 let samples () =
   let* (_ : Ext.Validated.t) = definition () in
-  let* is = Result.map_error (fun e -> "zvt.jsonl: " ^ e) (instructions Zvt_jsonl.text) in
   List.fold_right
     (fun i acc ->
       let* r = row i in
@@ -192,4 +147,4 @@ let samples () =
       let free = List.fold_left (fun m o -> Int64.logor m (operand_mask o)) 0L r.Row.operands in
       let word p = Int64.to_int (Int64.logor r.Row.match_ (Int64.logand p free)) in
       Ok (List.map (fun p -> (r.Row.mnemonic, word p)) patterns @ acc))
-    is (Ok [])
+    instructions (Ok [])
