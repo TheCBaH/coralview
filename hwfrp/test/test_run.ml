@@ -4,17 +4,18 @@ open Hwfrp
 let vcd =
   let b = Buffer.create 256 in
   Buffer.add_string b
-    "$timescale 1ps $end\n\
-     $scope module top $end\n\
-     $var wire 1 ! clk $end\n\
-     $var wire 4 \" d $end\n\
-     $upscope $end\n\
-     $enddefinitions $end\n\
-     #0\n\
-     $dumpvars\n\
-     0!\n\
-     b0 \"\n\
-     $end\n";
+    {|$timescale 1ps $end
+$scope module top $end
+$var wire 1 ! clk $end
+$var wire 4 " d $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+0!
+b0 "
+$end
+|};
   for i = 1 to 6 do
     Printf.bprintf b "#%d\n1!\n#%d\n0!\nb%s \"\n"
       ((2 * i) - 1)

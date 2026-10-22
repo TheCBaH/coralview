@@ -745,14 +745,16 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
     (fun f ->
       let oc = if f = "-" then stdout else open_out f in
       Printf.fprintf oc
-        "# coralview report\n\n\
-         | | |\n\
-         |---|---|\n\
-         | platform | %s |\n\
-         | trace | %s |\n\
-         | root | %s |\n\
-         | cycles | %d |\n\
-         | models | %s |\n"
+        {|# coralview report
+
+| | |
+|---|---|
+| platform | %s |
+| trace | %s |
+| root | %s |
+| cycles | %d |
+| models | %s |
+|}
         p.name path ctx.root stats.ticks.(0) (String.concat ", " models);
       List.iter
         (fun (_, _, section) ->

@@ -1,20 +1,24 @@
 open Hwfrp
 open Coralview
 
+(* The header both traces share: one dispatch lane on the core. *)
+let header =
+  {|$timescale 1ps $end
+$scope module TOP $end
+$scope module core $end
+$var wire 1 c io_aclk $end
+$var wire 1 f io_debug_dispatch_0_instFire $end
+$var wire 32 a io_debug_dispatch_0_instAddr $end
+$var wire 32 i io_debug_dispatch_0_instInst $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+|}
+
 (* One dispatch lane; it fires at cycles 1, 2 and 4 with PCs 0x10, 0x14 and 0x18. *)
 let vcd =
   let b = Buffer.create 1024 in
-  Buffer.add_string b
-    "$timescale 1ps $end\n\
-     $scope module TOP $end\n\
-     $scope module core $end\n\
-     $var wire 1 c io_aclk $end\n\
-     $var wire 1 f io_debug_dispatch_0_instFire $end\n\
-     $var wire 32 a io_debug_dispatch_0_instAddr $end\n\
-     $var wire 32 i io_debug_dispatch_0_instInst $end\n\
-     $upscope $end\n\
-     $upscope $end\n\
-     $enddefinitions $end\n";
+  Buffer.add_string b header;
   let fire = [ (1, 0x10); (2, 0x14); (4, 0x18) ] in
   for k = 0 to 5 do
     let f, pc = match List.assoc_opt k fire with Some pc -> (1, pc) | None -> (0, 0) in
@@ -167,17 +171,7 @@ let%expect_test "JSONL" =
 
 let long_vcd n =
   let b = Buffer.create (64 * n) in
-  Buffer.add_string b
-    "$timescale 1ps $end\n\
-     $scope module TOP $end\n\
-     $scope module core $end\n\
-     $var wire 1 c io_aclk $end\n\
-     $var wire 1 f io_debug_dispatch_0_instFire $end\n\
-     $var wire 32 a io_debug_dispatch_0_instAddr $end\n\
-     $var wire 32 i io_debug_dispatch_0_instInst $end\n\
-     $upscope $end\n\
-     $upscope $end\n\
-     $enddefinitions $end\n";
+  Buffer.add_string b header;
   for k = 0 to n - 1 do
     Printf.bprintf b "#%d\n1c\n#%d\n0c\n1f\nb%s a\nb10011 i\n" (2 * k)
       ((2 * k) + 1)
