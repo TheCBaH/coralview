@@ -57,9 +57,7 @@ let () =
     | first :: rest ->
         let record = decode kind first in
         if record <> "provenance" then fail "the first record is %s, not provenance" record;
-        (match decode provenance first with
-        | 1 -> ()
-        | v -> fail "schema version %d, expected 1" v);
+        (match decode provenance first with 1 -> () | v -> fail "schema version %d, expected 1" v);
         List.map
           (fun line ->
             match decode kind line with
@@ -87,6 +85,7 @@ let () =
         (list
            (fun (n, bits) -> Printf.sprintf "(%S, %s)" n (list string_of_int bits))
            (Smap.bindings i.fields))
-        i.disasm (list (Printf.sprintf "%S") i.operands))
+        i.disasm
+        (list (Printf.sprintf "%S") i.operands))
     instructions;
   print_string "  ]\n"

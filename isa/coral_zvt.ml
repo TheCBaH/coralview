@@ -115,8 +115,7 @@ let component mnemonics : Target_component.t =
         mnemonics;
   }
 
-let instructions =
-  List.filter (fun i -> not (List.mem i.mnemonic excluded)) Zvt_rows.instructions
+let instructions = List.filter (fun i -> not (List.mem i.mnemonic excluded)) Zvt_rows.instructions
 
 let definition =
   lazy
