@@ -1,21 +1,16 @@
 (rule
- (target zvt_jsonl.ml)
+ (target zvt_rows.ml)
  (deps zvt.jsonl)
  (action
   (with-stdout-to
    %{target}
-   (progn
-    (echo "let text = {zvt|")
-    (cat %{deps})
-    (echo "|zvt}\n")))))
+   (run gen/gen.exe %{deps}))))
 
 (library
  (name coral_isa)
  (public_name coral-isa)
  (modules :standard \ check)
  (libraries
-  jsont
-  jsont.bytesrw
   rivet.driver
   rivet.image
   rivet.riscv_family
