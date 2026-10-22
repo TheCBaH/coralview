@@ -294,7 +294,7 @@ let add (cfg : Config.t) (s, out) (o : op) =
 let build (cfg : Config.t) (c : _ Core.t) =
   let d = Core.block c "v_dispatch" c.platform.blocks.v_dispatch in
   let rivet =
-    match Rivet_decode.create ?features:cfg.features () with
+    match Coral_isa.Rivet_decode.create ?features:cfg.features () with
     | Ok r -> r
     | Error e -> invalid_arg ("ops: " ^ e)
   in
@@ -340,7 +340,9 @@ let build (cfg : Config.t) (c : _ Core.t) =
       match Option.bind o.pc (fun pc -> IM.find_opt pc words) with
       | None -> None
       | Some w -> (
-          match Rivet_decode.instruction rivet w with Ok i -> Some i.mnemonic | Error _ -> None)
+          match Coral_isa.Rivet_decode.instruction rivet w with
+          | Ok i -> Some i.mnemonic
+          | Error _ -> None)
     in
     let kind = classify o.unit mnemonic in
     let elements =

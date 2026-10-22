@@ -10,7 +10,10 @@ type t = {
   cache : (int, string) Hashtbl.t;
   instruction : int -> (instruction, string) result;
   decoded : (int, (instruction, string) result) Hashtbl.t;
+  assemble : string -> (string, string) result;
 }
+
+let render e = String.trim (Foundation.Diagnostic.render_all (Foundation.Diag.diagnostics e))
 
 let word_bytes word =
   let b = Bytes.create 4 in
@@ -40,7 +43,21 @@ let driver definition spec =
               Ok { mnemonic = C.Opcode.name i.op; feature }
           | Error _ -> Error (Printf.sprintf "no instruction form for %08x" word))
   in
-  ((module D : Target_intf.Target.DRIVER), instruction)
+  let assemble text =
+    let source = Foundation.Span.source ~name:"coral.s" ~contents:(".text\n" ^ text) in
+    let features = Option.some spec in
+    match D.assemble ?features ~unit_name:"coral" ~source () with
+    | Error e -> Error (render e)
+    | Ok laid_out -> (
+        let plan = Image.plan_of laid_out in
+        let addresses =
+          List.map (fun (s : Image.segment_plan) -> (s.Image.seg_name, 0L)) plan.Image.segments
+        in
+        match Image.bind_image laid_out ~addresses with
+        | Error e -> Error (render e)
+        | Ok img -> ( match img.Image.segments with s :: _ -> Ok s.Image.bytes | [] -> Ok ""))
+  in
+  ((module D : Target_intf.Target.DRIVER), instruction, assemble)
 
 let create ?(features = "+" ^ Coral_zvt.feature) () =
   match Coral_zvt.definition () with
@@ -49,7 +66,7 @@ let create ?(features = "+" ^ Coral_zvt.feature) () =
       match Target_config.parse_spec features with
       | Error e -> Error e
       | Ok spec ->
-          let driver, instruction = driver definition spec in
+          let driver, instruction, assemble = driver definition spec in
           Ok
             {
               driver;
@@ -57,14 +74,14 @@ let create ?(features = "+" ^ Coral_zvt.feature) () =
               cache = Hashtbl.create 256;
               instruction;
               decoded = Hashtbl.create 256;
+              assemble;
             })
 
 let decode t word =
   let (module D) = t.driver in
   match D.dump_disasm_canonical ?features:t.features ~address:0L (word_bytes word) with
   | Ok s -> Ok (String.trim s)
-  | Error e ->
-      Error (String.trim (Foundation.Diagnostic.render_all (Foundation.Diag.diagnostics e)))
+  | Error e -> Error (render e)
 
 let disasm t word =
   match Hashtbl.find_opt t.cache word with
@@ -83,3 +100,5 @@ let instruction t word =
       let r = t.instruction word in
       Hashtbl.add t.decoded word r;
       r
+
+let assemble t text = t.assemble text

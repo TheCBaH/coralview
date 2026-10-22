@@ -212,7 +212,7 @@ The columns are:
 3. PC;
 4. word;
 5. disassembly by Rivet, with Coral's Zvt matrix instructions from the
-   MPACT-derived `src/riscv/zvt.jsonl`; `.word` where Rivet has no form,
+   MPACT-derived `isa/zvt.jsonl`; `.word` where Rivet has no form,
    such as the CSR instructions and Coral's `mpause`;
 6. destination and value;
 7. dispatch→retire cycles;

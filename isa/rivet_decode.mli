@@ -23,3 +23,7 @@ val disasm : t -> int -> string
 
 val instruction : t -> int -> (instruction, string) result
 (** The word as Rivet decodes it under the features. *)
+
+val assemble : t -> string -> (string, string) result
+(** The little-endian bytes of the assembly text, assembled at address 0 under the features, or
+    Rivet's diagnostic. The text is a whole source: one instruction per line. *)

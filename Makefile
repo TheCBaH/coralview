@@ -3,7 +3,7 @@ DUNE = $(OPAM_EXEC) dune
 CORALNPU ?= /opt/coralnpu
 export RIVET_EXTERNAL_DEPS = true
 
-.PHONY: deps versions build test fmt fmt-check hwfrp-boundary smoke zvt-check ci clean
+.PHONY: deps versions build test fmt fmt-check hwfrp-boundary isa-check smoke zvt-check ci clean
 
 # rivet is a dependency of the package, for installs from opam. In this tree dune builds the vendored copy,
 # and an installed one next to it makes dune fail with "rivet.fmt is already defined".
@@ -41,6 +41,10 @@ hwfrp-boundary:
 	test -n "$$deps"; \
 	bad=$$(for d in $$deps; do case " $(HWFRP_DEPS) " in *" $$d "*) ;; *) echo $$d ;; esac; done); \
 	if [ -n "$$bad" ]; then echo "hwfrp must not depend on:" $$bad; exit 1; fi
+
+# Zvt words decode and assemble back to themselves; the same program runs against the opam install.
+isa-check:
+	$(DUNE) exec -- coral-isa-check
 
 VME_MODELS = commits stalls memory axi registers tiles ops traps vectors
 
@@ -97,12 +101,12 @@ smoke: build
 # The committed Zvt table must be the one the image's emulator archive ships.
 zvt-check:
 	if [ -e $(CORALNPU)/emulators/isa/zvt.jsonl ]; then \
-	  cmp src/riscv/zvt.jsonl $(CORALNPU)/emulators/isa/zvt.jsonl; \
+	  cmp isa/zvt.jsonl $(CORALNPU)/emulators/isa/zvt.jsonl; \
 	else \
 	  echo "release $$(cat $(CORALNPU)/RELEASE) has no isa/zvt.jsonl; not compared"; \
 	fi
 
-ci: fmt-check build test hwfrp-boundary zvt-check smoke
+ci: fmt-check build test hwfrp-boundary isa-check zvt-check smoke
 
 clean:
 	$(DUNE) clean

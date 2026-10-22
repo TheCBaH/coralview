@@ -12,3 +12,7 @@ val feature : string
 
 val definition : unit -> (Riscv_family_encode.Extensions.Validated.t, string) result
 (** The standard RV32 extensions with the Zvt rows, validated by Rivet. *)
+
+val samples : unit -> ((string * int) list, string) result
+(** For each instruction, its mnemonic and four words of it: the fixed bits with every operand field
+    zero, all ones, and two alternating patterns. Words as 32-bit integers, for round-trip tests. *)

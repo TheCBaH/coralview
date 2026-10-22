@@ -22,6 +22,7 @@
   (ocaml
    (>= 4.14))
   hwfrp
+  coral-isa
   ovcd
   fst
   err_trace
@@ -45,3 +46,16 @@
   ovcd
   (ppx_expect :with-test)
   (qcheck-core :with-test)))
+
+(package
+ (name coral-isa)
+ (synopsis "Coral NPU's Zvt matrix instructions for Rivet")
+ (description
+  "Coral NPU's Zvt (VME) instructions as a Rivet vendor extension: RV32 disassembly and assembly with the matrix instructions, built from the encodings exported from Coral's MPACT decoder, and a round-trip check.")
+ (depends
+  (ocaml
+   (>= 4.14))
+  rivet
+  (jsont
+   (>= 0.4.0))
+  bytesrw))

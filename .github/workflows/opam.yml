@@ -49,7 +49,15 @@ jobs:
         # Same commit as the devcontainer's pin-packages: zipc 0.2.0 mis-reads zlib streams at an offset.
         opam pin add -n -y zipc git+https://github.com/dbuenzli/zipc.git#076e6168a222dfe46b7ba598dc87a9a2e58b2569
         opam pin add -n -y hwfrp "$url"
+        opam pin add -n -y coral-isa "$url"
         opam pin add -n -y coralview "$url"
+    # The ISA package stands alone: Rivet and Coral's Zvt rows, none of the waveform stack.
+    - name: install coral-isa
+      run: opam install -y coral-isa
+    - name: coral-isa does not pull in the waveform stack
+      run: "! opam list --installed --silent ovcd"
+    - name: Zvt round trip through the installed Rivet
+      run: opam exec -- coral-isa-check
     - name: install deps
       run: opam install -y coralview --deps-only
     - name: install

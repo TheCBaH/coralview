@@ -11,10 +11,4 @@
   unix
   jsont
   jsont.bytesrw
-  rivet.driver
-  rivet.riscv_family
-  rivet.riscv_family_encode
-  rivet.riscv32_encode
-  rivet.target_intf
-  rivet.target_features
-  rivet.foundation))
+  coral-isa))
