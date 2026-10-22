@@ -1,0 +1,38 @@
+(rule
+ (target zvt_jsonl.ml)
+ (deps zvt.jsonl)
+ (action
+  (with-stdout-to
+   %{target}
+   (progn
+    (echo "let text = {zvt|")
+    (cat %{deps})
+    (echo "|zvt}\n")))))
+
+(library
+ (name coral_isa)
+ (public_name coral-isa)
+ (modules :standard \ check)
+ (libraries
+  jsont
+  jsont.bytesrw
+  rivet.driver
+  rivet.image
+  rivet.riscv_family
+  rivet.riscv_family_encode
+  rivet.riscv32_encode
+  rivet.target_intf
+  rivet.target_features
+  rivet.foundation))
+
+(executable
+ (name check)
+ (public_name coral-isa-check)
+ (package coral-isa)
+ (modules check)
+ (libraries coral_isa))
+
+(rule
+ (alias runtest)
+ (action
+  (run %{exe:check.exe})))

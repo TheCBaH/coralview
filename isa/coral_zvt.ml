@@ -180,3 +180,17 @@ let definition =
      Result.map_error (String.concat "; ") (Ext.make ~xlen:32 def))
 
 let definition () = Lazy.force definition
+
+let patterns = [ 0L; -1L; 0x5555_5555L; 0xaaaa_aaaaL ]
+
+let samples () =
+  let* (_ : Ext.Validated.t) = definition () in
+  let* is = Result.map_error (fun e -> "zvt.jsonl: " ^ e) (instructions Zvt_jsonl.text) in
+  List.fold_right
+    (fun i acc ->
+      let* r = row i in
+      let* acc = acc in
+      let free = List.fold_left (fun m o -> Int64.logor m (operand_mask o)) 0L r.Row.operands in
+      let word p = Int64.to_int (Int64.logor r.Row.match_ (Int64.logand p free)) in
+      Ok (List.map (fun p -> (r.Row.mnemonic, word p)) patterns @ acc))
+    is (Ok [])

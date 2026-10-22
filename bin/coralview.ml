@@ -39,7 +39,7 @@ let guard (p : Platform.t) f =
       fail ~code:2 (Printf.sprintf "platform %s describes no %s block" platform block)
 
 let decoder features =
-  match Rivet_decode.create ?features () with
+  match Coral_isa.Rivet_decode.create ?features () with
   | Ok d -> d
   | Error e ->
       prerr_endline ("invalid --features: " ^ e);
@@ -49,7 +49,7 @@ let decode features words =
   let d = decoder features in
   List.iter
     (fun w ->
-      match Rivet_decode.decode d (int_of_string ("0x" ^ w)) with
+      match Coral_isa.Rivet_decode.decode d (int_of_string ("0x" ^ w)) with
       | Ok s -> Printf.printf "%s  %s\n" w s
       | Error e -> Printf.printf "%s  error: %s\n" w e)
     words
@@ -113,7 +113,7 @@ let ctx p ?(features = None) ?(region = Region.none) ?(window = Text.everything)
     ?(profile = 0) () =
   {
     Text.root = Vcd_types.Reference.to_string (Platform.root p);
-    disasm = Rivet_decode.disasm (decoder features);
+    disasm = Coral_isa.Rivet_decode.disasm (decoder features);
     region;
     window;
     limit;
