@@ -23,6 +23,15 @@ val open_file : ?select:bool -> string -> t
     only the changes of the signals tracked by the time {!events} is called are read. *)
 
 val of_string : ?select:bool -> string -> t
+
+val of_channel : ?select:bool -> in_channel -> t
+(** A VCD stream, read as it arrives. Strict parsing (see [Vcd.parse_string]): a header that does not reach
+    [$enddefinitions], and, when the events are consumed to the end, an open dump block or a last byte that is not
+    a newline, raise [Vcd.Parse_error]. A cut at a record boundary is a valid prefix and is not detected. FST is not
+    accepted. *)
+
+val open_input : ?select:bool -> string -> t
+(** {!open_file}, or {!of_channel} on standard input for the path ["-"]. *)
 val format : t -> Vcd_fst.format
 val header : t -> Vcd_ast.header
 val resolver : t -> Vcd.Resolver.t

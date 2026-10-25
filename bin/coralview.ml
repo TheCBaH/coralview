@@ -94,7 +94,7 @@ let analyze (type k e s)
     (cfg : k) (p : Platform.t) ?(status = fun _ -> 0) ~format ~(ctx : Text.ctx)
     (text : Text.ctx -> e list -> s -> unit) path =
   let pulled =
-    guard p (fun () -> Analysis.pull (module A) cfg p (Hwfrp.Trace.open_file ~select:!select path))
+    guard p (fun () -> Analysis.pull (module A) cfg p (Hwfrp.Trace.open_input ~select:!select path))
   in
   (match format with
   | `Text -> text ctx (List.of_seq pulled.events) (pulled.summary ())
@@ -123,7 +123,7 @@ let ctx p ?(features = None) ?(region = Region.none) ?(window = Text.everything)
 let signals platform ~raw ~format ~changes ~cycles:(from_cycle, to_cycle)
     ~times:(from_time, to_time) path paths =
   let jsonl = format = `Jsonl in
-  let tr = Hwfrp.Trace.open_file ~select:!select path in
+  let tr = Hwfrp.Trace.open_input ~select:!select path in
   (try Signals.require tr paths
    with Signals.Missing p -> fail ~code:3 ("no signal " ^ p ^ " in the trace"));
   let phase, run =
@@ -619,7 +619,7 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
     ctx p ~features:o.o_features ~region:o.o_region ~window:o.o_window ~limit:o.o_limit
       ~profile:o.o_profile ()
   in
-  let tr = Hwfrp.Trace.open_file ~select:!select path in
+  let tr = Hwfrp.Trace.open_input ~select:!select path in
   let (Core.Any c) = Core.bind p tr ~model:"run" in
   let finishers =
     guard p (fun () ->
@@ -1098,8 +1098,19 @@ let commands =
 
 let () =
   exit
-    (Cmd.eval
-       (Cmd.group
-          (Cmd.info "coralview" ~exits
-             ~doc:"Observe the Coral NPU from the waveforms of its RTL simulators")
-          commands))
+    (match
+       Cmd.eval ~catch:false
+         (Cmd.group
+            (Cmd.info "coralview" ~exits
+               ~doc:"Observe the Coral NPU from the waveforms of its RTL simulators")
+            commands)
+     with
+    | code -> code
+    | exception Vcd.Parse_error msg ->
+        flush stdout;
+        prerr_endline ("coralview: " ^ msg);
+        1
+    | exception e ->
+        flush stdout;
+        prerr_endline ("coralview: internal error, uncaught exception:\n" ^ Printexc.to_string e);
+        Cmd.Exit.internal_error)

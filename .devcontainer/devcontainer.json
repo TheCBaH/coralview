@@ -17,7 +17,7 @@
             // CI sets OCAML_VERSION per matrix leg.
             "version": "${localEnv:OCAML_VERSION:4.14.4}",
             // Same commits as coralview.opam's pin-depends, so make deps finds them installed.
-            "pin-packages": "zipc git+https://github.com/dbuenzli/zipc.git#076e6168a222dfe46b7ba598dc87a9a2e58b2569,unlz4 git+https://github.com/TheCBaH/ocaml-unlz4.git#f5446abf9a4ce4beb92b02ee958f345a6c8171bd,fst git+https://github.com/TheCBaH/ocaml-fst.git#32d68870539fb7422c86e5d8fc62db8568b173a7,ovcd git+https://github.com/TheCBaH/ovcd.git#74864a2054822dfdb051134e07ef2c7427bfb7bf,err_trace git+https://github.com/TheCBaH/err_trace.git#1c7a6ba94c81c70008c594c709e7d37feb38f435",
+            "pin-packages": "zipc git+https://github.com/dbuenzli/zipc.git#076e6168a222dfe46b7ba598dc87a9a2e58b2569,unlz4 git+https://github.com/TheCBaH/ocaml-unlz4.git#f5446abf9a4ce4beb92b02ee958f345a6c8171bd,fst git+https://github.com/TheCBaH/ocaml-fst.git#32d68870539fb7422c86e5d8fc62db8568b173a7,ovcd git+https://github.com/TheCBaH/ovcd.git#4f4c601a532bdc2d20fc9595f4a053ea5173070d,err_trace git+https://github.com/TheCBaH/err_trace.git#1c7a6ba94c81c70008c594c709e7d37feb38f435",
             "packages": "bytesrw cmdliner dune err_trace fmt jsont menhir ocamlformat#0.28.1 ovcd ppx_expect ppx_inline_test qcheck-core re"
         }
     },
