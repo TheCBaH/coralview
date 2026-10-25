@@ -85,7 +85,19 @@ let%expect_test "plan: clock, enable, aliases, direct tracking" =
         (Reference.to_string (List.hd e.aliases))
         (String.concat "; " (List.map (fun (m, p) -> m ^ "/" ^ p) e.provenance)))
     (Capture.entries p);
-  [%expect {||}]
+  [%expect {|
+    hwfrp-capture-plan 1
+    signal 8 wire m1	top	core.x	a
+    alias	top	core.x	a_alias
+    signal 4 wire m1	top	core.x	b
+    signal 1 wire m1	top	clk
+    signal 1 wire m1	top	en
+    signal 1 wire m1	top	other	z
+    top.core.x.a: m1/use a
+    top.core.x.b: m1/use b
+    top.clk: m1/clock
+    top.en: m1/clock
+    top.other.z: |}]
 
 let%expect_test "plan: events pulled" =
   let tr, net = graph vcd "m1" [ "a" ] in
@@ -96,7 +108,9 @@ let%expect_test "plan: events pulled" =
   (match Capture.plan ~origin:"a,b" (Trace.of_string vcd) [] with
   | _ -> print_endline "planned"
   | exception Invalid_argument m -> print_endline m);
-  [%expect {||}]
+  [%expect {|
+    Capture.plan: the trace's events were pulled
+    Capture.plan: invalid origin a,b |}]
 
 let%expect_test "union: origins merge, conflicts fail" =
   let m1 = plan_of vcd "m1" [ "a"; "b" ] and m2 = plan_of vcd "m2" [ "a"; "flag" ] in
@@ -116,7 +130,22 @@ let%expect_test "union: origins merge, conflicts fail" =
   print_endline "-- different type";
   show_union
     (Capture.union [ m1; plan_of (replace_all ~sub:"wire 4 $" ~by:"reg 4 $" vcd) "m3" [ "b" ] ]);
-  [%expect {||}]
+  [%expect {|
+    hwfrp-capture-plan 1
+    signal 8 wire m1,m2	top	core.x	a
+    alias	top	core.x	a_alias
+    signal 4 wire m1	top	core.x	b
+    signal 1 wire m1,m2	top	clk
+    signal 1 wire m1,m2	top	en
+    signal 1 wire m2	top	core.x	flag
+    -- wider a
+    error: top.core.x.a: width 8 against 16
+    error: top.core.x.a_alias: width 8 against 16
+    -- a_alias no longer an alias
+    error: top.core.x.a: different alias group
+    error: top.core.x.a_alias: different alias group
+    -- different type
+    error: top.core.x.b: type wire against reg |}]
 
 let%expect_test "check" =
   let m1 = plan_of vcd "m1" [ "a"; "b" ] and m2 = plan_of vcd "m2" [ "a"; "flag" ] in
@@ -138,7 +167,27 @@ let%expect_test "check" =
   run "other type" both [ "m1" ] (replace_all ~sub:"wire 4 $" ~by:"reg 4 $" vcd) [ "a"; "b" ];
   run "signal absent" both [ "m1" ] (replace_all ~sub:"$var wire 4 $ b $end\n" ~by:"" vcd) [ "a" ];
   run "unknown origin" both [ "m1"; "nope" ] vcd [ "a"; "b" ];
-  [%expect {||}]
+  [%expect {|
+    -- same
+    ok
+    -- subset ignores the other origin
+    ok
+    -- both origins
+    ok
+    -- binding dropped
+    top.core.x.b: planned but not tracked
+    -- extra binding
+    top.core.x.flag: tracked but not planned
+    -- narrower width
+    top.core.x.a: width 4, planned 8
+    -- changed alias group
+    top.core.x.a: alias group split over several signals
+    -- other type
+    top.core.x.b: type reg, planned wire
+    -- signal absent
+    top.core.x.b: missing
+    -- unknown origin
+    origin nope is not in the plan |}]
 
 let%expect_test "plan file" =
   let p = Result.get_ok (Capture.union [ plan_of vcd "m1" [ "a"; "b" ] ]) in
@@ -156,7 +205,15 @@ let%expect_test "plan file" =
       ("no final newline", "hwfrp-capture-plan 1\nsignal 1 wire m\ttop\tclk");
       ("version", "hwfrp-capture-plan 2\n");
     ];
-  [%expect {||}]
+  [%expect {|
+    round trip true
+    no header: line 1: expected hwfrp-capture-plan 1
+    unknown line: line 2: unknown line bogus
+    alias first: line 2: alias before any signal
+    bad width: line 2: bad width 0
+    duplicate: line 3: duplicate path top.clk
+    no final newline: line 2: no final newline
+    version: line 1: expected hwfrp-capture-plan 1 |}]
 
 (* Random traces with aliases, dotted scope names and several widths and types. *)
 type var = { scope : int; width : int; ty : int; id : int }

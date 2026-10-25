@@ -229,6 +229,9 @@ let check p ~origins:wanted trace =
       | _ :: _ as missing -> List.iter (fun (r, _) -> err "%s: missing" (show r)) missing
       | [] ->
           let entries = List.filter_map snd resolved in
+          List.iter
+            (fun x -> Hashtbl.replace matched (ID.to_string (Vcd.Resolver.entry_id x)) ())
+            entries;
           let id = Vcd.Resolver.entry_id (List.hd entries) in
           if not (List.for_all (fun x -> ID.equal (Vcd.Resolver.entry_id x) id) entries) then
             err "%s: alias group split over several signals" (show first)
@@ -244,9 +247,7 @@ let check p ~origins:wanted trace =
                   (type_name (Trace.var_type trace entry))
                   (type_name e.var_type)
               else
-                let key = ID.to_string id in
-                Hashtbl.replace matched key ();
-                if not (Hashtbl.mem tracked_by_id key) then
+                if not (Hashtbl.mem tracked_by_id (ID.to_string id)) then
                   err "%s: planned but not tracked" (show first))
     expected;
   Array.iter
