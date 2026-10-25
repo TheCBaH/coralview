@@ -32,6 +32,7 @@ val of_channel : ?select:bool -> in_channel -> t
 
 val open_input : ?select:bool -> string -> t
 (** {!open_file}, or {!of_channel} on standard input for the path ["-"]. *)
+
 val format : t -> Vcd_fst.format
 val header : t -> Vcd_ast.header
 val resolver : t -> Vcd.Resolver.t
