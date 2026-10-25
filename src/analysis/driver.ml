@@ -33,8 +33,12 @@ let start command =
 let signal_name n =
   List.assoc_opt n
     [
-      (Sys.sigpipe, "SIGPIPE"); (Sys.sigterm, "SIGTERM"); (Sys.sigkill, "SIGKILL");
-      (Sys.sigint, "SIGINT"); (Sys.sigabrt, "SIGABRT"); (Sys.sigsegv, "SIGSEGV");
+      (Sys.sigpipe, "SIGPIPE");
+      (Sys.sigterm, "SIGTERM");
+      (Sys.sigkill, "SIGKILL");
+      (Sys.sigint, "SIGINT");
+      (Sys.sigabrt, "SIGABRT");
+      (Sys.sigsegv, "SIGSEGV");
     ]
   |> Option.value ~default:("signal " ^ string_of_int n)
 
@@ -54,7 +58,9 @@ let at_end () =
   try
     Unix.set_nonblock Unix.stdin;
     Unix.read Unix.stdin (Bytes.create 1) 0 1 = 0
-  with Unix.Unix_error ((EAGAIN | EWOULDBLOCK), _, _) -> false | Unix.Unix_error _ -> true
+  with
+  | Unix.Unix_error ((EAGAIN | EWOULDBLOCK), _, _) -> false
+  | Unix.Unix_error _ -> true
 
 let describe = function
   | Unix.WEXITED n -> (Some n, None)
@@ -77,10 +83,7 @@ let outcome_name = function Complete -> "complete" | Cancelled -> "cancelled" | 
 let record_jsont =
   Codec.record "producer" (fun command outcome status signal ->
       let outcome =
-        match outcome with
-        | "complete" -> Complete
-        | "cancelled" -> Cancelled
-        | _ -> Failed
+        match outcome with "complete" -> Complete | "cancelled" -> Cancelled | _ -> Failed
       in
       { command; outcome; status; signal })
   |> Jsont.Object.mem "command" Jsont.string ~enc:(fun r -> r.command)
@@ -100,9 +103,9 @@ let finish ~format code =
       let status =
         match wait_until pid (Unix.gettimeofday () +. 10.) with
         | Some status -> status
-        | None ->
+        | None -> (
             Unix.kill pid Sys.sigterm;
-            (match wait_until pid (Unix.gettimeofday () +. 10.) with
+            match wait_until pid (Unix.gettimeofday () +. 10.) with
             | Some status -> status
             | None ->
                 Unix.kill pid Sys.sigkill;

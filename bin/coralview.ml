@@ -485,9 +485,9 @@ let exec_opt =
     & info [ "exec" ] ~docv:"COMMAND"
         ~doc:
           "Run $(docv) with $(b,sh -c) as the producer of the trace, which is $(b,-): its \
-           descriptor 3 is the VCD stream (a VCD simulator's $(b,--trace_fd=3)). How it ended, \
-           and whether the stream was read to its end, is written after the results; a producer \
-           that failed makes the exit status 4. Its output is the command's own, so redirect it.")
+           descriptor 3 is the VCD stream (a VCD simulator's $(b,--trace_fd=3)). How it ended, and \
+           whether the stream was read to its end, is written after the results; a producer that \
+           failed makes the exit status 4. Its output is the command's own, so redirect it.")
 
 (* The trace, and the plan it must satisfy. *)
 let traced =
@@ -777,7 +777,8 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
      match on_stdout with
      | (_, "jsonl", _) :: _ -> `Jsonl
      | (_, _, _) :: _ -> `Text
-     | [] -> if sinks = [] && perfetto = None && kanata = None && report = None then `Text else `Stderr);
+     | [] ->
+         if sinks = [] && perfetto = None && kanata = None && report = None then `Text else `Stderr);
   let ctx =
     ctx p ~features:o.o_features ~region:o.o_region ~window:o.o_window ~limit:o.o_limit
       ~profile:o.o_profile ()
