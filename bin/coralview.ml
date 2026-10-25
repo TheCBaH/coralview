@@ -7,6 +7,13 @@ open Coralview
 (* Set by --no-select, which comes with every FILE. *)
 let select = ref true
 
+(* Where the status of a trace producer started by --exec is written, set by the commands that print
+   their results: the standard output in their format, or else the standard error. *)
+let producer_status : Driver.format ref = ref `Stderr
+
+(* Every exit says how the producer ended. *)
+let exit code = Stdlib.exit (Driver.finish ~format:!producer_status code)
+
 let probe path =
   let { Vcd.header; simulation } = Vcd_fst.open_file path in
   let signals = Vcd.Resolver.fold (fun _ n -> n + 1) (Vcd.Resolver.make header) 0 in
@@ -129,6 +136,7 @@ let analyze (type k e s)
     (module A : Analysis.S with type Config.t = k and type Event.t = e and type Summary.t = s)
     (cfg : k) (p : Platform.t) ?(status = fun _ -> 0) ~format ~(ctx : Text.ctx)
     (text : Text.ctx -> e list -> s -> unit) path =
+  producer_status := if format = `Jsonl then `Jsonl else `Text;
   let pulled =
     guard p (fun () -> Analysis.pull (module A) cfg p (Hwfrp.Trace.open_input ~select:!select path))
   in
@@ -159,6 +167,7 @@ let ctx p ?(features = None) ?(region = Region.none) ?(window = Text.everything)
 let signals platform ~raw ~format ~changes ~cycles:(from_cycle, to_cycle)
     ~times:(from_time, to_time) path paths =
   let jsonl = format = `Jsonl in
+  producer_status := if jsonl then `Jsonl else `Text;
   if raw && !plan_path <> None then
     fail ~code:2 "--plan checks the sampled signals, which --raw does not build: drop --raw";
   let tr = Hwfrp.Trace.open_input ~select:!select path in
@@ -469,13 +478,29 @@ let plan_opt =
           "A plan from $(b,coralview plan): fail before the first sample unless the trace holds \
            exactly the signals the plan has for what this command builds.")
 
+let exec_opt =
+  Arg.(
+    value
+    & opt (some string) None
+    & info [ "exec" ] ~docv:"COMMAND"
+        ~doc:
+          "Run $(docv) with $(b,sh -c) as the producer of the trace, which is $(b,-): its \
+           descriptor 3 is the VCD stream (a VCD simulator's $(b,--trace_fd=3)). How it ended, \
+           and whether the stream was read to its end, is written after the results; a producer \
+           that failed makes the exit status 4. Its output is the command's own, so redirect it.")
+
 (* The trace, and the plan it must satisfy. *)
 let traced =
   Term.(
-    const (fun path plan ->
+    const (fun path plan exec ->
         plan_path := plan;
+        Option.iter
+          (fun command ->
+            if path <> "-" then fail ~code:2 "--exec produces the trace: give - as the trace";
+            Driver.start command)
+          exec;
         path)
-    $ file $ plan_opt)
+    $ file $ plan_opt $ exec_opt)
 
 let limit =
   Term.(
@@ -747,6 +772,12 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
       (models @ List.map (fun (m, _, _) -> m) sinks @ if kanata = None then [] else [ "commits" ])
   in
   if models = [] then fail ~code:2 "run needs --model or --sink";
+  (let on_stdout = List.filter (fun (_, _, f) -> f = "-") sinks in
+   producer_status :=
+     match on_stdout with
+     | (_, "jsonl", _) :: _ -> `Jsonl
+     | (_, _, _) :: _ -> `Text
+     | [] -> if sinks = [] && perfetto = None && kanata = None && report = None then `Text else `Stderr);
   let ctx =
     ctx p ~features:o.o_features ~region:o.o_region ~window:o.o_window ~limit:o.o_limit
       ~profile:o.o_profile ()
