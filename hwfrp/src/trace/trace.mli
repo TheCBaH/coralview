@@ -43,6 +43,9 @@ val events : t -> Vcd_ast.event Seq.t
 (** The raw value changes, of the tracked signals only unless opened with [~select:false]. Freezes
     the trace. Raises [Invalid_argument] when called twice. *)
 
+val events_pulled : t -> bool
+(** Whether {!events} has been called: the trace is no longer a declaration-only binding environment. *)
+
 type sample_rule =
   | After_falling  (** State after the changes of the timestamp at which the clock went 1 to 0. *)
   | Before_rising  (** State before the changes of the timestamp at which the clock went 0 to 1. *)

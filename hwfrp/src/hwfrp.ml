@@ -21,6 +21,7 @@ module Run = Frp.Run
 module Port = Frp.Port
 module Bind = Bind
 module Bundle = Bundle
+module Capture = Capture
 module State = State
 module Reduce = Reduce
 module Span = Span

@@ -104,6 +104,8 @@ let events t =
       e
   | None -> invalid_arg "Trace.events: already consumed"
 
+let events_pulled t = Option.is_none t.events
+
 type sample_rule = After_falling | Before_rising | After_rising
 type domain_spec = { clock : slot; rule : sample_rule; enable : slot option }
 type tick = { domain : int; index : int; time : Timestamp.t; enabled : bool }
