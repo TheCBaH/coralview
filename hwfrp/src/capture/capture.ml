@@ -255,3 +255,83 @@ let check p ~origins:wanted trace =
         err "%s: tracked but not planned" (show s.path))
     tracked;
   match !errors with [] -> Ok () | errs -> Error (sorted_uniq String.compare errs)
+
+(* ---------------------------------------------------------------- *)
+(*  Verilator manifest                                                *)
+(* ---------------------------------------------------------------- *)
+
+module Verilator = struct
+  let bad_char c = c <= ' ' || c = '\x7f'
+  let bad_component c = c = "" || String.exists bad_char c
+
+  let bus_range = function
+    | None -> true
+    | Some i -> (
+        let n = String.length i in
+        n > 2
+        && i.[0] = '['
+        && i.[n - 1] = ']'
+        &&
+        match String.split_on_char ':' (String.sub i 1 (n - 2)) with
+        | [ a; b ] -> int_of_string_opt a <> None && int_of_string_opt b <> None
+        | _ -> false)
+
+  (* The verdict on each declared path, from the catalog's scope tree: the first declaration wins. *)
+  let declared (catalog : Trace.t) =
+    let table = ref Ref_map.empty in
+    let rec walk names bad (s : Vcd_ast.scope_node) =
+      let names = s.s_name :: names in
+      let bad =
+        match (bad, s.s_type) with
+        | None, Vcd_ast.Module -> None
+        | None, t -> Some (Vcd.string_of_scope_type t)
+        | b, _ -> b
+      in
+      List.iter
+        (fun (v : Vcd_ast.var_decl) ->
+          let comps = List.rev (v.ref :: names) in
+          let key = Reference.of_list comps in
+          if not (Ref_map.mem key !table) then
+            let verdict =
+              match bad with
+              | Some kind -> Error (Printf.sprintf "under a %s scope" kind)
+              | None when not (bus_range v.index) ->
+                  Error ("index " ^ Option.value v.index ~default:"")
+              | None -> Ok (String.concat " " comps)
+            in
+            table := Ref_map.add key verdict !table)
+        s.vars;
+      List.iter (walk names bad) s.children
+    in
+    List.iter (walk [] None) (Trace.header catalog).Vcd_ast.scopes;
+    !table
+
+  let manifest ~catalog ~producer ~format p =
+    let errors = ref [] in
+    let err fmt = Printf.ksprintf (fun s -> errors := s :: !errors) fmt in
+    if producer = "" || String.exists bad_char producer then err "producer: empty or with whitespace";
+    let table = declared catalog in
+    let natives = ref String_set.empty in
+    List.iter
+      (fun e ->
+        List.iter
+          (fun r ->
+            if List.exists bad_component (Reference.to_list r) then
+              err "%s: component empty or with whitespace or a control character" (show r)
+            else
+              match Ref_map.find_opt r table with
+              | None -> err "%s: not in the catalog" (show r)
+              | Some (Error why) -> err "%s: %s" (show r) why
+              | Some (Ok native) -> natives := String_set.add native !natives)
+          e.aliases)
+      p;
+    if p = [] then err "empty selection";
+    match !errors with
+    | [] ->
+        let b = Buffer.create 1024 in
+        Printf.bprintf b "hwfrp-verilator-select 1\nproducer %s %s\n" producer
+          (match format with `Fst -> "fst" | `Vcd -> "vcd");
+        String_set.iter (Printf.bprintf b "select %s\n") !natives;
+        Ok (Buffer.contents b)
+    | errs -> Error (sorted_uniq String.compare errs)
+end

@@ -279,3 +279,70 @@ let%expect_test "properties" =
   let rand = Random.State.make [| 7 |] in
   QCheck2.Test.check_exn ~rand file_round_trip;
   [%expect {||}]
+
+(* ---------------------------------------------------------------- *)
+(*  Verilator manifest                                                *)
+(* ---------------------------------------------------------------- *)
+
+let catalog_text =
+  {|$timescale 1ps $end
+$scope module top $end
+$var wire 1 ! clk $end
+$var wire 8 " data [7:0] $end
+$scope module core.x $end
+$var wire 1 # valid $end
+$var wire 1 $ mem [3] $end
+$scope struct s $end
+$var wire 1 % f $end
+$upscope $end
+$scope union u $end
+$var wire 1 & g $end
+$upscope $end
+$scope sv_array arr $end
+$var wire 1 ' h $end
+$upscope $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+|}
+
+let manifest_of ?(format = `Fst) ?(producer = "sim") paths =
+  let tr = Trace.of_string catalog_text in
+  List.iter (fun p -> ignore (Option.get (Trace.find tr p))) paths;
+  let plan = Capture.plan ~origin:"o" tr [] in
+  match Capture.Verilator.manifest ~catalog:tr ~producer ~format plan with
+  | Ok m -> print_string m
+  | Error l -> List.iter (Printf.printf "error: %s\n") l
+
+let%expect_test "manifest: module scopes and buses" =
+  manifest_of [ [ "top"; "clk" ]; [ "top"; "data" ]; [ "top"; "core.x"; "valid" ] ];
+  manifest_of ~format:`Vcd ~producer:"core_mini_axi_sim" [ [ "top"; "clk" ] ];
+  [%expect {||}]
+
+let%expect_test "manifest: unsupported scopes and indexes" =
+  manifest_of
+    [
+      [ "top"; "core.x"; "s"; "f" ];
+      [ "top"; "core.x"; "u"; "g" ];
+      [ "top"; "core.x"; "arr"; "h" ];
+      [ "top"; "core.x"; "mem" ];
+    ];
+  [%expect {||}]
+
+let%expect_test "manifest: other errors" =
+  let tr = Trace.of_string catalog_text in
+  ignore (Trace.find tr [ "top"; "clk" ]);
+  let plan = Capture.plan ~origin:"o" tr [] in
+  let show = function Ok m -> print_string m | Error l -> List.iter (Printf.printf "error: %s\n") l in
+  show (Capture.Verilator.manifest ~catalog:tr ~producer:"" ~format:`Fst plan);
+  let planned text = Result.get_ok (Capture.of_file text) in
+  show
+    (Capture.Verilator.manifest ~catalog:tr ~producer:"sim" ~format:`Fst
+       (planned "hwfrp-capture-plan 1\nsignal 1 wire o\ttop\tno such\n"));
+  show
+    (Capture.Verilator.manifest ~catalog:tr ~producer:"sim" ~format:`Fst
+       (planned "hwfrp-capture-plan 1\nsignal 1 wire o\ttop\tmissing\n"));
+  show
+    (Capture.Verilator.manifest ~catalog:tr ~producer:"sim" ~format:`Fst
+       (planned "hwfrp-capture-plan 1\n"));
+  [%expect {||}]

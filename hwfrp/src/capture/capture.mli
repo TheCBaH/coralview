@@ -43,3 +43,17 @@ val check : plan -> origins:string list -> Trace.t -> (unit, string list) result
     of [origins], in paths, widths, variable types and alias groups. An origin absent from the plan is an error.
     Each planned group must resolve in the trace to one ID whose references equal the group. The errors are
     sorted. *)
+
+module Verilator : sig
+  val manifest :
+    catalog:Trace.t ->
+    producer:string ->
+    format:Vcd_fst.format ->
+    plan ->
+    (string, string list) result
+  (** The producer's selection manifest (version 1): one native name per alias of every planned signal, found by
+      path in the catalog's scope tree. Only variables whose enclosing scopes are all [module] scopes are
+      accepted, and only with no index or a bus range [[msb:lsb]]; a path with a component that has whitespace
+      or a control character, a path missing from the catalog, an empty plan and an empty [producer] are errors,
+      each listed with its path. *)
+end
