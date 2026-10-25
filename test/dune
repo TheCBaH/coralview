@@ -7,6 +7,12 @@
   (source_tree .)))
 
 (cram
+ (applies_to select)
+ (deps
+  ../tools/select_trace.exe
+  (source_tree .)))
+
+(cram
  (applies_to stream)
  (deps
   (source_tree .)))
