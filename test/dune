@@ -7,6 +7,11 @@
   (source_tree .)))
 
 (cram
+ (applies_to drive)
+ (deps
+  (source_tree .)))
+
+(cram
  (applies_to select)
  (deps
   ../tools/select_trace.exe
