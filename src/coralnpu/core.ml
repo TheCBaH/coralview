@@ -29,7 +29,6 @@ let bind (p : Platform.t) tr ~model =
 
 let block c name = function Some b -> b | None -> raise (No_block (c.platform.name, name))
 let scope c rel = Bind.root c.net c.trace c.clk ~model:c.model (Platform.scope c.platform rel)
-
 let gate = ref (fun _ ~model:_ -> ())
 
 let start c =

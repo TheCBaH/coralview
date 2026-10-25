@@ -55,7 +55,9 @@ let () =
             | Some plan -> plan
             | None ->
                 let plan =
-                  match Hwfrp.Capture.of_file (In_channel.with_open_bin file In_channel.input_all) with
+                  match
+                    Hwfrp.Capture.of_file (In_channel.with_open_bin file In_channel.input_all)
+                  with
                   | Ok plan -> plan
                   | Error e -> fail ~code:2 (Printf.sprintf "%s: %s" file e)
                   | exception Sys_error e -> fail ~code:2 e
@@ -401,7 +403,9 @@ let plan_command (p : Platform.t) names signal_paths catalogs dir producer ~form
     | Ok m -> m
     | Error l -> fail ~code:2 (String.concat "\n" ("cannot select by name:" :: indent l))
   in
-  (if not (Sys.file_exists dir) then try Unix.mkdir dir 0o755 with Unix.Unix_error (e, _, _) -> fail ~code:2 (dir ^ ": " ^ Unix.error_message e));
+  (if not (Sys.file_exists dir) then
+     try Unix.mkdir dir 0o755
+     with Unix.Unix_error (e, _, _) -> fail ~code:2 (dir ^ ": " ^ Unix.error_message e));
   let write name text =
     let path = Filename.concat dir name in
     try Out_channel.with_open_bin path (fun oc -> output_string oc text)
@@ -411,7 +415,10 @@ let plan_command (p : Platform.t) names signal_paths catalogs dir producer ~form
   write "plan" (Hwfrp.Capture.to_file plan);
   let entries = Hwfrp.Capture.entries plan and origins = Hwfrp.Capture.origins plan in
   let selected =
-    List.length (List.filter (fun l -> String.starts_with ~prefix:"select " l) (String.split_on_char '\n' manifest))
+    List.length
+      (List.filter
+         (fun l -> String.starts_with ~prefix:"select " l)
+         (String.split_on_char '\n' manifest))
   in
   match format with
   | `Text ->
@@ -425,8 +432,7 @@ let plan_command (p : Platform.t) names signal_paths catalogs dir producer ~form
         (fun e -> print_endline (Codec.to_line Plan_view.signal_jsont (Plan_view.of_entry e)))
         entries;
       print_endline
-        (Codec.to_line Plan_view.summary_jsont
-           { signals = List.length entries; selected; origins })
+        (Codec.to_line Plan_view.summary_jsont { signals = List.length entries; selected; origins })
 
 open Cmdliner
 
@@ -579,7 +585,8 @@ let cmd name doc term = Cmd.v (Cmd.info name ~doc ~exits) term
 
 (* A model command: bind the platform, run, and turn binding errors into exit codes. *)
 let model name doc term =
-  cmd name doc Term.(const (fun p f path -> guard p (fun () -> f p path)) $ platform $ term $ traced)
+  cmd name doc
+    Term.(const (fun p f path -> guard p (fun () -> f p path)) $ platform $ term $ traced)
 
 (* What [coralview run] needs of an analysis: its config and text view from the common options. *)
 type opts = {
@@ -1022,9 +1029,9 @@ let commands =
             & info [ "o"; "out" ] ~docv:"DIR"
                 ~doc:"Write $(i,DIR)/select, for the simulator, and $(i,DIR)/plan, for $(b,--plan).")
         $ Arg.(
-            value
-            & opt string "coralnpu-sim"
-            & info [ "producer" ] ~docv:"NAME" ~doc:"The simulator's name, recorded in the manifest.")
+            value & opt string "coralnpu-sim"
+            & info [ "producer" ] ~docv:"NAME"
+                ~doc:"The simulator's name, recorded in the manifest.")
         $ format);
     cmd "signals" "Print named signals over a window, per cycle or as raw value changes."
       Term.(
