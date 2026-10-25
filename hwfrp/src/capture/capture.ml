@@ -28,12 +28,12 @@ let origins p = sorted_uniq String.compare (List.concat_map (fun e -> e.origins)
 let show = Reference.to_string
 
 let valid_origin o =
-  o <> ""
-  && not (String.exists (fun c -> c = ',' || c = ' ' || c = '\t' || c = '\n' || c = '\r') o)
+  o <> "" && not (String.exists (fun c -> c = ',' || c = ' ' || c = '\t' || c = '\n' || c = '\r') o)
 
 let plan ~origin trace nets =
   if Trace.events_pulled trace then invalid_arg "Capture.plan: the trace's events were pulled";
-  if not (valid_origin origin) then invalid_arg ("Capture.plan: invalid origin " ^ String.escaped origin);
+  if not (valid_origin origin) then
+    invalid_arg ("Capture.plan: invalid origin " ^ String.escaped origin);
   let tracked = Trace.tracked trace in
   let provenance = Hashtbl.create 64 in
   List.iter
@@ -69,7 +69,9 @@ let union plans =
   List.iter
     (List.iter (fun e ->
          let hits =
-           List.filter_map (fun r -> Option.map (fun g -> (r, g)) (Ref_map.find_opt r !by_path)) e.aliases
+           List.filter_map
+             (fun r -> Option.map (fun g -> (r, g)) (Ref_map.find_opt r !by_path))
+             e.aliases
          in
          match hits with
          | [] ->
@@ -79,7 +81,8 @@ let union plans =
          | (_, cell) :: _
            when List.for_all (fun (_, c) -> c == cell) hits
                 && same_aliases !cell.aliases e.aliases
-                && !cell.width = e.width && same_type !cell.var_type e.var_type ->
+                && !cell.width = e.width
+                && same_type !cell.var_type e.var_type ->
              cell :=
                {
                  !cell with
@@ -92,7 +95,10 @@ let union plans =
                  if not (same_aliases !c.aliases e.aliases) then conflict r "different alias group"
                  else if !c.width <> e.width then
                    conflict r (Printf.sprintf "width %d against %d" !c.width e.width)
-                 else conflict r (Printf.sprintf "type %s against %s" (type_name !c.var_type) (type_name e.var_type)))
+                 else
+                   conflict r
+                     (Printf.sprintf "type %s against %s" (type_name !c.var_type)
+                        (type_name e.var_type)))
                hits))
     plans;
   match !errors with
@@ -123,8 +129,8 @@ let to_file p =
       match e.aliases with
       | [] -> invalid_arg "Capture.to_file: an entry without aliases"
       | first :: rest ->
-          Printf.bprintf b "signal %d %s %s\t%s\n" e.width (type_name e.var_type) (String.concat "," e.origins)
-            (components first);
+          Printf.bprintf b "signal %d %s %s\t%s\n" e.width (type_name e.var_type)
+            (String.concat "," e.origins) (components first);
           List.iter (fun r -> Printf.bprintf b "alias\t%s\n" (components r)) rest)
     p;
   Buffer.contents b
@@ -136,7 +142,8 @@ let of_file text =
   match
     let lines = String.split_on_char '\n' text in
     let lines = match List.rev lines with "" :: rest -> List.rev rest | _ -> lines in
-    if String.length text = 0 || text.[String.length text - 1] <> '\n' then fail (List.length lines) "no final newline";
+    if String.length text = 0 || text.[String.length text - 1] <> '\n' then
+      fail (List.length lines) "no final newline";
     (match lines with
     | first :: _ when String.equal first header -> ()
     | _ -> fail 1 ("expected " ^ header));
@@ -177,17 +184,20 @@ let of_file text =
                   let r = path n cs in
                   add n r;
                   groups :=
-                    ( { aliases = []; width; var_type = Vcd_ast.var_type_of_keyword ty;
-                        origins = sorted_uniq String.compare origins; provenance = [] },
+                    ( {
+                        aliases = [];
+                        width;
+                        var_type = Vcd_ast.var_type_of_keyword ty;
+                        origins = sorted_uniq String.compare origins;
+                        provenance = [];
+                      },
                       [ r ] )
                     :: !groups
               | _ -> fail n ("unknown line " ^ String.escaped line))
           | [] -> fail n "empty line")
       lines;
     normalise
-      (List.rev_map
-         (fun (e, rs) -> { e with aliases = List.sort Reference.compare rs })
-         !groups)
+      (List.rev_map (fun (e, rs) -> { e with aliases = List.sort Reference.compare rs }) !groups)
   with
   | p -> Ok p
   | exception File_error (n, msg) -> Error (Printf.sprintf "line %d: %s" n msg)
@@ -200,9 +210,13 @@ let check p ~origins:wanted trace =
   let errors = ref [] in
   let err fmt = Printf.ksprintf (fun s -> errors := s :: !errors) fmt in
   let known = String_set.of_list (origins p) in
-  List.iter (fun o -> if not (String_set.mem o known) then err "origin %s is not in the plan" o) wanted;
+  List.iter
+    (fun o -> if not (String_set.mem o known) then err "origin %s is not in the plan" o)
+    wanted;
   let wanted = String_set.of_list wanted in
-  let expected = List.filter (fun e -> List.exists (fun o -> String_set.mem o wanted) e.origins) p in
+  let expected =
+    List.filter (fun e -> List.exists (fun o -> String_set.mem o wanted) e.origins) p
+  in
   let tracked = Trace.tracked trace in
   let tracked_by_id = Hashtbl.create 64 in
   Array.iter (fun (s : Trace.signal) -> Hashtbl.replace tracked_by_id (ID.to_string s.id) s) tracked;
@@ -213,7 +227,7 @@ let check p ~origins:wanted trace =
       let resolved = List.map (fun r -> (r, Trace.lookup trace r)) e.aliases in
       match List.filter (fun (_, x) -> Option.is_none x) resolved with
       | _ :: _ as missing -> List.iter (fun (r, _) -> err "%s: missing" (show r)) missing
-      | [] -> (
+      | [] ->
           let entries = List.filter_map snd resolved in
           let id = Vcd.Resolver.entry_id (List.hd entries) in
           if not (List.for_all (fun x -> ID.equal (Vcd.Resolver.entry_id x) id) entries) then
@@ -232,10 +246,12 @@ let check p ~origins:wanted trace =
               else
                 let key = ID.to_string id in
                 Hashtbl.replace matched key ();
-                if not (Hashtbl.mem tracked_by_id key) then err "%s: planned but not tracked" (show first)))
+                if not (Hashtbl.mem tracked_by_id key) then
+                  err "%s: planned but not tracked" (show first))
     expected;
   Array.iter
     (fun (s : Trace.signal) ->
-      if not (Hashtbl.mem matched (ID.to_string s.id)) then err "%s: tracked but not planned" (show s.path))
+      if not (Hashtbl.mem matched (ID.to_string s.id)) then
+        err "%s: tracked but not planned" (show s.path))
     tracked;
   match !errors with [] -> Ok () | errs -> Error (sorted_uniq String.compare errs)

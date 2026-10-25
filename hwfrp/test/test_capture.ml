@@ -56,7 +56,8 @@ let graph ?(extra = fun _ -> ()) text model signals =
   let tr = Trace.of_string text in
   let net = Net.create () in
   let (Clock.Any c) =
-    Bind.clock net tr ~model ~purpose:"clock" ~name:"clk" ~enable:(at [ "en" ]) After_rising (at [ "clk" ])
+    Bind.clock net tr ~model ~purpose:"clock" ~name:"clk" ~enable:(at [ "en" ]) After_rising
+      (at [ "clk" ])
   in
   let sc = Bind.root net tr c ~model core in
   List.iter (fun s -> ignore (Bind.signal sc s Bind.uint ~purpose:("use " ^ s))) signals;
@@ -74,7 +75,9 @@ let show_union = function
   | Error l -> List.iter (Printf.printf "error: %s\n") l
 
 let%expect_test "plan: clock, enable, aliases, direct tracking" =
-  let p = plan_of vcd "m1" [ "a"; "b" ] ~extra:(fun tr -> ignore (Trace.find tr [ "top"; "other"; "z" ])) in
+  let p =
+    plan_of vcd "m1" [ "a"; "b" ] ~extra:(fun tr -> ignore (Trace.find tr [ "top"; "other"; "z" ]))
+  in
   print_string (Capture.to_file p);
   List.iter
     (fun (e : Capture.entry) ->
@@ -99,13 +102,20 @@ let%expect_test "union: origins merge, conflicts fail" =
   let m1 = plan_of vcd "m1" [ "a"; "b" ] and m2 = plan_of vcd "m2" [ "a"; "flag" ] in
   show_union (Capture.union [ m1; m2 ]);
   print_endline "-- wider a";
-  show_union (Capture.union [ m1; plan_of (replace_all ~sub:"wire 8 #" ~by:"wire 16 #" vcd) "m3" [ "a" ] ]);
+  show_union
+    (Capture.union [ m1; plan_of (replace_all ~sub:"wire 8 #" ~by:"wire 16 #" vcd) "m3" [ "a" ] ]);
   print_endline "-- a_alias no longer an alias";
   show_union
     (Capture.union
-       [ m1; plan_of (replace_all ~sub:"wire 8 # a_alias" ~by:"wire 8 ' a_alias" vcd) "m3" [ "a"; "a_alias" ] ]);
+       [
+         m1;
+         plan_of
+           (replace_all ~sub:"wire 8 # a_alias" ~by:"wire 8 ' a_alias" vcd)
+           "m3" [ "a"; "a_alias" ];
+       ]);
   print_endline "-- different type";
-  show_union (Capture.union [ m1; plan_of (replace_all ~sub:"wire 4 $" ~by:"reg 4 $" vcd) "m3" [ "b" ] ]);
+  show_union
+    (Capture.union [ m1; plan_of (replace_all ~sub:"wire 4 $" ~by:"reg 4 $" vcd) "m3" [ "b" ] ]);
   [%expect {||}]
 
 let%expect_test "check" =
@@ -122,7 +132,8 @@ let%expect_test "check" =
   run "binding dropped" both [ "m1" ] vcd [ "a" ];
   run "extra binding" both [ "m1" ] vcd [ "a"; "b"; "flag" ];
   run "narrower width" both [ "m1" ] (replace_all ~sub:"wire 8 #" ~by:"wire 4 #" vcd) [ "a"; "b" ];
-  run "changed alias group" both [ "m1" ] (replace_all ~sub:"wire 8 # a_alias" ~by:"wire 8 ' a_alias" vcd)
+  run "changed alias group" both [ "m1" ]
+    (replace_all ~sub:"wire 8 # a_alias" ~by:"wire 8 ' a_alias" vcd)
     [ "a"; "b" ];
   run "other type" both [ "m1" ] (replace_all ~sub:"wire 4 $" ~by:"reg 4 $" vcd) [ "a"; "b" ];
   run "signal absent" both [ "m1" ] (replace_all ~sub:"$var wire 4 $ b $end\n" ~by:"" vcd) [ "a" ];
@@ -156,7 +167,8 @@ let types = [| "wire"; "reg"; "integer"; "logic" |]
 let gen_vars =
   let open QCheck2.Gen in
   list_size (int_range 1 12)
-    (map (fun (scope, width, ty, id) -> { scope; width; ty; id })
+    (map
+       (fun (scope, width, ty, id) -> { scope; width; ty; id })
        (quad (int_bound 3) (int_range 1 70) (int_bound 3) (int_bound 5)))
 
 let vcd_of vars =
@@ -169,7 +181,9 @@ let vcd_of vars =
         List.iter (Printf.bprintf b "$scope module %s $end\n") path;
         List.iter
           (fun (i, v) ->
-            Printf.bprintf b "$var %s %d %c v%d $end\n" types.(v.ty) v.width (Char.chr (33 + v.id)) i)
+            Printf.bprintf b "$var %s %d %c v%d $end\n" types.(v.ty) v.width
+              (Char.chr (33 + v.id))
+              i)
           mine;
         List.iter (fun _ -> Buffer.add_string b "$upscope $end\n") path
       end)
@@ -181,15 +195,14 @@ let file_round_trip =
   QCheck2.Test.make ~name:"plan file round trip" ~count:300 gen_vars (fun vars ->
       let text = vcd_of vars in
       let tr = Trace.of_string text in
-      Vcd.Resolver.fold
-        (fun e () -> ignore (Trace.track tr e))
-        (Trace.resolver tr) ();
+      Vcd.Resolver.fold (fun e () -> ignore (Trace.track tr e)) (Trace.resolver tr) ();
       let p = Capture.plan ~origin:"o" tr [] in
       let file = Capture.to_file p in
       match Capture.of_file file with
       | Error m -> QCheck2.Test.fail_reportf "of_file: %s\n%s" m file
       | Ok q ->
-          if Capture.to_file q <> file then QCheck2.Test.fail_reportf "differs:\n%s\n%s" file (Capture.to_file q);
+          if Capture.to_file q <> file then
+            QCheck2.Test.fail_reportf "differs:\n%s\n%s" file (Capture.to_file q);
           if List.length (Capture.entries q) <> List.length (Capture.entries p) then
             QCheck2.Test.fail_reportf "entries";
           (* the plan describes its own trace *)
