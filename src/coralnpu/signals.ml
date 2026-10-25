@@ -82,19 +82,26 @@ let require tr paths =
       then raise (Missing path))
     paths
 
+let bind_paths (c : _ Core.t) tr paths =
+  List.map
+    (fun path ->
+      match List.rev (components path) with
+      | [] -> raise (Missing path)
+      | name :: up ->
+          let sc = Bind.root c.net tr c.clk ~model (Vcd_types.Reference.of_list (List.rev up)) in
+          Bind.signal sc name Bind.logic ~purpose:"requested signal")
+    paths
+
+let net (p : Platform.t) tr paths =
+  require tr paths;
+  let (Core.Any c) = Core.bind p tr ~model in
+  ignore (bind_paths c tr paths);
+  c.net
+
 let sampled (p : Platform.t) tr paths ~from ~until ~changes f =
   require tr paths;
   let (Core.Any c) = Core.bind p tr ~model in
-  let values =
-    List.map
-      (fun path ->
-        match List.rev (components path) with
-        | [] -> raise (Missing path)
-        | name :: up ->
-            let sc = Bind.root c.net tr c.clk ~model (Vcd_types.Reference.of_list (List.rev up)) in
-            Bind.signal sc name Bind.logic ~purpose:"requested signal")
-      paths
-  in
+  let values = bind_paths c tr paths in
   let now =
     let open Sig in
     let+ vs = all values and+ cycle = cycle c.clk and+ time = time c.clk in

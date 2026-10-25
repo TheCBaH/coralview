@@ -38,6 +38,40 @@ let guard (p : Platform.t) f =
   | exception Core.No_block (platform, block) ->
       fail ~code:2 (Printf.sprintf "platform %s describes no %s block" platform block)
 
+(* [--plan FILE]: before the first sample, the signals a run tracks must be the plan's, for the origins it
+   builds: the model of the command, or the models of [run]. *)
+let plan_path : string option ref = ref None
+let run_origins : string list option ref = ref None
+
+let () =
+  let loaded = ref None in
+  Core.gate :=
+    fun tr ~model ->
+      match !plan_path with
+      | None -> ()
+      | Some file -> (
+          let plan =
+            match !loaded with
+            | Some plan -> plan
+            | None ->
+                let plan =
+                  match Hwfrp.Capture.of_file (In_channel.with_open_bin file In_channel.input_all) with
+                  | Ok plan -> plan
+                  | Error e -> fail ~code:2 (Printf.sprintf "%s: %s" file e)
+                  | exception Sys_error e -> fail ~code:2 e
+                in
+                loaded := Some plan;
+                plan
+          in
+          let origins = Option.value !run_origins ~default:[ model ] in
+          match Hwfrp.Capture.check plan ~origins tr with
+          | Ok () -> ()
+          | Error l ->
+              fail ~code:3
+                (String.concat "\n"
+                   (Printf.sprintf "the trace does not match the plan %s:" file
+                   :: List.map (fun e -> "  " ^ e) l)))
+
 let decoder features =
   match Coral_isa.Rivet_decode.create ?features () with
   | Ok d -> d
@@ -123,6 +157,8 @@ let ctx p ?(features = None) ?(region = Region.none) ?(window = Text.everything)
 let signals platform ~raw ~format ~changes ~cycles:(from_cycle, to_cycle)
     ~times:(from_time, to_time) path paths =
   let jsonl = format = `Jsonl in
+  if raw && !plan_path <> None then
+    fail ~code:2 "--plan checks the sampled signals, which --raw does not build: drop --raw";
   let tr = Hwfrp.Trace.open_input ~select:!select path in
   (try Signals.require tr paths
    with Signals.Missing p -> fail ~code:3 ("no signal " ^ p ^ " in the trace"));
@@ -283,18 +319,18 @@ let platforms manifests =
     (Lazy.force Platform.builtin)
 
 (* Binding every model of the platform proves its description against the trace. *)
+let select_models (p : Platform.t) = function
+  | [] -> available p
+  | names ->
+      List.map
+        (fun n ->
+          match List.find_opt (fun m -> m.name = n) (available p) with
+          | Some m -> m
+          | None -> fail ~code:2 (Printf.sprintf "platform %s has no model %s" p.name n))
+        names
+
 let check p names ~format path =
-  let selected =
-    match names with
-    | [] -> available p
-    | names ->
-        List.map
-          (fun n ->
-            match List.find_opt (fun m -> m.name = n) (available p) with
-            | Some m -> m
-            | None -> fail ~code:2 (Printf.sprintf "platform %s has no model %s" p.name n))
-          names
-  in
+  let selected = select_models p names in
   let jsonl = format = `Jsonl and bound = ref 0 and failed = ref 0 in
   if jsonl then
     print_endline
@@ -319,6 +355,78 @@ let check p names ~format path =
     selected;
   if jsonl then
     print_endline (Codec.to_line Check.summary_jsont { bound = !bound; failed = !failed })
+
+(* The signals the models need of a catalog trace, to be recorded by a producer and checked by [--plan].
+   Several catalogs (say, the FST and VCD builds of one simulator) must agree; the first is the one the
+   producer's names are taken from. *)
+let plan_command (p : Platform.t) names signal_paths catalogs dir producer ~format =
+  if catalogs = [] then fail ~code:2 "plan needs --catalog";
+  let models = if names = [] && signal_paths <> [] then [] else select_models p names in
+  let catalog file = try Hwfrp.Trace.open_file file with Sys_error e -> fail ~code:2 e in
+  let plans =
+    List.concat_map
+      (fun file ->
+        List.map
+          (fun m ->
+            let tr = catalog file in
+            guard p (fun () ->
+                let (Core.Any c) = Core.bind p tr ~model:m.name in
+                m.build c;
+                Hwfrp.Capture.plan ~origin:m.name tr [ c.net ]))
+          models
+        @
+        if signal_paths = [] then []
+        else
+          let tr = catalog file in
+          try
+            [
+              guard p (fun () ->
+                  Hwfrp.Capture.plan ~origin:Signals.model tr [ Signals.net p tr signal_paths ]);
+            ]
+          with Signals.Missing s -> fail ~code:3 ("no signal " ^ s ^ " in " ^ file))
+      catalogs
+  in
+  let indent l = List.map (fun e -> "  " ^ e) l in
+  let plan =
+    match Hwfrp.Capture.union plans with
+    | Ok plan -> plan
+    | Error l -> fail ~code:3 (String.concat "\n" ("the catalogs disagree:" :: indent l))
+  in
+  let first = catalog (List.hd catalogs) in
+  let manifest =
+    match
+      Hwfrp.Capture.Verilator.manifest ~catalog:first ~producer ~format:(Hwfrp.Trace.format first)
+        plan
+    with
+    | Ok m -> m
+    | Error l -> fail ~code:2 (String.concat "\n" ("cannot select by name:" :: indent l))
+  in
+  (if not (Sys.file_exists dir) then try Unix.mkdir dir 0o755 with Unix.Unix_error (e, _, _) -> fail ~code:2 (dir ^ ": " ^ Unix.error_message e));
+  let write name text =
+    let path = Filename.concat dir name in
+    try Out_channel.with_open_bin path (fun oc -> output_string oc text)
+    with Sys_error e -> fail ~code:2 e
+  in
+  write "select" manifest;
+  write "plan" (Hwfrp.Capture.to_file plan);
+  let entries = Hwfrp.Capture.entries plan and origins = Hwfrp.Capture.origins plan in
+  let selected =
+    List.length (List.filter (fun l -> String.starts_with ~prefix:"select " l) (String.split_on_char '\n' manifest))
+  in
+  match format with
+  | `Text ->
+      Printf.printf "%d signals, %d names selected, for %s\n" (List.length entries) selected
+        (String.concat ", " origins)
+  | `Jsonl ->
+      print_endline
+        (Codec.to_line Jsonl.header_jsont
+           (Jsonl.header ~model:"plan" ~platform:p.name ~trace:(List.hd catalogs)));
+      List.iter
+        (fun e -> print_endline (Codec.to_line Plan_view.signal_jsont (Plan_view.of_entry e)))
+        entries;
+      print_endline
+        (Codec.to_line Plan_view.summary_jsont
+           { signals = List.length entries; selected; origins })
 
 open Cmdliner
 
@@ -345,6 +453,23 @@ let file =
               "Decode the changes of every signal of the trace, not only of those the analysis \
                reads. The output is the same; for comparing timings.")
     $ Arg.(required & pos 0 (some file) None & info [] ~docv:"FILE" ~doc:"A VCD or FST trace."))
+
+let plan_opt =
+  Arg.(
+    value
+    & opt (some string) None
+    & info [ "plan" ] ~docv:"FILE"
+        ~doc:
+          "A plan from $(b,coralview plan): fail before the first sample unless the trace holds \
+           exactly the signals the plan has for what this command builds.")
+
+(* The trace, and the plan it must satisfy. *)
+let traced =
+  Term.(
+    const (fun path plan ->
+        plan_path := plan;
+        path)
+    $ file $ plan_opt)
 
 let limit =
   Term.(
@@ -454,7 +579,7 @@ let cmd name doc term = Cmd.v (Cmd.info name ~doc ~exits) term
 
 (* A model command: bind the platform, run, and turn binding errors into exit codes. *)
 let model name doc term =
-  cmd name doc Term.(const (fun p f path -> guard p (fun () -> f p path)) $ platform $ term $ file)
+  cmd name doc Term.(const (fun p f path -> guard p (fun () -> f p path)) $ platform $ term $ traced)
 
 (* What [coralview run] needs of an analysis: its config and text view from the common options. *)
 type opts = {
@@ -619,6 +744,7 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
     ctx p ~features:o.o_features ~region:o.o_region ~window:o.o_window ~limit:o.o_limit
       ~profile:o.o_profile ()
   in
+  run_origins := Some models;
   let tr = Hwfrp.Trace.open_input ~select:!select path in
   let (Core.Any c) = Core.bind p tr ~model:"run" in
   let finishers =
@@ -866,6 +992,40 @@ let commands =
             value & opt_all string []
             & info [ "model" ] ~docv:"M" ~doc:"Check only this model; repeatable.")
         $ format $ output $ file);
+    cmd "plan"
+      "Plan the signals some analyses need of a catalog trace, and the names a producer selects."
+      Term.(
+        const (fun p names signals catalogs dir producer format ->
+            plan_command p names signals catalogs dir producer ~format)
+        $ platform
+        $ Arg.(
+            value & opt_all string []
+            & info [ "model" ] ~docv:"M"
+                ~doc:
+                  "Plan this model; repeatable. By default every model of the platform, unless \
+                   $(b,--signal) is given.")
+        $ Arg.(
+            value & opt_all string []
+            & info [ "signal" ] ~docv:"PATH"
+                ~doc:
+                  "Also plan this signal as $(b,coralview signals) would read it, with the \
+                   platform's clock; repeatable.")
+        $ Arg.(
+            value & opt_all string []
+            & info [ "catalog" ] ~docv:"FILE"
+                ~doc:
+                  "A trace of the simulator build, whose events are not read; repeatable. The \
+                   first gives the producer's names, the others must agree with it.")
+        $ Arg.(
+            required
+            & opt (some string) None
+            & info [ "o"; "out" ] ~docv:"DIR"
+                ~doc:"Write $(i,DIR)/select, for the simulator, and $(i,DIR)/plan, for $(b,--plan).")
+        $ Arg.(
+            value
+            & opt string "coralnpu-sim"
+            & info [ "producer" ] ~docv:"NAME" ~doc:"The simulator's name, recorded in the manifest.")
+        $ format);
     cmd "signals" "Print named signals over a window, per cycle or as raw value changes."
       Term.(
         const (fun p raw json format output changes fc tc ft tt path paths ->
@@ -895,7 +1055,7 @@ let commands =
             value
             & opt (some int64) None
             & info [ "to-time" ] ~docv:"T" ~doc:"With $(b,--raw), up to timestamp $(docv).")
-        $ file
+        $ traced
         $ Arg.(
             non_empty & pos_right 0 string []
             & info [] ~docv:"PATH" ~doc:"An absolute signal path, components separated by $(b,/)."));
@@ -1053,7 +1213,7 @@ let commands =
                 ~doc:
                   "Also write a Markdown report: each analysis' summary and profile (10 rows \
                    unless $(b,--profile)), without its rows.")
-        $ features $ manifest $ window $ limit $ profile $ at $ beats $ file);
+        $ features $ manifest $ window $ limit $ profile $ at $ beats $ traced);
     cmd "render" "Print a saved JSONL of an analysis as the text its command prints."
       Term.(
         const (fun platform features manifest window limit profile at beats file ->

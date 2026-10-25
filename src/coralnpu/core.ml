@@ -30,7 +30,10 @@ let bind (p : Platform.t) tr ~model =
 let block c name = function Some b -> b | None -> raise (No_block (c.platform.name, name))
 let scope c rel = Bind.root c.net c.trace c.clk ~model:c.model (Platform.scope c.platform rel)
 
+let gate = ref (fun _ ~model:_ -> ())
+
 let start c =
+  !gate c.trace ~model:c.model;
   match Sched.compile c.net with
   | Ok sched -> Run.start sched (Sampler.create c.trace (Net.domains c.net))
   | Error _ -> invalid_arg "Core.start: the net does not compile"

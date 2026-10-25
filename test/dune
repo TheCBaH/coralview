@@ -2,6 +2,11 @@
  (deps %{bin:coralview}))
 
 (cram
+ (applies_to plan)
+ (deps
+  (source_tree .)))
+
+(cram
  (applies_to stream)
  (deps
   (source_tree .)))

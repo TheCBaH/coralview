@@ -31,8 +31,12 @@ val block : 'c t -> string -> 'a option -> 'a
 val scope : 'c t -> string list -> 'c Hwfrp.Bind.scope
 (** A block scope, relative to the platform root. *)
 
+val gate : (Hwfrp.Trace.t -> model:string -> unit) ref
+(** Called by {!start} with the trace and the model name, after the net is built and before the first sample:
+    the place for a check of the tracked signals. Does nothing by default. *)
+
 val start : 'c t -> Hwfrp.Run.t
-(** Compiles the net and starts a run over the whole trace. *)
+(** Compiles the net and starts a run over the whole trace, after {!gate}. *)
 
 val run : 'c t -> Hwfrp.Sched.run_stats
 
