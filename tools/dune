@@ -1,1 +1,6 @@
 (data_only_dirs consumer)
+
+(executable
+ (name select_trace)
+ (modules select_trace)
+ (libraries ovcd ovcd.fst ovcd.vcd_types))

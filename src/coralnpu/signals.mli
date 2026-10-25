@@ -23,6 +23,10 @@ val sample_rule_name : Hwfrp.Trace.sample_rule -> string
 val require : Hwfrp.Trace.t -> string list -> unit
 (** Raises {!Missing} for the first path the trace does not have. *)
 
+val net : Platform.t -> Hwfrp.Trace.t -> string list -> Hwfrp.Net.t
+(** The graph {!sampled} builds, with nothing run: the platform's clock and the paths. Raises {!Missing}, and
+    {!Hwfrp.Bind.Unbound} when the trace lacks the platform's clock. *)
+
 val sampled :
   Platform.t ->
   Hwfrp.Trace.t ->
