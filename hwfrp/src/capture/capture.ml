@@ -309,7 +309,8 @@ module Verilator = struct
   let manifest ~catalog ~producer ~format p =
     let errors = ref [] in
     let err fmt = Printf.ksprintf (fun s -> errors := s :: !errors) fmt in
-    if producer = "" || String.exists bad_char producer then err "producer: empty or with whitespace";
+    if producer = "" || String.exists bad_char producer then
+      err "producer: empty or with whitespace";
     let table = declared catalog in
     let natives = ref String_set.empty in
     List.iter

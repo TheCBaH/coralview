@@ -333,7 +333,10 @@ let%expect_test "manifest: other errors" =
   let tr = Trace.of_string catalog_text in
   ignore (Trace.find tr [ "top"; "clk" ]);
   let plan = Capture.plan ~origin:"o" tr [] in
-  let show = function Ok m -> print_string m | Error l -> List.iter (Printf.printf "error: %s\n") l in
+  let show = function
+    | Ok m -> print_string m
+    | Error l -> List.iter (Printf.printf "error: %s\n") l
+  in
   show (Capture.Verilator.manifest ~catalog:tr ~producer:"" ~format:`Fst plan);
   let planned text = Result.get_ok (Capture.of_file text) in
   show
