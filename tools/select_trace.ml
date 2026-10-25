@@ -60,7 +60,9 @@ let () =
         Buffer.add_string b "$upscope $end\n"
       in
       List.iter (scope []) header.scopes;
-      Hashtbl.iter (fun n () -> if not (Hashtbl.mem matched n) then die "no declaration named %S" n) wanted;
+      Hashtbl.iter
+        (fun n () -> if not (Hashtbl.mem matched n) then die "no declaration named %S" n)
+        wanted;
       Buffer.add_string b "$enddefinitions $end\n";
       print_string (Buffer.contents b);
       Seq.iter
