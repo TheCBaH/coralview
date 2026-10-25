@@ -1,0 +1,50 @@
+name: integration
+
+# The consumer against simulators that are not in a release yet: the emulator archive of a
+# devcontainer.coralnpu workflow run (its archives-x86_64 artifact) replaces the one in the image.
+# `make ci` runs the same checks against the release the image pins.
+
+# A push to an integ-* branch runs it with the id in .integration-run, for a workflow file that is
+# not on the default branch yet.
+
+on:
+  push:
+    branches: ['integ-*']
+  workflow_dispatch:
+    inputs:
+      run:
+        description: 'devcontainer.coralnpu workflow run id with an archives-x86_64 artifact'
+        required: false
+
+jobs:
+  integration:
+    runs-on: ubuntu-24.04
+    steps:
+    - name: checkout
+      uses: actions/checkout@v7
+      with:
+        submodules: true
+    - name: archive
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        run='${{ inputs.run }}'
+        if [ -z "$run" ]; then run=$(cat .integration-run); fi
+        gh run download "$run" -R TheCBaH/devcontainer.coralnpu -n archives-x86_64 -D .cache/download
+        mkdir -p .cache/coralnpu
+        tar -xzf .cache/download/coralnpu-emulators-linux-x86_64.tar.gz -C .cache/coralnpu
+        ln -s coralnpu-emulators-linux-x86_64 .cache/coralnpu/emulators
+        echo "run $run" > .cache/coralnpu/RELEASE
+        ls .cache/coralnpu/emulators/bin .cache/coralnpu/emulators/catalogs
+    - name: devcontainer
+      uses: TheCBaH/devcontainer-action/devcontainer@v1
+      id: devcontainer
+      env:
+        OCAML_VERSION: '4.14.4'
+      with:
+        variant: '4.14.4'
+        platform: linux/amd64
+    - name: setup
+      run: echo 'EXEC=${{ steps.devcontainer.outputs.exec }}' >> $GITHUB_ENV
+    - name: integration
+      run: ${{ env.EXEC }} make integration CORALNPU=.cache/coralnpu

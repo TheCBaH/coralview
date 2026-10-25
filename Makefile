@@ -3,7 +3,7 @@ DUNE = $(OPAM_EXEC) dune
 CORALNPU ?= /opt/coralnpu
 export RIVET_EXTERNAL_DEPS = true
 
-.PHONY: deps versions build test fmt fmt-check hwfrp-boundary isa-check smoke zvt-check ci clean
+.PHONY: deps versions build test fmt fmt-check hwfrp-boundary isa-check smoke zvt-check integration ci clean
 
 # rivet is a dependency of the package, for installs from opam. In this tree dune builds the vendored copy,
 # and an installed one next to it makes dune fail with "rivet.fmt is already defined".
@@ -106,7 +106,13 @@ zvt-check:
 	  echo "release $$(cat $(CORALNPU)/RELEASE) has no isa/zvt.jsonl; not compared"; \
 	fi
 
-ci: fmt-check build test hwfrp-boundary isa-check zvt-check smoke
+# Plan, selection and live VCD against the archive's simulators (skipped for a release without them).
+integration: build
+	for mode in selection stream selected-stream; do \
+	  tools/integration.sh $$mode $$(pwd)/_build/default/bin/coralview.exe $(CORALNPU); \
+	done
+
+ci: fmt-check build test hwfrp-boundary isa-check zvt-check smoke integration
 
 clean:
 	$(DUNE) clean
