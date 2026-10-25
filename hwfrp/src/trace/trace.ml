@@ -60,6 +60,16 @@ let open_file ?(select = true) path =
 let of_string ?(select = true) s =
   make ~select (Vcd_fst.detect_string s) (fun select -> Vcd_fst.open_string ?select s)
 
+let of_channel ?(select = true) ic =
+  make ~select `Vcd (fun select -> Vcd.parse_channel ?select ~strict:true ic)
+
+let open_input ?select path =
+  if path = "-" then begin
+    set_binary_mode_in stdin true;
+    of_channel ?select stdin
+  end
+  else open_file ?select path
+
 let format t = t.format
 let header t = t.header
 let resolver t = t.resolver
