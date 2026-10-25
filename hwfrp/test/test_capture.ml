@@ -89,7 +89,7 @@ let%expect_test "plan: clock, enable, aliases, direct tracking" =
 
 let%expect_test "plan: events pulled" =
   let tr, net = graph vcd "m1" [ "a" ] in
-  ignore (Trace.events tr);
+  let _ = Trace.events tr in
   (match Capture.plan ~origin:"m1" tr [ net ] with
   | _ -> print_endline "planned"
   | exception Invalid_argument m -> print_endline m);
