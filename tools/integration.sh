@@ -127,6 +127,16 @@ stream)
   echo "producer cut at the cycle limit: pipeline status $failed"
   [ "$failed" = 124 ] || fail "expected the cycle limit's status 124"
   "$cv" commits --platform $platform "$d/prefix.vcd" | cmp - "$d/prefix-piped.txt" || fail "the prefix summary differs"
+  # The same through --exec, which also records how the simulator ended.
+  "$cv" commits --platform $platform --exec "'$vcd' --cycles=$cycles --binary='$elf' --trace_fd=3 > '$d/exec.log' 2>&1" - > "$d/exec.txt"
+  tail -n 1 "$d/exec.txt" | grep -q '^# producer: complete, exited with status 0$' || fail "--exec: no complete status"
+  sed '$d' "$d/exec.txt" | cmp - "$d/vcd/commits.txt" || fail "--exec: the results differ"
+  set +e
+  "$cv" commits --platform $platform --exec "'$vcd' --cycles=20000 --binary='$elf' --trace_fd=3 > '$d/exec.log' 2>&1" - > "$d/exec-cut.txt"
+  cut=$?
+  set -e
+  [ "$cut" = 4 ] || fail "--exec: a simulator stopped at the cycle limit gave status $cut, not 4"
+  tail -n 1 "$d/exec-cut.txt" | grep -q 'failed, exited with status 124' || fail "--exec: no failed status"
   echo "stream: ok"
   ;;
 selected-stream)
