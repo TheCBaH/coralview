@@ -326,9 +326,9 @@ let select_models (p : Platform.t) = function
   | names ->
       List.map
         (fun n ->
-          match List.find_opt (fun m -> m.name = n) (available p) with
+          match List.find_opt (fun m -> m.name = n) models with
           | Some m -> m
-          | None -> fail ~code:2 (Printf.sprintf "platform %s has no model %s" p.name n))
+          | None -> fail ~code:2 (Printf.sprintf "no model %s" n))
         names
 
 let check p names ~format path =
