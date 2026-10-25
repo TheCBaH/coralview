@@ -317,7 +317,8 @@ let manifest_of ?(format = `Fst) ?(producer = "sim") paths =
 let%expect_test "manifest: module scopes and buses" =
   manifest_of [ [ "top"; "clk" ]; [ "top"; "data" ]; [ "top"; "core.x"; "valid" ] ];
   manifest_of ~format:`Vcd ~producer:"core_mini_axi_sim" [ [ "top"; "clk" ] ];
-  [%expect {|
+  [%expect
+    {|
     hwfrp-verilator-select 1
     producer sim fst
     select top clk
@@ -335,7 +336,8 @@ let%expect_test "manifest: unsupported scopes and indexes" =
       [ "top"; "core.x"; "arr"; "h" ];
       [ "top"; "core.x"; "mem" ];
     ];
-  [%expect {|
+  [%expect
+    {|
     error: top.core.x.arr.h: under a sv_array scope
     error: top.core.x.mem: index [3]
     error: top.core.x.s.f: under a struct scope
@@ -360,7 +362,8 @@ let%expect_test "manifest: other errors" =
   show
     (Capture.Verilator.manifest ~catalog:tr ~producer:"sim" ~format:`Fst
        (planned "hwfrp-capture-plan 1\n"));
-  [%expect {|
+  [%expect
+    {|
     error: producer: empty or with whitespace
     error: top.no such: component empty or with whitespace or a control character
     error: top.missing: not in the catalog
