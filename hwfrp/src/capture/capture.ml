@@ -246,9 +246,8 @@ let check p ~origins:wanted trace =
                 err "%s: type %s, planned %s" (show first)
                   (type_name (Trace.var_type trace entry))
                   (type_name e.var_type)
-              else
-                if not (Hashtbl.mem tracked_by_id (ID.to_string id)) then
-                  err "%s: planned but not tracked" (show first))
+              else if not (Hashtbl.mem tracked_by_id (ID.to_string id)) then
+                err "%s: planned but not tracked" (show first))
     expected;
   Array.iter
     (fun (s : Trace.signal) ->

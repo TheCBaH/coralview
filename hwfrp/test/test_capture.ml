@@ -85,7 +85,8 @@ let%expect_test "plan: clock, enable, aliases, direct tracking" =
         (Reference.to_string (List.hd e.aliases))
         (String.concat "; " (List.map (fun (m, p) -> m ^ "/" ^ p) e.provenance)))
     (Capture.entries p);
-  [%expect {|
+  [%expect
+    {|
     hwfrp-capture-plan 1
     signal 8 wire m1	top	core.x	a
     alias	top	core.x	a_alias
@@ -108,7 +109,8 @@ let%expect_test "plan: events pulled" =
   (match Capture.plan ~origin:"a,b" (Trace.of_string vcd) [] with
   | _ -> print_endline "planned"
   | exception Invalid_argument m -> print_endline m);
-  [%expect {|
+  [%expect
+    {|
     Capture.plan: the trace's events were pulled
     Capture.plan: invalid origin a,b |}]
 
@@ -130,7 +132,8 @@ let%expect_test "union: origins merge, conflicts fail" =
   print_endline "-- different type";
   show_union
     (Capture.union [ m1; plan_of (replace_all ~sub:"wire 4 $" ~by:"reg 4 $" vcd) "m3" [ "b" ] ]);
-  [%expect {|
+  [%expect
+    {|
     hwfrp-capture-plan 1
     signal 8 wire m1,m2	top	core.x	a
     alias	top	core.x	a_alias
@@ -167,7 +170,8 @@ let%expect_test "check" =
   run "other type" both [ "m1" ] (replace_all ~sub:"wire 4 $" ~by:"reg 4 $" vcd) [ "a"; "b" ];
   run "signal absent" both [ "m1" ] (replace_all ~sub:"$var wire 4 $ b $end\n" ~by:"" vcd) [ "a" ];
   run "unknown origin" both [ "m1"; "nope" ] vcd [ "a"; "b" ];
-  [%expect {|
+  [%expect
+    {|
     -- same
     ok
     -- subset ignores the other origin
@@ -205,7 +209,8 @@ let%expect_test "plan file" =
       ("no final newline", "hwfrp-capture-plan 1\nsignal 1 wire m\ttop\tclk");
       ("version", "hwfrp-capture-plan 2\n");
     ];
-  [%expect {|
+  [%expect
+    {|
     round trip true
     no header: line 1: expected hwfrp-capture-plan 1
     unknown line: line 2: unknown line bogus
