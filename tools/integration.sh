@@ -87,8 +87,10 @@ selection)
   # A plan made from a catalog of the VCD build names the same signals.
   if [ -e "$sims/catalogs/core_mini_axi_vcd_sim.catalog.vcd" ]; then
     plan "$d/vcd-plan" "$sims/catalogs/core_mini_axi_vcd_sim.catalog.vcd" > /dev/null
-    diff "$d/fst-plan/plan" "$d/vcd-plan/plan" | head -20 || true
-    cmp "$d/fst-plan/plan" "$d/vcd-plan/plan" || fail "the FST and VCD catalogs give different plans"
+    # The variable type is the format's own (logic in FST, wire in VCD): paths, widths and aliases agree.
+    untyped() { sed 's/^signal \([0-9]*\) [^ ]* /signal \1 T /' "$1"; }
+    diff <(untyped "$d/fst-plan/plan") <(untyped "$d/vcd-plan/plan") | head -20 || true
+    cmp <(untyped "$d/fst-plan/plan") <(untyped "$d/vcd-plan/plan") || fail "the FST and VCD catalogs give different plans"
     diff <(sed 1,2d "$d/fst-plan/select") <(sed 1,2d "$d/vcd-plan/select") || fail "the manifests differ"
   fi
   echo "selection: ok"
