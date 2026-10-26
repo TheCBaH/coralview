@@ -69,8 +69,9 @@ compare() { diff -r "$1" "$2" > "$d/diff.txt" || { head -40 "$d/diff.txt"; fail 
 
 case "$mode" in
 selection)
-  plan "$d/fst-plan" "$sims/catalogs/core_mini_axi_sim.catalog.fst" | tee "$d/plan.out"
   fst "$d/full.fst"
+  # Any complete trace of the build is a catalog; the shipped one must give the same plan.
+  plan "$d/fst-plan" "$d/full.fst" | tee "$d/plan.out"
   fst "$d/selected.fst" --trace_select="$d/fst-plan/select"
   full=$(stat -c %s "$d/full.fst") selected=$(stat -c %s "$d/selected.fst")
   echo "FST: $full bytes full, $selected bytes selected"
@@ -81,6 +82,8 @@ selection)
   analyses "$d/full.fst" "$d/full"
   analyses "$d/selected.fst" "$d/selected" --plan "$d/fst-plan/plan"
   compare "$d/full" "$d/selected" "analyses of the selected trace differ from the full trace"
+  plan "$d/catalog-plan" "$sims/catalogs/core_mini_axi_sim.catalog.fst" > /dev/null
+  cmp "$d/fst-plan/plan" "$d/catalog-plan/plan" || fail "the shipped FST catalog gives a different plan than a full trace"
   # A plan made from a catalog of the VCD build names the same signals.
   if [ -e "$sims/catalogs/core_mini_axi_vcd_sim.catalog.vcd" ]; then
     plan "$d/vcd-plan" "$sims/catalogs/core_mini_axi_vcd_sim.catalog.vcd" > /dev/null
@@ -118,9 +121,9 @@ stream)
   echo "early stop: pipeline status $early"
   if pgrep -f "core_mini_axi_vcd_sim.*--trace_fd" > /dev/null; then fail "the simulator outlived its consumer"; fi
   # The producer fails after a valid prefix: the pipeline says so, the consumer summarises what it saw.
-  timeout --kill-after=5 300 "$vcd" --cycles=20000 --trace_file="$d/prefix.vcd" --binary="$elf" > /dev/null 2>&1 || true
+  timeout --kill-after=5 300 "$vcd" --cycles=2000 --trace_file="$d/prefix.vcd" --binary="$elf" > /dev/null 2>&1 || true
   set +e
-  bash -c 'set -o pipefail; "$1" --cycles=20000 --binary="$2" --trace_fd=3 3>&1 1>"$3" 2>&1 | "$4" commits --platform "$5" -' \
+  bash -c 'set -o pipefail; "$1" --cycles=2000 --binary="$2" --trace_fd=3 3>&1 1>"$3" 2>&1 | "$4" commits --platform "$5" -' \
     _ "$vcd" "$elf" "$d/stream.log" "$cv" $platform > "$d/prefix-piped.txt"
   failed=$?
   set -e
@@ -132,7 +135,7 @@ stream)
   tail -n 1 "$d/exec.txt" | grep -q '^# producer: complete, exited with status 0$' || fail "--exec: no complete status"
   sed '$d' "$d/exec.txt" | cmp - "$d/vcd/commits.txt" || fail "--exec: the results differ"
   set +e
-  "$cv" commits --platform $platform --exec "'$vcd' --cycles=20000 --binary='$elf' --trace_fd=3 > '$d/exec.log' 2>&1" - > "$d/exec-cut.txt"
+  "$cv" commits --platform $platform --exec "'$vcd' --cycles=2000 --binary='$elf' --trace_fd=3 > '$d/exec.log' 2>&1" - > "$d/exec-cut.txt"
   cut=$?
   set -e
   [ "$cut" = 4 ] || fail "--exec: a simulator stopped at the cycle limit gave status $cut, not 4"

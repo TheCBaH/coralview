@@ -109,7 +109,7 @@ zvt-check:
 # Plan, selection and live VCD against the archive's simulators (skipped for a release without them).
 integration: build
 	for mode in selection stream selected-stream; do \
-	  tools/integration.sh $$mode $$(pwd)/_build/default/bin/coralview.exe $(CORALNPU); \
+	  tools/integration.sh $$mode $$(pwd)/_build/default/bin/coralview.exe $(CORALNPU) || exit 1; \
 	done
 
 ci: fmt-check build test hwfrp-boundary isa-check zvt-check smoke integration
