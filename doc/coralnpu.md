@@ -28,7 +28,7 @@ platform description.
 ## Where the traces come from
 
 The devcontainer image holds the simulators of devcontainer.coralnpu
-release `v0.0.4` under `/opt/coralnpu`. Each is the Verilator build of one
+release `v0.0.6` under `/opt/coralnpu`. Each is the Verilator build of one
 Coral NPU configuration with the SystemC testbench, plus example ELFs.
 `--trace` writes an FST of the whole hierarchy: every signal of every
 module, not just the ports. The VME core's trace of `matrix.elf` has:
