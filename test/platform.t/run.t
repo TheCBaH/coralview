@@ -51,6 +51,31 @@ run:
          4 0 80000000 02a00513 addi x10, x0, 42                 x10=0000002a       3   2   4
   root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
 
+A window can also run between two retirements, as the two reads of a cycle
+counter around a kernel do: from the first retirement of the first PC to the
+next of the second, both included. It is a first pass over the trace, and
+the second PC has to retire after the first:
+
+  $ coralview commits --platform test-core.json --between-pc 80000000,80000004 core.vcd
+         4 0 80000000 02a00513 addi x10, x0, 42                 x10=0000002a       3   2   4
+         5 0 80000004 00000013 addi x0, x0, 0                                      3   -   1
+  root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
+  $ coralview commits --platform test-core.json --between-pc 80000004,80000004 core.vcd
+  --between-pc: pc 80000004 never retires from cycle 5
+  [3]
+  $ coralview commits --platform test-core.json --between-pc 80000004,80000000 core.vcd
+  --between-pc: pc 80000000 never retires from cycle 5
+  [3]
+  $ coralview commits --platform test-core.json --between-pc 90000000,80000000 core.vcd
+  --between-pc: pc 90000000 retires fewer than 1 times
+  [3]
+  $ coralview commits --platform test-core.json --between-pc 80000000,80000004 --nth 2 core.vcd
+  --between-pc: pc 80000000 retires fewer than 2 times
+  [3]
+  $ coralview commits --platform test-core.json --between-pc 80000000,80000004 - < core.vcd
+  --between-pc reads the trace twice: name a file, not - or --exec
+  [2]
+
 The same retirements as JSON lines, filtered alike; the summary covers
 the whole run:
 
