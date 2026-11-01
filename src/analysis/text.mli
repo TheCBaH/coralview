@@ -21,6 +21,9 @@ val selected : window -> cycle:int -> pc:int -> bool
 type ctx = {
   root : string;  (** The platform root, as the summaries name it. *)
   disasm : int -> string;
+  instruction_class : int -> string;
+      (** ["alu"], ["vector-mem"], …; ["unknown"] for a word Rivet does not decode. *)
+  by_class : bool;  (** [--profile-by class]: a profile has a row per class, not per PC. *)
   region : Region.t;
   window : window;
   limit : int;  (** Rows at most. *)

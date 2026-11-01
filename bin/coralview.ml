@@ -227,11 +227,20 @@ let analyze (type k e s)
         ~diags:pulled.diags pulled.summary);
   match status (pulled.summary ()) with 0 -> () | n -> exit n
 
+let profile_by_class = ref false
+
 let ctx p ?(features = None) ?(region = Region.none) ?(window = Text.everything) ?(limit = max_int)
     ?(profile = 0) () =
   {
     Text.root = Vcd_types.Reference.to_string (Platform.root p);
     disasm = Coral_isa.Rivet_decode.disasm (decoder features);
+    instruction_class =
+      (let d = decoder features in
+       fun word ->
+         match Coral_isa.Rivet_decode.instruction d word with
+         | Ok i -> Coral_isa.Iclass.(name (of_instruction i))
+         | Error _ -> "unknown");
+    by_class = !profile_by_class;
     region;
     window;
     limit;
@@ -665,9 +674,24 @@ let manifest =
         ~doc:"The emulator archive's $(i,hardware-configurations.json), to check against.")
 
 let profile =
-  Arg.(
-    value & opt int 0
-    & info [ "profile" ] ~docv:"N" ~doc:"Print the $(docv) PCs with the most cycles charged.")
+  let by =
+    Arg.(
+      value
+      & opt (enum [ ("pc", false); ("class", true) ]) false
+      & info [ "profile-by" ] ~docv:"KEY"
+          ~doc:
+            "Group the $(b,--profile) of $(b,commits) by $(b,pc) (the default) or instruction \
+             $(b,class): alu, fp, mem, branch, vector, vector-mem, tile or system.")
+  in
+  Term.(
+    const (fun n by_class ->
+        profile_by_class := by_class;
+        n)
+    $ Arg.(
+        value & opt int 0
+        & info [ "profile" ] ~docv:"N"
+            ~doc:"Print the $(docv) PCs (or classes) with the most cycles charged.")
+    $ by)
 
 let regions p = function
   | None -> Region.none
@@ -1227,6 +1251,40 @@ let commands =
               (module Memory)
               { region } p ~format ~ctx:(ctx p ~region ~window ~limit ()) Memory.text path)
         $ manifest $ window $ limit $ format $ output);
+    model "cost" "Retired instructions by class and memory region: commits joined with memory."
+      Term.(
+        const (fun manifest window format output p path ->
+            let region = regions p manifest in
+            redirect output;
+            if path = "-" then fail ~code:2 "cost reads the trace twice: name a file, not -";
+            let c = ctx p ~region ~window () in
+            let open_trace () = Hwfrp.Trace.open_input ~select:!select path in
+            let commits =
+              let pulled = Analysis.pull (module Commits) () p (open_trace ()) in
+              List.of_seq
+                (Seq.filter_map
+                   (function Commits.Event.Commit c -> Some c | In_flight _ -> None)
+                   pulled.events)
+            in
+            let accesses =
+              let pulled = Analysis.pull (module Memory) { region } p (open_trace ()) in
+              List.of_seq
+                (Seq.filter_map
+                   (function Memory.Event.Access a -> Some a | Fault _ -> None)
+                   pulled.events)
+            in
+            let rows = Cost.join ~classify:c.instruction_class ~window commits accesses in
+            match format with
+            | `Text -> Cost.text rows
+            | `Jsonl ->
+                print_endline
+                  (Codec.to_line Jsonl.header_jsont
+                     {
+                       (Jsonl.header ~model:"cost" ~platform:p.name ~trace:path) with
+                       window = jsonl_window window;
+                     });
+                List.iter (fun r -> print_endline (Codec.to_line Cost.row_jsont r)) rows)
+        $ manifest $ window $ format $ output);
     model "axi" Axi.doc
       Term.(
         const (fun features manifest window limit profile format output p path ->

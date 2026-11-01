@@ -89,7 +89,10 @@ smoke: build
 	grep -q ' unmatched 0$$' $$d/axi; \
 	! grep -q DISAGREEING $$d/axi; \
 	$(DUNE) exec -- coralview axi --platform core-mini-axi --format jsonl $$fst > $$d/axi.jsonl; \
-	$(DUNE) exec -- coralview render --limit 5 --profile 5 $$d/axi.jsonl | cmp - $$d/axi
+	$(DUNE) exec -- coralview render --limit 5 --profile 5 $$d/axi.jsonl | cmp - $$d/axi; \
+	$(DUNE) exec -- coralview cost --platform core-mini-axi --manifest $(CORALNPU)/emulators/hardware-configurations.json $$fst | tee $$d/cost; \
+	grep -q '^mem  *dtcm ' $$d/cost; \
+	grep -q '^mem  *testbench-ram ' $$d/cost
 	set -e; d=$$(mktemp -d); trap 'rm -rf $$d' EXIT; \
 	s=$(CORALNPU)/subsystem; \
 	tools/trace-subsystem.sh $$s vector_normal $$s/examples/subsystem_dma.elf 8 32 $$d | grep -q CORAL_SUBSYSTEM_DMA_PASS; \
