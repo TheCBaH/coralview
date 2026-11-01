@@ -9,6 +9,12 @@ type window = { first : int; last : int; pcs : int list }
 
 val everything : window
 
+val windowed : window -> bool
+(** Not {!everything}. *)
+
+val describe : window -> string
+(** ["window [first, last] pc …"], for the totals of a window; [last] is ["end"] when unbounded. *)
+
 val selected : window -> cycle:int -> pc:int -> bool
 (** In the cycle range, and of one of [pcs] unless empty. *)
 

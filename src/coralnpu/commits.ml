@@ -278,9 +278,16 @@ let events c =
   let out, summary = shared c in
   (Ev.filter (( <> ) []) (Ev.map commits out), summary)
 
+let in_window (ctx : Text.ctx) =
+  List.filter (fun (c : commit) -> Text.selected ctx.window ~cycle:c.retired ~pc:c.pc)
+
 let profile (ctx : Text.ctx) events (s : Summary.t) =
   let disasm w = match w with Some w -> ctx.disasm w | None -> "?" in
-  let commits = commits events in
+  let commits = in_window ctx (commits events) in
+  let total_cycles =
+    if Text.windowed ctx.window then List.fold_left (fun n (c : commit) -> n + c.charged) 0 commits
+    else s.cycles
+  in
   (* The word of a PC is its first retirement's. *)
   let words =
     List.fold_left
@@ -296,7 +303,7 @@ let profile (ctx : Text.ctx) events (s : Summary.t) =
   |> List.iteri (fun i (r : int Profile.row) ->
       if i < ctx.profile then
         Printf.printf "%08x %6d %7d %5.1f%% %8.2f  %s\n" r.key r.count r.weight
-          (100. *. float r.weight /. float (max 1 s.cycles))
+          (100. *. float r.weight /. float (max 1 total_cycles))
           (float r.total /. float r.count)
           (disasm (IM.find r.key words)))
 
@@ -325,6 +332,11 @@ let text (ctx : Text.ctx) events (s : Summary.t) =
     "root %s: %d cycles, %d before the first dispatch, %d later with nothing in flight; %d retires \
      without dispatch, %d dispatches skipped, %d values missing, %d in flight at the end\n"
     ctx.root s.cycles s.before s.empty s.unmatched_retires s.skipped s.missing_values s.in_flight;
+  if Text.windowed ctx.window then begin
+    let w = in_window ctx commits in
+    Printf.printf "%s: %d commits, %d cycles charged\n" (Text.describe ctx.window) (List.length w)
+      (List.fold_left (fun n (c : commit) -> n + c.charged) 0 w)
+  end;
   if s.pending <> [] then begin
     Printf.printf "in flight at the end, oldest first:\n";
     List.iter
