@@ -31,6 +31,10 @@ val block : 'c t -> string -> 'a option -> 'a
 val scope : 'c t -> string list -> 'c Hwfrp.Bind.scope
 (** A block scope, relative to the platform root. *)
 
+val signal : 'c t -> string list -> string -> 'a Hwfrp.Bind.decoder -> ('a, 'c) Hwfrp.Sig.t
+(** [signal c scope name d] binds [name] in [scope]. A [name] of the form [a/b/n] is signal [n] in the
+    sub-scope [a.b] of [scope]. *)
+
 val gate : (Hwfrp.Trace.t -> model:string -> unit) ref
 (** Called by {!start} with the trace and the model name, after the net is built and before the first sample:
     the place for a check of the tracked signals. Does nothing by default. *)

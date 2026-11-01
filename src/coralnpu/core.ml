@@ -29,6 +29,20 @@ let bind (p : Platform.t) tr ~model =
 
 let block c name = function Some b -> b | None -> raise (No_block (c.platform.name, name))
 let scope c rel = Bind.root c.net c.trace c.clk ~model:c.model (Platform.scope c.platform rel)
+
+let signal c scope name d =
+  match String.rindex_opt name '/' with
+  | None ->
+      Bind.signal
+        (Bind.root c.net c.trace c.clk ~model:c.model (Platform.scope c.platform scope))
+        name d
+  | Some i ->
+      let rel = scope @ String.split_on_char '/' (String.sub name 0 i) in
+      Bind.signal
+        (Bind.root c.net c.trace c.clk ~model:c.model (Platform.scope c.platform rel))
+        (String.sub name (i + 1) (String.length name - i - 1))
+        d
+
 let gate = ref (fun _ ~model:_ -> ())
 
 let start c =

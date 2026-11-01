@@ -17,11 +17,13 @@ $var wire 32 ea io_ebus_dbus_addr $end
 $var wire 16 em io_ebus_dbus_wmask $end
 $var wire 128 ed io_ebus_dbus_wdata $end
 $var wire 128 eq io_ebus_dbus_rdata $end
-$var wire 32 ep io_ebus_dbus_pc $end
 $var wire 1 fv io_fault_valid $end
 $var wire 1 fw io_fault_bits_write $end
 $var wire 32 fa io_fault_bits_addr $end
 $var wire 32 fe io_fault_bits_epc $end
+$scope module slot $end
+$var wire 32 ep io_pc $end
+$upscope $end
 $upscope $end
 $upscope $end
 $upscope $end
@@ -43,11 +45,11 @@ b0 ea
 b0 em
 b0 ed
 b0 eq
-b0 ep
 b0 fv
 b0 fw
 b0 fa
 b0 fe
+b0 ep
 $end
 #1
 1ck

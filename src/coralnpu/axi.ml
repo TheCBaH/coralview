@@ -556,7 +556,7 @@ let build (cfg : Config.t) (c : _ Core.t) =
             let os = Core.scope c o.o_scope in
             let opt n d =
               match n with
-              | Some n -> Sig.map Option.some (Bind.signal os n d)
+              | Some n -> Sig.map Option.some (Core.signal c o.o_scope n d)
               | None -> Sig.const c.clk None
             in
             let open Sig in

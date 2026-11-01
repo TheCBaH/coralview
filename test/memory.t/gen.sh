@@ -1,11 +1,11 @@
 #!/bin/bash
-# Writes memory.vcd to stdout: a clock and the LSU's TCM and external data buses and fault port, set at
+# Writes memory.vcd to stdout: a clock and the LSU's TCM and external data buses and fault port, and the PC of its slot, set at
 # each falling edge.
 vars=(
   "1 tv io_dbus_valid" "1 tr io_dbus_ready" "1 tw io_dbus_write" "32 ta io_dbus_addr"
   "16 tm io_dbus_wmask" "128 td io_dbus_wdata" "128 tq io_dbus_rdata"
   "1 ev io_ebus_dbus_valid" "1 er io_ebus_dbus_ready" "1 ew io_ebus_dbus_write" "32 ea io_ebus_dbus_addr"
-  "16 em io_ebus_dbus_wmask" "128 ed io_ebus_dbus_wdata" "128 eq io_ebus_dbus_rdata" "32 ep io_ebus_dbus_pc"
+  "16 em io_ebus_dbus_wmask" "128 ed io_ebus_dbus_wdata" "128 eq io_ebus_dbus_rdata"
   "1 fv io_fault_valid" "1 fw io_fault_bits_write" "32 fa io_fault_bits_addr" "32 fe io_fault_bits_epc"
 )
 declare -A width
@@ -27,6 +27,10 @@ echo '$scope module core $end'
 echo '$var wire 1 ck io_aclk $end'
 echo '$scope module lsu $end'
 for v in "${vars[@]}"; do set -- $v; width[$2]=$1; echo "\$var wire $1 $2 $3 \$end"; done
+width[ep]=32
+echo '$scope module slot $end'
+echo '$var wire 32 ep io_pc $end'
+echo '$upscope $end'
 echo '$upscope $end'
 echo '$upscope $end'
 echo '$upscope $end'
@@ -34,7 +38,7 @@ echo '$enddefinitions $end'
 echo '#0'
 echo '$dumpvars'
 echo 0ck
-for v in "${vars[@]}"; do set -- $v; echo "b0 $2"; done
+for v in "${vars[@]}" "32 ep"; do set -- $v; echo "b0 $2"; done
 echo '$end'
 # cycle: "id hex" ... (values hold until changed); x for unknown
 cycles=(
