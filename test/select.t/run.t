@@ -58,3 +58,12 @@ gives what the full trace gives:
   vectors: same, vectors: 0
   traps: same, traps: 0
   dma: same, dma: 0
+
+A plan made for other models says so, instead of listing the signals of the model it lacks:
+
+  $ coralview axi --platform $t/axi.t/axi-core.json --plan out/plan $t/axi.t/axi.vcd
+  the plan out/plan was made without --model axi (it has commits)
+  [3]
+  $ coralview run --platform $t/axi.t/axi-core.json --model commits --model axi --plan out/plan $t/axi.t/axi.vcd
+  the plan out/plan was made without --model axi (it has commits)
+  [3]

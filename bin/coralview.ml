@@ -73,6 +73,14 @@ let () =
                 plan
           in
           let origins = Option.value !run_origins ~default:[ model ] in
+          let planned = Hwfrp.Capture.origins plan in
+          (match List.filter (fun o -> not (List.mem o planned)) origins with
+          | [] -> ()
+          | absent ->
+              fail ~code:3
+                (Printf.sprintf "the plan %s was made without --model %s (it has %s)" file
+                   (String.concat ", --model " absent)
+                   (String.concat ", " planned)));
           match Hwfrp.Capture.check plan ~origins tr with
           | Ok () -> ()
           | Error l ->
