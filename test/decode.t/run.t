@@ -11,9 +11,9 @@ Coral's Zvt words, taken from the release matrix.elf, decode with the rows
 exported from MPACT; Coral's msetmtype and msettn differ from the
 riscv-opcodes draft:
 
-  $ coralview decode 82b6f057 840675d7 43e06057 52c17027 f28800f7 f2881077 f28810f7
-  82b6f057  msetmtype x0, x13, x11
-  840675d7  msettn x11, x12
+  $ coralview decode 84b6f057 880675d7 43e06057 52c17027 f28800f7 f2881077 f28810f7
+  84b6f057  msetmtype x13, x11
+  880675d7  msettn x11, x12
   43e06057  vtzero mt0
   52c17027  vtse32 x12, 0(x2)
   f28800f7  vtmms.tvv mt0, v8, v16
@@ -30,10 +30,10 @@ the RTL traps on, are not decoded:
 
 The remaining forms, with words from coralnpu's VME cocotb tests:
 
-  $ coralview decode 841776d7 842877d7 8431f057 43fa6257 5e456057 12b57007 43c06057 f2040077
-  841776d7  msettm x13, x14
-  842877d7  msettk x15, x16
-  8431f057  msetmtypei x0, 3, 0
+  $ coralview decode 881776d7 882877d7 8841f057 43fa6257 5e456057 12b57007 43c06057 f2040077
+  881776d7  msettm x13, x14
+  882877d7  msettk x15, x16
+  8841f057  msetmtypei 3, 0, 0
   43fa6257  vtmv.v.t v4, x20
   5e456057  vtmv.t.v x10, v4
   12b57007  vtle8 x11, 0(x10)

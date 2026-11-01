@@ -408,7 +408,7 @@ let build (cfg : Config.t) (c : _ Core.t) =
         let os = Core.scope c o.o_scope in
         let pc =
           match o.o_pc with
-          | Some n -> Sig.map Option.some (Bind.signal os n Bind.uint)
+          | Some n -> Sig.map Option.some (Core.signal c o.o_scope n Bind.uint)
           | None -> Sig.const c.clk None
         in
         let open Sig in

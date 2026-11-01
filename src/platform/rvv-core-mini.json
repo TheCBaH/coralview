@@ -27,7 +27,7 @@
       "sources": [
         { "id": 0, "name": "lsu",
           "origin": { "scope": ["core", "score", "lsu"], "valid": "io_ebus_dbus_valid", "ready": "io_ebus_dbus_ready",
-                      "addr": "io_ebus_dbus_addr", "align": 1, "write": "io_ebus_dbus_write", "pc": "io_ebus_dbus_pc",
+                      "addr": "io_ebus_dbus_addr", "align": 1, "write": "io_ebus_dbus_write", "pc": "slot/io_pc",
                       "ops": {
                         "enqueue": { "scope": ["core", "score", "lsu"], "lanes": 4,
                                      "valid": "io_req_%d_valid", "ready": "io_req_%d_ready", "pc": "io_req_%d_bits_pc" },
