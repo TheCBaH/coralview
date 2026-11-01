@@ -7,6 +7,12 @@ module Ext = Riscv_family_encode.Extensions
 
 let feature = "xcoralzvt"
 
+(* The one release this table is for; zvt.jsonl comes from its emulators archive. *)
+let release = "v0.0.7"
+let zvt_version = "v0.4"
+let revision_prefix = "575921c"
+let revision = Zvt_rows.revision
+
 (* RTL decodes nf 0..2 only; MPACT M4 also decodes the 64-bit forms. *)
 let excluded = [ "vtle64"; "vtse64" ]
 
@@ -46,8 +52,9 @@ let operand i ~memory name =
   | "mtd" -> Ok (Row.Indexed { prefix = "mt"; lsb = 8; width = 4; scale = 1 })
   | _ -> Error (Printf.sprintf "%s: no Rivet operand for %s" i.mnemonic name)
 
-(* MPACT spells msetmtype without rd, which the RTL writes as for vsetvl, and msetmtypei with no
-   operands at all: its immediates are mtwiden in the rs1 field and the SEW in bits 24:23. *)
+(* msetmtype has rd fixed to x0 in the encoding, so MPACT lists no rd. msetmtypei has no operands
+   in MPACT either: its immediates are mtwiden in rs1[1:0], the SEW in bits 24:23 and altfmt in bit
+   28 (Zvt v0.4). *)
 let operands i =
   let all l =
     List.fold_right
@@ -58,11 +65,14 @@ let operands i =
       l (Ok [])
   in
   match i.mnemonic with
-  | "msetmtype" -> all (List.map (operand i ~memory:false) [ "rd"; "rs1"; "rs2" ])
   | "msetmtypei" ->
-      let* rd = operand i ~memory:false "rd" in
-      let* uimm = lsb i "uimm5" in
-      Ok [ rd; Row.Uimm { lsb = uimm; width = 5 }; Row.Uimm { lsb = 23; width = 2 } ]
+      let* mtwiden = lsb i "uimm5" in
+      Ok
+        [
+          Row.Uimm { lsb = mtwiden; width = 2 };
+          Row.Uimm { lsb = 23; width = 2 };
+          Row.Uimm { lsb = 28; width = 1 };
+        ]
   | _ ->
       let memory name = String.contains i.disasm '(' && name = "rs1" in
       all (List.map (fun name -> operand i ~memory:(memory name) name) i.operands)

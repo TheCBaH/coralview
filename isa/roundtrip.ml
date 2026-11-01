@@ -16,11 +16,12 @@ let references =
   [
     (0x02a00513, "addi x10, x0, 42");
     (0x022180d7, "vadd.vv v1, v2, v3");
-    (0x82b6f057, "msetmtype x0, x13, x11");
-    (0x840675d7, "msettn x11, x12");
-    (0x841776d7, "msettm x13, x14");
-    (0x842877d7, "msettk x15, x16");
-    (0x8431f057, "msetmtypei x0, 3, 0");
+    (0x84b6f057, "msetmtype x13, x11");
+    (0x880675d7, "msettn x11, x12");
+    (0x881776d7, "msettm x13, x14");
+    (0x882877d7, "msettk x15, x16");
+    (0x8841f057, "msetmtypei 3, 0, 0");
+    (0x9841f057, "msetmtypei 3, 0, 1");
     (0x43e06057, "vtzero mt0");
     (0x43c06057, "vtdiscard");
     (0x43fa6257, "vtmv.v.t v4, x20");
@@ -35,6 +36,9 @@ let references =
 let run () =
   let failures = ref [] and checked = ref 0 in
   let fail fmt = Printf.ksprintf (fun s -> failures := s :: !failures) fmt in
+  if not (String.starts_with ~prefix:Coral_zvt.revision_prefix Coral_zvt.revision) then
+    fail "zvt.jsonl is from coralnpu %s, not release %s (%s)" Coral_zvt.revision Coral_zvt.release
+      Coral_zvt.revision_prefix;
   (match Rivet_decode.create () with
   | Error e -> fail "create: %s" e
   | Ok d -> (

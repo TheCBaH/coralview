@@ -20,7 +20,10 @@ let finish m = Jsont.Object.(finish (skip_unknown m))
 let kind = obj "zvt record" Fun.id |> Jsont.Object.mem "record" Jsont.string |> finish
 
 let provenance =
-  obj "zvt provenance" Fun.id |> Jsont.Object.mem "schema_version" Jsont.int |> finish
+  obj "zvt provenance" (fun version revision -> (version, revision))
+  |> Jsont.Object.mem "schema_version" Jsont.int
+  |> Jsont.Object.mem "coralnpu_revision" Jsont.string
+  |> finish
 
 let instruction =
   obj "zvt instruction" (fun mnemonic mask match_ fields disasm operands ->
@@ -45,6 +48,7 @@ let decode codec line =
   | Ok v -> v
   | Error e -> fail "%s" e
 
+let coralnpu_revision = ref ""
 let read path = In_channel.with_open_bin path In_channel.input_all
 
 let () =
@@ -57,7 +61,9 @@ let () =
     | first :: rest ->
         let record = decode kind first in
         if record <> "provenance" then fail "the first record is %s, not provenance" record;
-        (match decode provenance first with 1 -> () | v -> fail "schema version %d, expected 1" v);
+        let version, revision = decode provenance first in
+        if version <> 1 then fail "schema version %d, expected 1" version;
+        coralnpu_revision := revision;
         List.map
           (fun line ->
             match decode kind line with
@@ -65,6 +71,7 @@ let () =
             | r -> fail "unexpected record %s" r)
           rest
   in
+  Printf.printf "let revision = %S\n\n" !coralnpu_revision;
   print_string
     {|type instruction = {
   mnemonic : string;
