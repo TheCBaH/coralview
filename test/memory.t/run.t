@@ -12,6 +12,15 @@ before it and the second without, and a last read whose data is unknown:
          7 ext R pc 00000114 addr 20000020 4 bytes 00000000
   root TOP.core: 3 read and 2 write requests from 5 PCs, 2 faults
 
+A window counts its own requests:
+
+  $ coralview memory --platform mem-core.json --from-cycle 3 --to-cycle 5 memory.vcd
+         3 ext W pc 00000108 addr 20000000 4 bytes cafef00d
+         4 ext R pc 0000010c addr 20000010 4 bytes 55667788
+         5 fault R pc 0000010c addr 30000000, requested at 4, addr 20000010
+  root TOP.core: 3 read and 2 write requests from 5 PCs, 2 faults
+  window [3, 5]: 1 read and 1 write requests from 2 PCs, 1 faults
+
 As JSON lines, with each request's byte lanes and its line of data; the unknown data is a
 diagnostic line:
 

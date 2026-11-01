@@ -1198,10 +1198,10 @@ let commands =
         $ features $ window $ limit $ profile $ format $ output);
     model "stalls" Stalls.doc
       Term.(
-        const (fun profile format output p path ->
+        const (fun window profile format output p path ->
             redirect output;
-            analyze (module Stalls) () p ~format ~ctx:(ctx p ~profile ()) Stalls.text path)
-        $ profile $ format $ output);
+            analyze (module Stalls) () p ~format ~ctx:(ctx p ~window ~profile ()) Stalls.text path)
+        $ window $ profile $ format $ output);
     model "memory" Memory.doc
       Term.(
         const (fun manifest window limit format output p path ->
@@ -1235,17 +1235,19 @@ let commands =
         $ format $ output);
     model "tiles" Tiles.doc
       Term.(
-        const (fun limit format output p path ->
+        const (fun window limit format output p path ->
             redirect output;
-            analyze (module Tiles) () p ~format ~ctx:(ctx p ~limit ()) Tiles.text path)
-        $ limit $ format $ output);
+            analyze (module Tiles) () p ~format ~ctx:(ctx p ~window ~limit ()) Tiles.text path)
+        $ window $ limit $ format $ output);
     model "ops" Ops.doc
       Term.(
-        const (fun features gap peak_window limit profile format output p path ->
+        const (fun features gap peak_window window limit profile format output p path ->
             redirect output;
             analyze
               (module Ops)
-              { gap; peak_window; features } p ~format ~ctx:(ctx p ~limit ~profile ()) Ops.text path)
+              { gap; peak_window; features } p ~format
+              ~ctx:(ctx p ~window ~limit ~profile ())
+              Ops.text path)
         $ features
         $ Arg.(
             value & opt int Ops.Config.default.gap
@@ -1255,7 +1257,7 @@ let commands =
             value
             & opt int Ops.Config.default.peak_window
             & info [ "peak-window" ] ~docv:"N" ~doc:"Take the peak rate over $(docv) cycles.")
-        $ limit $ profile $ format $ output);
+        $ window $ limit $ profile $ format $ output);
     model "registers" Registers.doc
       Term.(
         const (fun at limit format output p path ->

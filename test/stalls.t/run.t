@@ -16,6 +16,21 @@ instruction meets a halt:
   00000104      2 raw            add x11, x10, x10
   00000108      1 halted         add x12, x10, x11
 
+In a window the breakdown counts the cycles of each span inside it, so the
+reasons add up to the window; spans are clipped at its edges:
+
+  $ coralview stalls --platform stall-core.json --from-cycle 2 --to-cycle 4 --profile 3 stalls.vcd
+  root TOP.core: 6 cycles
+  window [2, 4]: 6 lane-cycles
+  reason           lane0   lane1
+  dispatched           1       0
+  empty                1       2
+  behind               0       1
+  raw                  1       0
+  lane 0 blocked, by instruction:
+        pc cycles reason         instruction
+  00000104      1 raw            add x11, x10, x10
+
 As JSON lines, one span per run of a lane with the same reason and instruction; those still running
 at the end are open:
 
