@@ -7,10 +7,9 @@ module Ext = Riscv_family_encode.Extensions
 
 let feature = "xcoralzvt"
 
-(* The one release this table is for; zvt.jsonl comes from its emulators archive. *)
-let release = "v0.0.7"
-let zvt_version = "v0.4"
-let revision_prefix = "575921c"
+(* The only Zvt version coralview supports; zvt.jsonl says which one it is. *)
+let supported_zvt_version = "v0.4"
+let zvt_version = Zvt_rows.zvt_version
 let revision = Zvt_rows.revision
 
 (* RTL decodes nf 0..2 only; MPACT M4 also decodes the 64-bit forms. *)

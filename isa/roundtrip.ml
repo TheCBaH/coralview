@@ -36,9 +36,9 @@ let references =
 let run () =
   let failures = ref [] and checked = ref 0 in
   let fail fmt = Printf.ksprintf (fun s -> failures := s :: !failures) fmt in
-  if not (String.starts_with ~prefix:Coral_zvt.revision_prefix Coral_zvt.revision) then
-    fail "zvt.jsonl is from coralnpu %s, not release %s (%s)" Coral_zvt.revision Coral_zvt.release
-      Coral_zvt.revision_prefix;
+  if Coral_zvt.zvt_version <> Coral_zvt.supported_zvt_version then
+    fail "zvt.jsonl follows Zvt %s (coralnpu %s), but only %s is supported" Coral_zvt.zvt_version
+      Coral_zvt.revision Coral_zvt.supported_zvt_version;
   (match Rivet_decode.create () with
   | Error e -> fail "create: %s" e
   | Ok d -> (

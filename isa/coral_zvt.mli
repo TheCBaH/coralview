@@ -10,17 +10,14 @@
 val feature : string
 (** The vendor feature, off by default: [xcoralzvt]. *)
 
-val release : string
-(** The devcontainer.coralnpu release the table is for: [v0.0.7]. *)
+val supported_zvt_version : string
+(** The only Zvt specification version coralview supports: [v0.4]. *)
 
 val zvt_version : string
-(** The Zvt specification version of that release: [v0.4]. *)
+(** The [zvt_version] in [zvt.jsonl]'s provenance record: the version the table follows. *)
 
 val revision : string
-(** The [coralnpu_revision] in [zvt.jsonl]'s provenance record. *)
-
-val revision_prefix : string
-(** The prefix [revision] must have for [release]. *)
+(** The [coralnpu_revision] in the same record. *)
 
 val definition : unit -> (Riscv_family_encode.Extensions.Validated.t, string) result
 (** The standard RV32 extensions with the Zvt rows, validated by Rivet. *)
