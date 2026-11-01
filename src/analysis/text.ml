@@ -17,6 +17,8 @@ let selected w ~cycle ~pc = cycle >= w.first && cycle <= w.last && (w.pcs = [] |
 type ctx = {
   root : string;
   disasm : int -> string;
+  instruction_class : int -> string;
+  by_class : bool;
   region : Region.t;
   window : window;
   limit : int;

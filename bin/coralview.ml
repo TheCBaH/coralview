@@ -227,11 +227,20 @@ let analyze (type k e s)
         ~diags:pulled.diags pulled.summary);
   match status (pulled.summary ()) with 0 -> () | n -> exit n
 
+let profile_by_class = ref false
+
 let ctx p ?(features = None) ?(region = Region.none) ?(window = Text.everything) ?(limit = max_int)
     ?(profile = 0) () =
   {
     Text.root = Vcd_types.Reference.to_string (Platform.root p);
     disasm = Coral_isa.Rivet_decode.disasm (decoder features);
+    instruction_class =
+      (let d = decoder features in
+       fun word ->
+         match Coral_isa.Rivet_decode.instruction d word with
+         | Ok i -> Coral_isa.Iclass.(name (of_instruction i))
+         | Error _ -> "unknown");
+    by_class = !profile_by_class;
     region;
     window;
     limit;
@@ -665,9 +674,24 @@ let manifest =
         ~doc:"The emulator archive's $(i,hardware-configurations.json), to check against.")
 
 let profile =
-  Arg.(
-    value & opt int 0
-    & info [ "profile" ] ~docv:"N" ~doc:"Print the $(docv) PCs with the most cycles charged.")
+  let by =
+    Arg.(
+      value
+      & opt (enum [ ("pc", false); ("class", true) ]) false
+      & info [ "profile-by" ] ~docv:"KEY"
+          ~doc:
+            "Group the $(b,--profile) of $(b,commits) by $(b,pc) (the default) or instruction \
+             $(b,class): alu, fp, mem, branch, vector, vector-mem, tile or system.")
+  in
+  Term.(
+    const (fun n by_class ->
+        profile_by_class := by_class;
+        n)
+    $ Arg.(
+        value & opt int 0
+        & info [ "profile" ] ~docv:"N"
+            ~doc:"Print the $(docv) PCs (or classes) with the most cycles charged.")
+    $ by)
 
 let regions p = function
   | None -> Region.none

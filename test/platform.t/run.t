@@ -184,3 +184,14 @@ In JSON lines the header says which window the rows are of; a whole-trace header
   {"type":"coralview","schema_version":1,"model":"commits","platform":"test-core","trace":"core.vcd","window":{"first":5,"pcs":[]}}
   $ coralview commits --platform test-core.json --format jsonl core.vcd | head -n 1
   {"type":"coralview","schema_version":1,"model":"commits","platform":"test-core","trace":"core.vcd"}
+
+The profile by instruction class, from the trace and from its JSON lines (render takes the
+words from the rows):
+
+  $ coralview commits --platform test-core.json --profile 3 --profile-by class core.vcd | tail -n 2
+  class         count  cycles  share     d->r
+  alu               2       5  62.5%     3.00
+  $ coralview commits --platform test-core.json --format jsonl core.vcd > core.jsonl
+  $ coralview render --platform test-core.json --profile 3 --profile-by class core.jsonl | tail -n 2
+  class         count  cycles  share     d->r
+  alu               2       5  62.5%     3.00
