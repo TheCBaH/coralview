@@ -5,9 +5,8 @@
 let () =
   match Coral_isa.Roundtrip.run () with
   | checked, [] ->
-      Printf.printf "%d Zvt words round-trip through Rivet (coralnpu %s, Zvt %s, revision %s)\n"
-        checked Coral_isa.Coral_zvt.release Coral_isa.Coral_zvt.zvt_version
-        Coral_isa.Coral_zvt.revision
+      Printf.printf "%d Zvt words round-trip through Rivet (Zvt %s, coralnpu %s)\n" checked
+        Coral_isa.Coral_zvt.zvt_version Coral_isa.Coral_zvt.revision
   | _, failures ->
       List.iter prerr_endline failures;
       Printf.eprintf "%d failures\n" (List.length failures);
