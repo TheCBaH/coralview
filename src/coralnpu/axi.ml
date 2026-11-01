@@ -670,143 +670,6 @@ let build (cfg : Config.t) (c : _ Core.t) =
   in
   (out, summary)
 
-let profile (ctx : Text.ctx) events (s : Summary.t) =
-  let words = IM.of_seq (List.to_seq s.words) in
-  let instruction pc =
-    match IM.find_opt pc words with Some w -> ctx.disasm w | None -> "(not dispatched)"
-  in
-  let transactions =
-    List.filter_map (function Event.Transaction t -> Some t | Unmatched _ -> None) events
-  in
-  Printf.printf "external traffic by instruction:\n%8s %6s %7s %7s  %s\n" "pc" "count" "bytes"
-    "cycles" "instruction";
-  Profile.by_pc
-    ~pc:(fun t -> Event.pc (Transaction t))
-    ~weight:(fun (t : Event.transaction) -> t.txn.bytes)
-    ~total:(fun t -> Option.value (span t) ~default:0)
-    (List.to_seq transactions)
-  |> List.iteri (fun i (r : int Profile.row) ->
-      if i < ctx.profile then
-        Printf.printf "%08x %6d %7d %7d  %s\n" r.key r.count r.weight r.total (instruction r.key))
-
-let text (ctx : Text.ctx) events (s : Summary.t) =
-  let words = IM.of_seq (List.to_seq s.words) in
-  let instruction pc =
-    match IM.find_opt pc words with Some w -> ctx.disasm w | None -> "(not dispatched)"
-  in
-  let origin (t : Event.transaction) =
-    match t.origin with
-    | None -> "unpinned"
-    | Some o ->
-        let at =
-          match o.instance with
-          | Some i ->
-              let at = function Some c -> string_of_int c | None -> "-" in
-              Printf.sprintf "pc %08x %s (dispatched %s, op %s, retired %s)" i.pc (instruction i.pc)
-                (at i.dispatched) (at i.issued) (at i.retired)
-          | None -> Printf.sprintf "request %08x" o.request
-        in
-        if o.agrees then at
-        else
-          Printf.sprintf "%s; DISAGREES: request %s %08x" at
-            (match o.write with Some true -> "W" | Some false -> "R" | None -> "?")
-            o.request
-  in
-  let transactions =
-    List.filter_map (function Event.Transaction t -> Some t | Unmatched _ -> None) events
-  in
-  let shown = ref 0 in
-  Printf.printf "%8s %8s %8s %-3s %3s %-6s %-20s %5s %5s %7s %3s  %s\n" "start" "accept" "done"
-    "dir" "id" "source" "addr" "bytes" "beats" "B/cycle" "out" "origin";
-  List.iter
-    (fun (t : Event.transaction) ->
-      let pc = Option.value (Event.pc (Transaction t)) ~default:(-1) in
-      if Text.selected ctx.window ~cycle:t.txn.accepted ~pc && !shown < ctx.limit then begin
-        incr shown;
-        Printf.printf "%8d %8d %8s %-3s %3d %-6s %-20s %5d %2dx%-2d %7s %3d  %s%s\n" (start t)
-          t.txn.accepted
-          (match t.txn.completed with Some c -> string_of_int c | None -> "-")
-          (if t.txn.write then "W" else "R")
-          t.txn.id
-          (Option.value t.source ~default:"?")
-          (Printf.sprintf "%08x%s" t.txn.address (Region.suffix ctx.region t.txn.address))
-          t.txn.bytes t.txn.beats t.beat_bytes
-          (match throughput t with Some r -> Printf.sprintf "%.2f" r | None -> "-")
-          t.txn.outstanding (origin t)
-          (if t.txn.status = 0 then "" else " " ^ resp_name t.txn.status)
-      end)
-    transactions;
-  List.iter
-    (function
-      | Event.Unmatched u ->
-          Printf.printf "%8d unmatched %s id %d: %s\n" u.cycle
-            (if u.write then "W" else "R")
-            u.id u.what
-      | Transaction _ -> ())
-    events;
-  Printf.printf "root %s: reads %d (%d bytes), writes %d (%d bytes) in %d cycles, unmatched %d\n"
-    ctx.root s.reads s.read_bytes s.writes s.write_bytes s.cycles s.unmatched;
-  (match (s.first, s.last) with
-  | Some first, Some last ->
-      Printf.printf
-        "  latency, address accepted to done, min/mean/max: reads %s, writes %s cycles%s\n"
-        (Text.stats s.read_latency) (Text.stats s.write_latency)
-        (if s.incomplete = 0 then ""
-         else Printf.sprintf "; %d not done when the trace ends" s.incomplete);
-      let busy = List.fold_left ( + ) 0 s.occupancy - List.hd s.occupancy in
-      let total = s.read_bytes + s.write_bytes in
-      Printf.printf
-        "  throughput %.3f bytes/cycle over cycles %d-%d, %.3f while a transaction is outstanding \
-         (%d cycles)\n"
-        (float_of_int total /. float_of_int (last - first + 1))
-        first last
-        (if busy = 0 then 0. else float_of_int total /. float_of_int busy)
-        busy;
-      Printf.printf "  outstanding at once: max %d (reads %d, writes %d); cycles by count:%s\n"
-        (List.length s.occupancy - 1)
-        s.max_reads s.max_writes
-        (String.concat "" (List.mapi (Printf.sprintf " %d:%d") s.occupancy));
-      List.iter
-        (fun (x : Summary.source) ->
-          Printf.printf
-            "  source %s (id %d): transactions %d, bytes %d, pinned to a request %d, to an \
-             instruction instance %d%s\n"
-            x.source x.id x.transactions x.bytes x.pinned x.instances
-            (if x.disagreeing = 0 then "" else Printf.sprintf ", DISAGREEING %d" x.disagreeing))
-        s.sources;
-      if s.resyncs > 0 then Printf.printf "  queued operations that never issued: %d\n" s.resyncs
-  | _ -> ());
-  if ctx.profile > 0 then profile ctx events s
-
-let perfetto (ctx : Text.ctx) events (s : Summary.t) =
-  let last = s.cycles - 1 in
-  let transactions =
-    List.filter_map (function Event.Transaction t -> Some t | Unmatched _ -> None) events
-  in
-  {
-    Perfetto.process = "axi " ^ ctx.root;
-    slices =
-      List.map
-        (fun (t : Event.transaction) ->
-          {
-            Perfetto.track = Printf.sprintf "id %d %s" t.txn.id (Option.value t.source ~default:"?");
-            name = Printf.sprintf "%s %08x" (if t.txn.write then "W" else "R") t.txn.address;
-            start = start t;
-            stop = Option.value t.txn.completed ~default:last;
-            args =
-              ([ ("bytes", string_of_int t.txn.bytes); ("accepted", string_of_int t.txn.accepted) ]
-              @ (match Event.pc (Transaction t) with
-                | Some pc -> [ ("pc", Printf.sprintf "%08x" pc) ]
-                | None -> [])
-              @ if t.txn.status = 0 then [] else [ ("resp", resp_name t.txn.status) ]);
-          })
-        transactions;
-    counters =
-      Perfetto.occupancy ~track:"outstanding"
-        (List.map (fun (t : Event.transaction) -> (t.txn.accepted, t.txn.completed)) transactions)
-        ~last;
-  }
-
 module Accumulator = struct
   type event = Event.t
 
@@ -889,3 +752,164 @@ module Accumulator = struct
     |> Jsont.Object.mem "sources" (Jsont.list Summary.source) ~enc:(fun (s : snapshot) -> s.sources)
     |> Jsont.Object.finish
 end
+
+let profile (ctx : Text.ctx) events (s : Summary.t) =
+  let words = IM.of_seq (List.to_seq s.words) in
+  let instruction pc =
+    match IM.find_opt pc words with Some w -> ctx.disasm w | None -> "(not dispatched)"
+  in
+  let transactions =
+    List.filter_map
+      (function
+        | Event.Transaction t as e
+          when Text.selected ctx.window ~cycle:t.txn.accepted
+                 ~pc:(Option.value (Event.pc e) ~default:(-1)) ->
+            Some t
+        | _ -> None)
+      events
+  in
+  Printf.printf "external traffic by instruction:\n%8s %6s %7s %7s  %s\n" "pc" "count" "bytes"
+    "cycles" "instruction";
+  Profile.by_pc
+    ~pc:(fun t -> Event.pc (Transaction t))
+    ~weight:(fun (t : Event.transaction) -> t.txn.bytes)
+    ~total:(fun t -> Option.value (span t) ~default:0)
+    (List.to_seq transactions)
+  |> List.iteri (fun i (r : int Profile.row) ->
+      if i < ctx.profile then
+        Printf.printf "%08x %6d %7d %7d  %s\n" r.key r.count r.weight r.total (instruction r.key))
+
+let text (ctx : Text.ctx) events (s : Summary.t) =
+  let words = IM.of_seq (List.to_seq s.words) in
+  let instruction pc =
+    match IM.find_opt pc words with Some w -> ctx.disasm w | None -> "(not dispatched)"
+  in
+  let origin (t : Event.transaction) =
+    match t.origin with
+    | None -> "unpinned"
+    | Some o ->
+        let at =
+          match o.instance with
+          | Some i ->
+              let at = function Some c -> string_of_int c | None -> "-" in
+              Printf.sprintf "pc %08x %s (dispatched %s, op %s, retired %s)" i.pc (instruction i.pc)
+                (at i.dispatched) (at i.issued) (at i.retired)
+          | None -> Printf.sprintf "request %08x" o.request
+        in
+        if o.agrees then at
+        else
+          Printf.sprintf "%s; DISAGREES: request %s %08x" at
+            (match o.write with Some true -> "W" | Some false -> "R" | None -> "?")
+            o.request
+  in
+  let transactions =
+    List.filter_map (function Event.Transaction t -> Some t | Unmatched _ -> None) events
+  in
+  let shown = ref 0 in
+  Printf.printf "%8s %8s %8s %-3s %3s %-6s %-20s %5s %5s %7s %3s  %s\n" "start" "accept" "done"
+    "dir" "id" "source" "addr" "bytes" "beats" "B/cycle" "out" "origin";
+  List.iter
+    (fun (t : Event.transaction) ->
+      let pc = Option.value (Event.pc (Transaction t)) ~default:(-1) in
+      if Text.selected ctx.window ~cycle:t.txn.accepted ~pc && !shown < ctx.limit then begin
+        incr shown;
+        Printf.printf "%8d %8d %8s %-3s %3d %-6s %-20s %5d %2dx%-2d %7s %3d  %s%s\n" (start t)
+          t.txn.accepted
+          (match t.txn.completed with Some c -> string_of_int c | None -> "-")
+          (if t.txn.write then "W" else "R")
+          t.txn.id
+          (Option.value t.source ~default:"?")
+          (Printf.sprintf "%08x%s" t.txn.address (Region.suffix ctx.region t.txn.address))
+          t.txn.bytes t.txn.beats t.beat_bytes
+          (match throughput t with Some r -> Printf.sprintf "%.2f" r | None -> "-")
+          t.txn.outstanding (origin t)
+          (if t.txn.status = 0 then "" else " " ^ resp_name t.txn.status)
+      end)
+    transactions;
+  List.iter
+    (function
+      | Event.Unmatched u when Text.selected { ctx.window with pcs = [] } ~cycle:u.cycle ~pc:(-1) ->
+          Printf.printf "%8d unmatched %s id %d: %s\n" u.cycle
+            (if u.write then "W" else "R")
+            u.id u.what
+      | Unmatched _ | Transaction _ -> ())
+    events;
+  Printf.printf "root %s: reads %d (%d bytes), writes %d (%d bytes) in %d cycles, unmatched %d\n"
+    ctx.root s.reads s.read_bytes s.writes s.write_bytes s.cycles s.unmatched;
+  (match (s.first, s.last) with
+  | Some first, Some last ->
+      Printf.printf
+        "  latency, address accepted to done, min/mean/max: reads %s, writes %s cycles%s\n"
+        (Text.stats s.read_latency) (Text.stats s.write_latency)
+        (if s.incomplete = 0 then ""
+         else Printf.sprintf "; %d not done when the trace ends" s.incomplete);
+      let busy = List.fold_left ( + ) 0 s.occupancy - List.hd s.occupancy in
+      let total = s.read_bytes + s.write_bytes in
+      Printf.printf
+        "  throughput %.3f bytes/cycle over cycles %d-%d, %.3f while a transaction is outstanding \
+         (%d cycles)\n"
+        (float_of_int total /. float_of_int (last - first + 1))
+        first last
+        (if busy = 0 then 0. else float_of_int total /. float_of_int busy)
+        busy;
+      Printf.printf "  outstanding at once: max %d (reads %d, writes %d); cycles by count:%s\n"
+        (List.length s.occupancy - 1)
+        s.max_reads s.max_writes
+        (String.concat "" (List.mapi (Printf.sprintf " %d:%d") s.occupancy));
+      List.iter
+        (fun (x : Summary.source) ->
+          Printf.printf
+            "  source %s (id %d): transactions %d, bytes %d, pinned to a request %d, to an \
+             instruction instance %d%s\n"
+            x.source x.id x.transactions x.bytes x.pinned x.instances
+            (if x.disagreeing = 0 then "" else Printf.sprintf ", DISAGREEING %d" x.disagreeing))
+        s.sources;
+      if s.resyncs > 0 then Printf.printf "  queued operations that never issued: %d\n" s.resyncs
+  | _ -> ());
+  if Text.windowed ctx.window then begin
+    let acc = Accumulator.create () in
+    List.iter
+      (function
+        | Event.Transaction t as e ->
+            let pc = Option.value (Event.pc e) ~default:(-1) in
+            if Text.selected ctx.window ~cycle:t.txn.accepted ~pc then Accumulator.add acc e
+        | Unmatched u as e ->
+            if Text.selected ctx.window ~cycle:u.cycle ~pc:(-1) then Accumulator.add acc e)
+      events;
+    let w = Accumulator.snapshot acc in
+    Printf.printf
+      "%s: reads %d (%d bytes), writes %d (%d bytes), unmatched %d; latency min/mean/max: reads \
+       %s, writes %s cycles\n"
+      (Text.describe ctx.window) w.reads w.read_bytes w.writes w.write_bytes w.unmatched
+      (Text.stats w.read_latency) (Text.stats w.write_latency)
+  end;
+  if ctx.profile > 0 then profile ctx events s
+
+let perfetto (ctx : Text.ctx) events (s : Summary.t) =
+  let last = s.cycles - 1 in
+  let transactions =
+    List.filter_map (function Event.Transaction t -> Some t | Unmatched _ -> None) events
+  in
+  {
+    Perfetto.process = "axi " ^ ctx.root;
+    slices =
+      List.map
+        (fun (t : Event.transaction) ->
+          {
+            Perfetto.track = Printf.sprintf "id %d %s" t.txn.id (Option.value t.source ~default:"?");
+            name = Printf.sprintf "%s %08x" (if t.txn.write then "W" else "R") t.txn.address;
+            start = start t;
+            stop = Option.value t.txn.completed ~default:last;
+            args =
+              ([ ("bytes", string_of_int t.txn.bytes); ("accepted", string_of_int t.txn.accepted) ]
+              @ (match Event.pc (Transaction t) with
+                | Some pc -> [ ("pc", Printf.sprintf "%08x" pc) ]
+                | None -> [])
+              @ if t.txn.status = 0 then [] else [ ("resp", resp_name t.txn.status) ]);
+          })
+        transactions;
+    counters =
+      Perfetto.occupancy ~track:"outstanding"
+        (List.map (fun (t : Event.transaction) -> (t.txn.accepted, t.txn.completed)) transactions)
+        ~last;
+  }

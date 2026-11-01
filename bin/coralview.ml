@@ -138,12 +138,75 @@ let tree ~depth ~vars path scope =
 
 let selected = Text.selected
 
+let jsonl_window (w : Text.window) =
+  if Text.windowed w then
+    Some
+      {
+        Jsonl.first = w.first;
+        last = (if w.last = max_int then None else Some w.last);
+        pcs = w.pcs;
+      }
+  else None
+
+(* [--between-pc A,B --nth N]: the window from the Nth retirement of PC A to the next retirement of PC B,
+   found by a first pass over the trace with [commits]. *)
+let between_pc : (int * int * int) option ref = ref None
+
+let resolve_between (p : Platform.t) path (ctx : Text.ctx) =
+  match !between_pc with
+  | None -> ctx
+  | Some (a, b, nth) ->
+      if path = "-" then
+        fail ~code:2 "--between-pc reads the trace twice: name a file, not - or --exec";
+      let pulled =
+        guard p (fun () ->
+            Analysis.pull (module Commits) () p (Hwfrp.Trace.open_input ~select:!select path))
+      in
+      let seen = ref 0 and first = ref None and last = ref None in
+      (try
+         Seq.iter
+           (function
+             | Commits.Event.Commit c -> (
+                 match !first with
+                 | None ->
+                     if c.pc = a then begin
+                       incr seen;
+                       if !seen = nth then first := Some c.retired
+                     end
+                 | Some f ->
+                     if c.pc = b && c.retired >= f then begin
+                       last := Some c.retired;
+                       raise Exit
+                     end)
+             | _ -> ())
+           pulled.events
+       with Exit -> ());
+      let first =
+        match !first with
+        | Some c -> c
+        | None ->
+            fail ~code:3 (Printf.sprintf "--between-pc: pc %08x retires fewer than %d times" a nth)
+      in
+      let last =
+        match !last with
+        | Some c -> c
+        | None ->
+            fail ~code:3
+              (Printf.sprintf "--between-pc: pc %08x never retires from cycle %d" b first)
+      in
+      {
+        ctx with
+        window =
+          { ctx.window with first = max first ctx.window.first; last = min last ctx.window.last };
+      }
+
 (* A converted analysis: text through its own view, or JSON lines with the rows the window and the
    limit select; the summary always covers the whole trace. *)
 let analyze (type k e s)
     (module A : Analysis.S with type Config.t = k and type Event.t = e and type Summary.t = s)
     (cfg : k) (p : Platform.t) ?(status = fun _ -> 0) ~format ~(ctx : Text.ctx)
     (text : Text.ctx -> e list -> s -> unit) path =
+  let ctx = resolve_between p path ctx in
   producer_status := if format = `Jsonl then `Jsonl else `Text;
   let pulled =
     guard p (fun () -> Analysis.pull (module A) cfg p (Hwfrp.Trace.open_input ~select:!select path))
@@ -155,7 +218,10 @@ let analyze (type k e s)
         selected ctx.window ~cycle:(A.Event.cycle e) ~pc:(Option.value (A.Event.pc e) ~default:(-1))
       in
       Jsonl.write stdout
-        (Jsonl.header ~model:A.name ~platform:p.name ~trace:path)
+        {
+          (Jsonl.header ~model:A.name ~platform:p.name ~trace:path) with
+          window = jsonl_window ctx.window;
+        }
         (module A)
         (Seq.take ctx.limit (Seq.filter keep pulled.events))
         ~diags:pulled.diags pulled.summary);
@@ -542,19 +608,45 @@ let pc_of s =
   | None -> fail ~code:2 ("--pc: not a hex PC: " ^ s)
 
 let window =
-  let make first last pcs =
+  let make first last pcs between nth =
+    (between_pc := match between with None -> None | Some (a, b) -> Some (a, b, nth));
     {
       Text.first = Option.value first ~default:0;
       last = Option.value last ~default:max_int;
       pcs = List.map pc_of pcs;
     }
   in
+  let between =
+    let pc_pair =
+      Arg.conv
+        ( (fun s ->
+            match String.split_on_char ',' s with
+            | [ a; b ] -> Ok (pc_of a, pc_of b)
+            | _ -> Error (`Msg "expected two hex PCs, A,B")),
+          fun ppf (a, b) -> Format.fprintf ppf "%x,%x" a b )
+    in
+    Arg.(
+      value
+      & opt (some pc_pair) None
+      & info [ "between-pc" ] ~docv:"A,B"
+          ~doc:
+            "Print rows from the retirement of PC $(i,A) to the next retirement of PC $(i,B), both \
+             included; they bound the window as $(b,--from-cycle) and $(b,--to-cycle) do, and are \
+             found by a first pass over the trace.")
+  in
+  let nth =
+    Arg.(
+      value & opt int 1
+      & info [ "nth" ] ~docv:"N"
+          ~doc:"With $(b,--between-pc), start at the $(docv)th retirement of $(i,A).")
+  in
   Term.(
     const make $ from_cycle $ to_cycle
     $ Arg.(
         value & opt_all string []
         & info [ "pc" ] ~docv:"HEX"
-            ~doc:"Print only rows of this PC; repeatable. The whole trace is still processed."))
+            ~doc:"Print only rows of this PC; repeatable. The whole trace is still processed.")
+    $ between $ nth)
 
 let features =
   Arg.(
@@ -791,6 +883,7 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
     ctx p ~features:o.o_features ~region:o.o_region ~window:o.o_window ~limit:o.o_limit
       ~profile:o.o_profile ()
   in
+  let ctx = resolve_between p path ctx in
   run_origins := Some models;
   let tr = Hwfrp.Trace.open_input ~select:!select path in
   let (Core.Any c) = Core.bind p tr ~model:"run" in
@@ -819,7 +912,10 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
                         let oc = if f = "-" then stdout else open_out f in
                         output_string oc
                           (Codec.to_line Jsonl.header_jsont
-                             (Jsonl.header ~model:A.name ~platform:p.name ~trace:path));
+                             {
+                               (Jsonl.header ~model:A.name ~platform:p.name ~trace:path) with
+                               window = jsonl_window ctx.window;
+                             });
                         output_char oc '\n';
                         Some (oc, ref 0)
                       end)
@@ -1118,10 +1214,10 @@ let commands =
         $ features $ window $ limit $ profile $ format $ output);
     model "stalls" Stalls.doc
       Term.(
-        const (fun profile format output p path ->
+        const (fun window profile format output p path ->
             redirect output;
-            analyze (module Stalls) () p ~format ~ctx:(ctx p ~profile ()) Stalls.text path)
-        $ profile $ format $ output);
+            analyze (module Stalls) () p ~format ~ctx:(ctx p ~window ~profile ()) Stalls.text path)
+        $ window $ profile $ format $ output);
     model "memory" Memory.doc
       Term.(
         const (fun manifest window limit format output p path ->
@@ -1155,17 +1251,19 @@ let commands =
         $ format $ output);
     model "tiles" Tiles.doc
       Term.(
-        const (fun limit format output p path ->
+        const (fun window limit format output p path ->
             redirect output;
-            analyze (module Tiles) () p ~format ~ctx:(ctx p ~limit ()) Tiles.text path)
-        $ limit $ format $ output);
+            analyze (module Tiles) () p ~format ~ctx:(ctx p ~window ~limit ()) Tiles.text path)
+        $ window $ limit $ format $ output);
     model "ops" Ops.doc
       Term.(
-        const (fun features gap peak_window limit profile format output p path ->
+        const (fun features gap peak_window window limit profile format output p path ->
             redirect output;
             analyze
               (module Ops)
-              { gap; peak_window; features } p ~format ~ctx:(ctx p ~limit ~profile ()) Ops.text path)
+              { gap; peak_window; features } p ~format
+              ~ctx:(ctx p ~window ~limit ~profile ())
+              Ops.text path)
         $ features
         $ Arg.(
             value & opt int Ops.Config.default.gap
@@ -1175,7 +1273,7 @@ let commands =
             value
             & opt int Ops.Config.default.peak_window
             & info [ "peak-window" ] ~docv:"N" ~doc:"Take the peak rate over $(docv) cycles.")
-        $ limit $ profile $ format $ output);
+        $ window $ limit $ profile $ format $ output);
     model "registers" Registers.doc
       Term.(
         const (fun at limit format output p path ->

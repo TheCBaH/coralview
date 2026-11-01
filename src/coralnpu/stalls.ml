@@ -305,6 +305,31 @@ let build () c =
     ~prj:(function Shared x -> Some x | _ -> None)
     (fun () -> make c)
 
+(* The spans of a window: each clipped to it, so the cycles add up to the window's. *)
+let in_window (ctx : Text.ctx) (s : Summary.t) events =
+  if not (Text.windowed ctx.window) then events
+  else
+    List.filter_map
+      (fun (Event.Stall_span x) ->
+        let start = max x.span.start ctx.window.first
+        and stop = min (Option.value x.span.stop ~default:(s.cycles - 1)) ctx.window.last in
+        if start > stop || not (ctx.window.pcs = [] || List.mem x.pc ctx.window.pcs) then None
+        else Some (Event.Stall_span { x with span = { Span.start; stop = Some stop } }))
+      events
+
+let window_counts events =
+  List.fold_left
+    (fun m (Event.Stall_span x) ->
+      CM.update (x.lane, x.reason)
+        (fun n ->
+          Some
+            (Option.value x.span.stop ~default:x.span.start
+            - x.span.start + 1 + Option.value n ~default:0))
+        m)
+    CM.empty events
+  |> CM.bindings
+  |> List.map (fun ((lane, reason), cycles) -> { Summary.lane; reason; cycles })
+
 let profile (ctx : Text.ctx) events (s : Summary.t) =
   let blocked =
     List.filter_map
@@ -326,13 +351,19 @@ let profile (ctx : Text.ctx) events (s : Summary.t) =
         Printf.printf "%08x %6d %-14s %s\n" pc r.weight (reason_name reason) (ctx.disasm word))
 
 let text (ctx : Text.ctx) events (s : Summary.t) =
+  let events = in_window ctx s events in
+  let counts = if Text.windowed ctx.window then window_counts events else s.counts in
   let count lane r =
     List.find_map
       (fun (c : Summary.count) -> if c.lane = lane && c.reason = r then Some c.cycles else None)
-      s.counts
+      counts
   in
-  let lanes = List.fold_left (fun n (c : Summary.count) -> max n (c.lane + 1)) 0 s.counts in
-  Printf.printf "root %s: %d cycles\n%-14s" ctx.root s.cycles "reason";
+  let lanes = List.fold_left (fun n (c : Summary.count) -> max n (c.lane + 1)) 0 counts in
+  Printf.printf "root %s: %d cycles\n" ctx.root s.cycles;
+  if Text.windowed ctx.window then
+    Printf.printf "%s: %d lane-cycles\n" (Text.describe ctx.window)
+      (List.fold_left (fun n (c : Summary.count) -> n + c.cycles) 0 counts);
+  Printf.printf "%-14s" "reason";
   for l = 0 to lanes - 1 do
     Printf.printf " %7s" (Printf.sprintf "lane%d" l)
   done;

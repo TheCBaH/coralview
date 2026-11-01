@@ -47,9 +47,54 @@ run:
   $ coralview commits --platform test-core.json --pc 80000004 core.vcd
          5 0 80000004 00000013 addi x0, x0, 0                                      3   -   1
   root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
+  window [0, end] pc 80000004: 1 commits, 1 cycles charged
   $ coralview commits --platform test-core.json --to-cycle 4 core.vcd
          4 0 80000000 02a00513 addi x10, x0, 42                 x10=0000002a       3   2   4
   root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
+  window [0, 4]: 1 commits, 4 cycles charged
+
+A window also gives the totals of its own rows: the commits and cycles charged
+inside it, and a profile whose shares are of those cycles. Without a window
+none of this is printed:
+
+  $ coralview commits --platform test-core.json --to-cycle 4 --profile 2 core.vcd
+         4 0 80000000 02a00513 addi x10, x0, 42                 x10=0000002a       3   2   4
+  root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
+  window [0, 4]: 1 commits, 4 cycles charged
+        pc  count  cycles  share     d->r  instruction
+  80000000      1       4 100.0%     3.00  addi x10, x0, 42
+  $ coralview commits --platform test-core.json --pc 80000004 --profile 2 core.vcd
+         5 0 80000004 00000013 addi x0, x0, 0                                      3   -   1
+  root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
+  window [0, end] pc 80000004: 1 commits, 1 cycles charged
+        pc  count  cycles  share     d->r  instruction
+  80000004      1       1 100.0%     3.00  addi x0, x0, 0
+
+A window can also run between two retirements, as the two reads of a cycle
+counter around a kernel do: from the first retirement of the first PC to the
+next of the second, both included. It is a first pass over the trace, and
+the second PC has to retire after the first:
+
+  $ coralview commits --platform test-core.json --between-pc 80000000,80000004 core.vcd
+         4 0 80000000 02a00513 addi x10, x0, 42                 x10=0000002a       3   2   4
+         5 0 80000004 00000013 addi x0, x0, 0                                      3   -   1
+  root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
+  window [4, 5]: 2 commits, 5 cycles charged
+  $ coralview commits --platform test-core.json --between-pc 80000004,80000004 core.vcd
+  --between-pc: pc 80000004 never retires from cycle 5
+  [3]
+  $ coralview commits --platform test-core.json --between-pc 80000004,80000000 core.vcd
+  --between-pc: pc 80000000 never retires from cycle 5
+  [3]
+  $ coralview commits --platform test-core.json --between-pc 90000000,80000000 core.vcd
+  --between-pc: pc 90000000 retires fewer than 1 times
+  [3]
+  $ coralview commits --platform test-core.json --between-pc 80000000,80000004 --nth 2 core.vcd
+  --between-pc: pc 80000000 retires fewer than 2 times
+  [3]
+  $ coralview commits --platform test-core.json --between-pc 80000000,80000004 - < core.vcd
+  --between-pc reads the trace twice: name a file, not - or --exec
+  [2]
 
 The same retirements as JSON lines, filtered alike; the summary covers
 the whole run:
@@ -130,3 +175,12 @@ The retirements as a Kanata log for Konata, each instruction from its dispatch t
   C	1
   E	1	0	Ex
   R	1	1	0
+
+In JSON lines the header says which window the rows are of; a whole-trace header has none:
+
+  $ coralview commits --platform test-core.json --format jsonl --to-cycle 4 --pc 80000000 core.vcd | head -n 1
+  {"type":"coralview","schema_version":1,"model":"commits","platform":"test-core","trace":"core.vcd","window":{"first":0,"last":4,"pcs":[2147483648]}}
+  $ coralview commits --platform test-core.json --format jsonl --from-cycle 5 core.vcd | head -n 1
+  {"type":"coralview","schema_version":1,"model":"commits","platform":"test-core","trace":"core.vcd","window":{"first":5,"pcs":[]}}
+  $ coralview commits --platform test-core.json --format jsonl core.vcd | head -n 1
+  {"type":"coralview","schema_version":1,"model":"commits","platform":"test-core","trace":"core.vcd"}

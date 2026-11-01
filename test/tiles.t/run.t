@@ -9,6 +9,15 @@ of its upper two bytes only:
     tile loads : 1 writes, cycles 0-0
     pc 00000200: 2 writes, cycles 2-3
 
+In a window the writes and the PCs are the window's:
+
+  $ coralview tiles --platform tile-core.json --from-cycle 2 tiles.vcd
+         2 blk0 port0 pc 00000200 tile  3 sub  0 mask 000f aabbccdd
+         3 blk0 port0 pc 00000200 tile  3 sub  0 mask 000c 55660000
+  root TOP.core: 3 sub-tile writes; 2 of 256 sub-tiles written
+  window [2, end]: 2 sub-tile writes; 1 of 256 sub-tiles written
+    pc 00000200: 2 writes, cycles 2-3
+
 As JSON lines; the summary holds each sub-tile's final content, the second write merged into the
 first:
 

@@ -2,18 +2,34 @@
 [@@@ai_model "claude-opus-5-5"]
 [@@@ai_provider "Anthropic"]
 
-type header = { schema_version : int; model : string; platform : string; trace : string }
+type window = { first : int; last : int option; pcs : int list }
+
+type header = {
+  schema_version : int;
+  model : string;
+  platform : string;
+  trace : string;
+  window : window option;
+}
 
 let schema_version = 1
-let header ~model ~platform ~trace = { schema_version; model; platform; trace }
+let header ~model ~platform ~trace = { schema_version; model; platform; trace; window = None }
+
+let window_jsont =
+  Jsont.Object.map ~kind:"window" (fun first last pcs -> { first; last; pcs })
+  |> Jsont.Object.mem "first" Jsont.int ~enc:(fun w -> w.first)
+  |> Codec.opt (fun w -> w.last) "last" Jsont.int
+  |> Jsont.Object.mem "pcs" Jsont.(list int) ~enc:(fun w -> w.pcs)
+  |> Jsont.Object.finish
 
 let header_jsont =
-  Codec.record "coralview" (fun schema_version model platform trace ->
-      { schema_version; model; platform; trace })
+  Codec.record "coralview" (fun schema_version model platform trace window ->
+      { schema_version; model; platform; trace; window })
   |> Jsont.Object.mem "schema_version" Jsont.int ~enc:(fun h -> h.schema_version)
   |> Jsont.Object.mem "model" Jsont.string ~enc:(fun h -> h.model)
   |> Jsont.Object.mem "platform" Jsont.string ~enc:(fun h -> h.platform)
   |> Jsont.Object.mem "trace" Jsont.string ~enc:(fun h -> h.trace)
+  |> Codec.opt (fun h -> h.window) "window" window_jsont
   |> Jsont.Object.finish
 
 let write (type e s) oc h ((module A) : (e, s) Analysis.t) events ~diags summary =

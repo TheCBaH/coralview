@@ -425,7 +425,15 @@ let build (cfg : Config.t) (c : _ Core.t) =
 let rate n d = if d = 0 then 0. else float_of_int n /. float_of_int d
 
 let profile (ctx : Text.ctx) events (_ : Summary.t) =
-  let ops = List.filter_map (function Event.Op o -> Some o | Burst _ -> None) events in
+  let ops =
+    List.filter_map
+      (function
+        | Event.Op o
+          when Text.selected ctx.window ~cycle:o.cycle ~pc:(Option.value o.pc ~default:(-1)) ->
+            Some o
+        | _ -> None)
+      events
+  in
   Printf.printf "operations by instruction:\n%8s %6s %10s %10s  %s\n" "pc" "count" "ops" "elements"
     "instruction";
   let names =
@@ -464,7 +472,39 @@ let text (ctx : Text.ctx) events (s : Summary.t) =
       Printf.printf ", peak %.3f over %d cycles to cycle %d\n" (rate p.p_ops p.p_window) p.p_window
         p.p_last
   | None -> print_newline ());
-  let bursts = List.filter_map (function Event.Burst b -> Some b | Op _ -> None) events in
+  if Text.windowed ctx.window then begin
+    let ops =
+      List.filter_map
+        (function
+          | Event.Op o
+            when Text.selected ctx.window ~cycle:o.cycle ~pc:(Option.value o.pc ~default:(-1)) ->
+              Some o
+          | _ -> None)
+        events
+    in
+    let sum f = List.fold_left (fun n (o : op) -> n + f o) 0 ops in
+    Printf.printf "%s: %d vector instructions, %d elements, %d ops (%d floating point)\n"
+      (Text.describe ctx.window) (List.length ops)
+      (sum (fun o -> o.elements))
+      (sum (fun o -> o.ops))
+      (sum (fun o -> if o.float then o.ops else 0));
+    List.iter
+      (fun u ->
+        match List.filter (fun (o : op) -> o.unit = u.u_unit) ops with
+        | [] -> ()
+        | l ->
+            Printf.printf "  %-6s %12d %12d %12d\n" u.u_unit (List.length l)
+              (List.fold_left (fun n (o : op) -> n + o.elements) 0 l)
+              (List.fold_left (fun n (o : op) -> n + o.ops) 0 l))
+      s.units
+  end;
+  let bursts =
+    List.filter_map
+      (function
+        | Event.Burst b when b.last >= ctx.window.first && b.first <= ctx.window.last -> Some b
+        | _ -> None)
+      events
+  in
   if bursts <> [] then begin
     Printf.printf "bursts:\n  %10s %10s %8s %8s %10s %9s\n" "first" "last" "cycles" "instrs" "ops"
       "ops/cycle";

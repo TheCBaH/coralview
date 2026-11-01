@@ -5,6 +5,13 @@
 type window = { first : int; last : int; pcs : int list }
 
 let everything = { first = 0; last = max_int; pcs = [] }
+let windowed w = w <> everything
+
+let describe w =
+  Printf.sprintf "window [%d, %s]%s" w.first
+    (if w.last = max_int then "end" else string_of_int w.last)
+    (if w.pcs = [] then "" else " pc " ^ String.concat "," (List.map (Printf.sprintf "%08x") w.pcs))
+
 let selected w ~cycle ~pc = cycle >= w.first && cycle <= w.last && (w.pcs = [] || List.mem pc w.pcs)
 
 type ctx = {

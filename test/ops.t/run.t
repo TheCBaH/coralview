@@ -22,6 +22,28 @@ never dispatched. A second uop of the first vfmacc.vf, and a uop not taken, are 
   0000010c      1          0          8  vmv.v.i
   00000200      1          0          2  ? alu
 
+A window counts the operations inside it and profiles only those:
+
+  $ coralview ops --platform ops-core.json --gap 3 --peak-window 4 --from-cycle 4 --profile 5 ops.vcd
+  root TOP.core: 12 cycles, 6 vector instructions dispatched (1 not decoded)
+    unit   instructions     elements          ops
+    alu               3           14            4
+    fma               2           12           24
+    lsu               1            8            0
+  28 ops (24 floating point) in 2 bursts over 4 cycles (33.3% of the trace)
+  ops/cycle: 2.333 over the trace, 7.000 in bursts, peak 5.000 over 4 cycles to cycle 3
+  window [4, end]: 3 vector instructions, 14 elements, 8 ops (8 floating point)
+    alu               2           10            0
+    fma               1            4            8
+  bursts:
+         first       last   cycles   instrs        ops ops/cycle
+             9          9        1        1          8     8.000
+  operations by instruction:
+        pc  count        ops   elements  instruction
+  00000100      1          8          4  vfmacc.vf
+  0000010c      1          0          8  vmv.v.i
+  00000200      1          0          2  ? alu
+
 As JSON lines:
 
   $ coralview ops --platform ops-core.json --gap 3 --peak-window 4 --format jsonl ops.vcd | jq -c 'select(.type != "coralview")'

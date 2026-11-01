@@ -228,6 +228,29 @@ let build (cfg : Config.t) (c : _ Core.t) =
   in
   (out, summary)
 
+module Accumulator = struct
+  type event = Event.t
+  type snapshot = Summary.t
+
+  type t = {
+    mutable reads : int;
+    mutable writes : int;
+    mutable pcs : unit IM.t;
+    mutable faults : int;
+  }
+
+  let create () = { reads = 0; writes = 0; pcs = IM.empty; faults = 0 }
+
+  let add t = function
+    | Event.Access a ->
+        if a.access.write then t.writes <- t.writes + 1 else t.reads <- t.reads + 1;
+        t.pcs <- IM.add a.pc () t.pcs
+    | Event.Fault _ -> t.faults <- t.faults + 1
+
+  let snapshot t =
+    { Summary.reads = t.reads; writes = t.writes; pcs = IM.cardinal t.pcs; faults = t.faults }
+end
+
 let text (ctx : Text.ctx) events (s : Summary.t) =
   let region = Region.suffix ctx.region in
   let shown = ref 0 in
@@ -253,27 +276,17 @@ let text (ctx : Text.ctx) events (s : Summary.t) =
           end)
     events;
   Printf.printf "root %s: %d read and %d write requests from %d PCs, %d faults\n" ctx.root s.reads
-    s.writes s.pcs s.faults
-
-module Accumulator = struct
-  type event = Event.t
-  type snapshot = Summary.t
-
-  type t = {
-    mutable reads : int;
-    mutable writes : int;
-    mutable pcs : unit IM.t;
-    mutable faults : int;
-  }
-
-  let create () = { reads = 0; writes = 0; pcs = IM.empty; faults = 0 }
-
-  let add t = function
-    | Event.Access a ->
-        if a.access.write then t.writes <- t.writes + 1 else t.reads <- t.reads + 1;
-        t.pcs <- IM.add a.pc () t.pcs
-    | Event.Fault _ -> t.faults <- t.faults + 1
-
-  let snapshot t =
-    { Summary.reads = t.reads; writes = t.writes; pcs = IM.cardinal t.pcs; faults = t.faults }
-end
+    s.writes s.pcs s.faults;
+  if Text.windowed ctx.window then begin
+    let acc = Accumulator.create () in
+    List.iter
+      (fun e ->
+        let cycle, pc =
+          match e with Event.Access a -> (a.cycle, a.pc) | Fault f -> (f.cycle, f.pc)
+        in
+        if Text.selected ctx.window ~cycle ~pc then Accumulator.add acc e)
+      events;
+    let w = Accumulator.snapshot acc in
+    Printf.printf "%s: %d read and %d write requests from %d PCs, %d faults\n"
+      (Text.describe ctx.window) w.reads w.writes w.pcs w.faults
+  end

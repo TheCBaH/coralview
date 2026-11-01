@@ -5,13 +5,25 @@
 (** An analysis as JSON Lines: a header record, then the events and diagnostics, then one summary
     record. Every line is an object with a [type] member. *)
 
-type header = { schema_version : int; model : string; platform : string; trace : string }
+type window = { first : int; last : int option; pcs : int list }
+(** The rows a window selected; [last] is absent when it is unbounded. *)
+
+type header = {
+  schema_version : int;
+  model : string;
+  platform : string;
+  trace : string;
+  window : window option;  (** Present only when the rows are a window's. *)
+}
 
 val schema_version : int
+
 val header : model:string -> platform:string -> trace:string -> header
+(** Without a window. *)
 
 val header_jsont : header Jsont.t
-(** [{"type":"coralview","schema_version":1,"model":…,"platform":…,"trace":…}]. *)
+(** [{"type":"coralview","schema_version":1,"model":…,"platform":…,"trace":…}], with
+    ["window":{"first":…,"last":…,"pcs":[…]}] after [trace] when the rows are a window's. *)
 
 val write :
   out_channel ->
