@@ -1251,6 +1251,40 @@ let commands =
               (module Memory)
               { region } p ~format ~ctx:(ctx p ~region ~window ~limit ()) Memory.text path)
         $ manifest $ window $ limit $ format $ output);
+    model "cost" "Retired instructions by class and memory region: commits joined with memory."
+      Term.(
+        const (fun manifest window format output p path ->
+            let region = regions p manifest in
+            redirect output;
+            if path = "-" then fail ~code:2 "cost reads the trace twice: name a file, not -";
+            let c = ctx p ~region ~window () in
+            let open_trace () = Hwfrp.Trace.open_input ~select:!select path in
+            let commits =
+              let pulled = Analysis.pull (module Commits) () p (open_trace ()) in
+              List.of_seq
+                (Seq.filter_map
+                   (function Commits.Event.Commit c -> Some c | In_flight _ -> None)
+                   pulled.events)
+            in
+            let accesses =
+              let pulled = Analysis.pull (module Memory) { region } p (open_trace ()) in
+              List.of_seq
+                (Seq.filter_map
+                   (function Memory.Event.Access a -> Some a | Fault _ -> None)
+                   pulled.events)
+            in
+            let rows = Cost.join ~classify:c.instruction_class ~window commits accesses in
+            match format with
+            | `Text -> Cost.text rows
+            | `Jsonl ->
+                print_endline
+                  (Codec.to_line Jsonl.header_jsont
+                     {
+                       (Jsonl.header ~model:"cost" ~platform:p.name ~trace:path) with
+                       window = jsonl_window window;
+                     });
+                List.iter (fun r -> print_endline (Codec.to_line Cost.row_jsont r)) rows)
+        $ manifest $ window $ format $ output);
     model "axi" Axi.doc
       Term.(
         const (fun features manifest window limit profile format output p path ->
