@@ -3,7 +3,7 @@
 [@@@ai_provider "Anthropic"]
 
 (** Data accesses of the scalar LSU ([core.score.lsu]): the TCM data bus [io_dbus_*] and the external bus
-    [io_ebus_dbus_*], with the PC of the LSU slot ([io_ebus_dbus_pc], driven for both) and read data taken
+    [io_ebus_dbus_*], with the PC of the LSU slot ([core.score.lsu.slot] [io_pc], which drives both) and read data taken
     from the cycle after the request, as [Lsu.scala] registers the response.
 
     An access is a request that the bus accepted, with the data sampled where the response would be: it

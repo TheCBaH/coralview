@@ -151,7 +151,7 @@ All paths are relative to the configuration's root, e.g.
 | `regfile_writeback` | `io_debug_regfile_writeData_{0..5}_*` | `valid`, `bits_addr`, `bits_data` | integer register file writes |
 | `float_writeback` | `io_debug_float_writeData_{0,1}_*` | the same | float register file writes |
 | `dispatch` | `core.score.dispatch` | `io_inst_N_{valid,ready,bits_addr,bits_inst}`, the `tryDispatch*` wires, the `comb*`/`fcomb*` scoreboards, `io_scoreboard_regd`, `io_halted`, `io_interlock`, `io_retirement_buffer_{nSpace,empty,trap_pending}`, `io_lsuQueueCapacity`, `io_rvvQueueCapacity` | the inputs and intermediate wires of `Dispatch.canDispatch` in `scalar/Decode.scala` |
-| `lsu` | `core.score.lsu` | `io_dbus_*` (TCM), `io_ebus_dbus_*` (external), `io_ebus_dbus_pc`, `io_fault_*` | every data access the scalar LSU slot requests, with its PC, and its faults |
+| `lsu` | `core.score.lsu` | `io_dbus_*` (TCM), `io_ebus_dbus_*` (external), `slot.io_pc`, `io_fault_*` | every data access the scalar LSU slot requests, with its PC, and its faults |
 | `axi_master` | top-level `io_axi_master_*`; originators `core.score.lsu` (`io_ebus_dbus_*`, the queue `io_req_N_{valid,ready,bits_pc}`, `slot.io_uop_{valid,ready,bits_pc}`) and `core` (`io_ibus_*`) | the five AXI4 channels (`{read,write}_addr_bits_{addr,id,len,size,burst}`, `read_data_bits_{id,resp,last}`, `write_data_bits_{strb,last}`, `write_resp_bits_{id,resp}`) | every transaction leaving the core for external memory, and the request and instruction it serves |
 | `dma` | the subsystem's `dma` (`bus.DmaEngine`); requester `rvv_core.coreAxi.core.score.lsu` | TileLink-UL `io_tl_host_{a,d}_*` (descriptor fetches, polls, data beats) and `io_tl_device_{a,d}_*` (CSRs; no `d_ready`) | every DMA job, from the CSR write that starts it to the status read that sees it done |
 | `vme` | `core.rvvCore.rvvCoreWrapper.core.backend.vme` | `writeEn`, `peWriteEn`, `peWritePc`, `writeMtIdx`, `writeSubIdx`, `writeData` | writes into the 16 × 16 × 16-byte tile register file, per block (4) and port (4), tagged with the PC of the PE-array instruction |
@@ -298,7 +298,7 @@ Reading it:
 Block: `lsu`. A TCM access is `io_dbus_valid` (the TCM does not
 back-pressure in these builds, `"tcm_ready": false`). An external access
 is `io_ebus_dbus_valid && ready`. The PC is the LSU slot's
-(`io_ebus_dbus_pc`, which drives both buses). Read data is on the bus one
+(`core.score.lsu.slot` `io_pc`, which drives both buses; `io_ebus_dbus_pc` is pruned from the trace as of v0.0.8). Read data is on the bus one
 cycle after the request (`dbusResp = RegNext(...)` in `Lsu.scala`), which
 the model joins with `Sig.pre`.
 

@@ -153,7 +153,7 @@ let build (cfg : Config.t) (c : _ Core.t) =
   let l = Core.block c "lsu" c.platform.blocks.lsu in
   let sc = Core.scope c l.lsu_scope in
   let b n = Bind.signal sc n Bind.bool and u n = Bind.signal sc n Bind.uint in
-  let pc = u "io_ebus_dbus_pc" in
+  let pc = Bind.signal (Core.scope c (l.lsu_scope @ [ "slot" ])) "io_pc" Bind.uint in
   let request bus prefix ~fire =
     let open Sig in
     let+ fire = fire
