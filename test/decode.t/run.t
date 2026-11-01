@@ -39,3 +39,16 @@ The remaining forms, with words from coralnpu's VME cocotb tests:
   12b57007  vtle8 x11, 0(x10)
   43c06057  vtdiscard
   f2040077  vtmmu.tvv mt0, v0, v8
+
+Zicsr words print as the CSR aliases with their names, and Coral's mpause
+is its own row, in the xcoralsys feature that is on by default:
+
+  $ coralview decode b0205073 b0202573 b00022f3 34029073 3401d0f3 08000073
+  b0205073  csrwi minstret, 0
+  b0202573  csrr x10, minstret
+  b00022f3  csrr x5, mcycle
+  34029073  csrw mscratch, x5
+  3401d0f3  csrrwi x1, mscratch, 3
+  08000073  mpause
+  $ coralview decode --features none,+m,+zve32x 08000073
+  08000073  error: <synthesized by riscv32>: error[riscv32.feature]: mpause requires feature xcoralsys, which is not enabled

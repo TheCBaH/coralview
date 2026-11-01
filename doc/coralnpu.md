@@ -188,10 +188,10 @@ cycle on the cycle's dispatched, written and retired lanes, keeps:
 
 ```
 $ coralview commits --platform vme-core-mini-axi --limit 6 --profile 5 matrix.fst
-     407 0 00000000 b0205073 .word 0xb0205073                                    1   -   2
-     409 0 00000004 b8205073 .word 0xb8205073                                    1   -   2
-     411 0 00000008 b0202573 .word 0xb0202573                 x10=00000000       1   1   2
-     413 0 0000000c b82025f3 .word 0xb82025f3                 x11=00000000       1   1   2
+     407 0 00000000 b0205073 csrwi minstret, 0                                   1   -   2
+     409 0 00000004 b8205073 csrwi minstreth, 0                                  1   -   2
+     411 0 00000008 b0202573 csrr x10, minstret               x10=00000000       1   1   2
+     413 0 0000000c b82025f3 csrr x11, minstreth              x11=00000000       1   1   2
      414 0 00000010 00018117 auipc x2, 24                     x2=00018010        1   1   1
      415 0 00000014 ff010113 addi x2, x2, -16                 x2=00018000        1   1   1
 root VVmeCoreMiniAxi.core.VmeCoreMiniAxi: 1084 cycles, 406 before the first dispatch, 18 later
@@ -212,8 +212,9 @@ The columns are:
 3. PC;
 4. word;
 5. disassembly by Rivet, with Coral's Zvt matrix instructions from the
-   MPACT-derived `isa/zvt.jsonl`; `.word` where Rivet has no form,
-   such as the CSR instructions and Coral's `mpause`;
+   MPACT-derived `isa/zvt.jsonl`, the CSR instructions with their names,
+   and Coral's `mpause` (feature `xcoralsys`); `.word` where no form
+   matches;
 6. destination and value;
 7. dispatch→retire cycles;
 8. dispatch→writeback cycles;

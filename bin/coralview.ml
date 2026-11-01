@@ -554,8 +554,8 @@ let features =
     & opt (some string) None
     & info [ "features" ] ~docv:"SPEC"
         ~doc:
-          "Rivet target features for disassembly; Rivet's default set plus $(b,+xcoralzvt) when \
-           absent.")
+          "Rivet target features for disassembly; Rivet's default set plus \
+           $(b,+xcoralzvt,+xcoralsys) when absent.")
 
 let manifest =
   Arg.(

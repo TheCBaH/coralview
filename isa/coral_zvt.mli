@@ -10,6 +10,9 @@
 val feature : string
 (** The vendor feature, off by default: [xcoralzvt]. *)
 
+val system_feature : string
+(** The vendor feature of Coral's words outside Zvt, off by default: [xcoralsys] ([mpause]). *)
+
 val supported_zvt_version : string
 (** The only Zvt specification version coralview supports: [v0.4]. *)
 

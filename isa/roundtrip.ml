@@ -31,6 +31,10 @@ let references =
     (0xf28800f7, "vtmms.tvv mt0, v8, v16");
     (0xf2881077, "vtfmm.tvv mt0, v8, v16");
     (0xf28810f7, "vtfmm.alt.tvv mt0, v8, v16");
+    (0x08000073, "mpause");
+    (0xb0002573, "csrr x10, mcycle");
+    (0xb0205073, "csrwi minstret, 0");
+    (0x34029073, "csrw mscratch, x5");
   ]
 
 let run () =
@@ -74,7 +78,10 @@ let run () =
   (match Rivet_decode.create ~features:"none,+m,+zve32x" () with
   | Error e -> fail "create without xcoralzvt: %s" e
   | Ok d -> (
-      match Rivet_decode.assemble d "vtzero mt0\n" with
+      (match Rivet_decode.assemble d "vtzero mt0\n" with
       | Ok b -> fail "vtzero assembles to %s without xcoralzvt" (hex b)
+      | Error _ -> ());
+      match Rivet_decode.assemble d "mpause\n" with
+      | Ok b -> fail "mpause assembles to %s without xcoralsys" (hex b)
       | Error _ -> ()));
   (!checked, List.rev !failures)
