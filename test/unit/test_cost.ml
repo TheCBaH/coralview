@@ -48,8 +48,8 @@ let%expect_test "requests join the youngest instance dispatched before them" =
   print (Cost.join ~classify ~window:Text.everything commits accesses);
   [%expect
     {|
-    mem dtcm count 1 cycles 5 d->r 6
     mem ext count 1 cycles 6 d->r 6
+    mem dtcm count 1 cycles 5 d->r 6
     alu - count 1 cycles 1 d->r 1 |}]
 
 let%expect_test "a window keeps the commits retired in it" =
