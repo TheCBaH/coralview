@@ -6,6 +6,7 @@ module Row = Riscv_family_encode.Riscv_table_row
 module Ext = Riscv_family_encode.Extensions
 
 let feature = "xcoralzvt"
+let system_feature = "xcoralsys"
 
 (* The only Zvt version coralview supports; zvt.jsonl says which one it is. *)
 let supported_zvt_version = "v0.4"
@@ -124,6 +125,45 @@ let component mnemonics : Target_component.t =
         mnemonics;
   }
 
+(* Coral's words outside Zvt. mpause (retirement buffer, RetirementBuffer.scala:207; the spike patch
+   0001-Add-mpause.patch of devcontainer.coralnpu) halts fetch until an interrupt; the runtime idles
+   on it. Not in zvt.jsonl, so this row is the only hand-written one. *)
+let system_rows =
+  [
+    {
+      Row.mnemonic = "mpause";
+      mask = 0xffff_ffffL;
+      match_ = 0x0800_0073L;
+      operands = [];
+      xlen = 0;
+      feature = system_feature;
+      source = "coralnpu/mpause";
+    };
+  ]
+
+let system_component : Target_component.t =
+  {
+    id = "coralnpu." ^ system_feature;
+    feature = system_feature;
+    requires = [];
+    conflicts = [];
+    implies = [];
+    default_on = false;
+    xlens = [];
+    not_applicable = None;
+    summary = "Coral NPU system instructions outside Zvt";
+    forms =
+      List.map
+        (fun (r : Row.row) ->
+          {
+            Target_component.label = r.mnemonic;
+            mnemonics = [ r.mnemonic ];
+            sources = [ { upstream = "coralnpu"; name = r.mnemonic } ];
+            legal = None;
+          })
+        system_rows;
+  }
+
 let instructions = List.filter (fun i -> not (List.mem i.mnemonic excluded)) Zvt_rows.instructions
 
 let definition =
@@ -138,8 +178,9 @@ let definition =
      in
      let def : Ext.definition =
        {
-         components = [ component (List.map (fun (r : Row.row) -> r.mnemonic) rows) ];
-         rows = Array.of_list rows;
+         components =
+           [ component (List.map (fun (r : Row.row) -> r.mnemonic) rows); system_component ];
+         rows = Array.of_list (rows @ system_rows);
        }
      in
      Result.map_error (String.concat "; ") (Ext.make ~xlen:32 def))

@@ -59,7 +59,7 @@ let driver definition spec =
   in
   ((module D : Target_intf.Target.DRIVER), instruction, assemble)
 
-let create ?(features = "+" ^ Coral_zvt.feature) () =
+let create ?(features = "+" ^ Coral_zvt.feature ^ ",+" ^ Coral_zvt.system_feature) () =
   match Coral_zvt.definition () with
   | Error e -> Error e
   | Ok definition -> (
