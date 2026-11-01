@@ -52,7 +52,20 @@ of the plan); the commits that follow implement it model by model.
 `registers`, `traps`, `vectors` and `dma` already print only rows; their
 windows stay as they are until one of them needs totals.
 
-## Not decided here
+## Windows from markers and symbols
 
-Windows from symbols (`--around-symbol`) and from marker PCs (`--between-pc`)
-only produce the `first`/`last` pair; they use these rules unchanged.
+Both only produce the `first`/`last` pair; the rules above apply unchanged.
+
+- `--between-pc A,B [--nth N]`: from the Nth retirement of PC A to the next
+  retirement of PC B, both included. Found by a first pass with `commits`, so
+  the trace is a file. Intersects with `--from-cycle`/`--to-cycle`.
+- `--around-symbol NAME --elf FILE [--nth N]` (not implemented; needs the ELF
+  reader): from the Nth retirement of the symbol's address to the first
+  retirement of a `ret` (`jalr x0, 0(ra)`) whose PC is inside the symbol's
+  `[address, address + size)`. This is the simple rule, chosen on purpose:
+  a function that returns early through a different `ret` ends its window
+  there, and a function that leaves by a tail call has no `ret` and is an
+  error (`--between-pc` still works for it). Call depth is not tracked, so a
+  recursive function ends at its innermost return.
+  Tracking depth over `jal`/`jalr` links is the refinement if the simple rule
+  proves too coarse.
