@@ -3,7 +3,7 @@ DUNE = $(OPAM_EXEC) dune
 CORALNPU ?= /opt/coralnpu
 export RIVET_EXTERNAL_DEPS = true
 
-.PHONY: deps versions build test fmt fmt-check hwfrp-boundary isa-check smoke zvt-check integration ci clean
+.PHONY: deps versions build test fmt fmt-check hwfrp-boundary isa-check rivet-pin-check smoke zvt-check integration ci clean
 
 # rivet is a dependency of the package, for installs from opam. In this tree dune builds the vendored copy,
 # and an installed one next to it makes dune fail with "rivet.fmt is already defined".
@@ -98,6 +98,13 @@ smoke: build
 	  --format jsonl $$d/sim.fst > $$d/dma.jsonl; \
 	$(DUNE) exec -- coralview render --manifest $$s/hardware-configurations.json --beats 2 $$d/dma.jsonl | cmp - $$d/dma
 
+# vendor/rivet and the opam pin-depends must name one Rivet commit.
+rivet-pin-check:
+	vendored=$$(git rev-parse :vendor/rivet); \
+	for f in coralview.opam coral-isa.opam coralview.opam.template coral-isa.opam.template; do \
+	  grep -q "TheCBaH/rivet.git#$$vendored" $$f || { echo "$$f: rivet pin differs from vendor/rivet $$vendored"; exit 1; }; \
+	done
+
 # The committed Zvt table must be the one the image's emulator archive ships.
 zvt-check:
 	if [ -e $(CORALNPU)/emulators/isa/zvt.jsonl ]; then \
@@ -112,7 +119,7 @@ integration: build
 	  tools/integration.sh $$mode $$(pwd)/_build/default/bin/coralview.exe $(CORALNPU) || exit 1; \
 	done
 
-ci: fmt-check build test hwfrp-boundary isa-check zvt-check smoke integration
+ci: fmt-check build test hwfrp-boundary rivet-pin-check isa-check zvt-check smoke integration
 
 clean:
 	$(DUNE) clean
