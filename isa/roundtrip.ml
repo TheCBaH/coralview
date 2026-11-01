@@ -59,9 +59,50 @@ let run () =
             | Error e -> fail "%08x: %S does not assemble: %s" word text e
             | Ok b -> if b <> bytes word then fail "%08x: %S assembles to %s" word text (hex b))
       in
+      let class_of word =
+        match Rivet_decode.instruction d word with
+        | Ok i -> Iclass.name (Iclass.of_instruction i)
+        | Error e -> "error: " ^ e
+      in
+      let expect_class word expected =
+        incr checked;
+        let got = class_of word in
+        if got <> expected then fail "%08x: class %s, not %s" word got expected
+      in
       (match Coral_zvt.samples () with
       | Error e -> fail "samples: %s" e
-      | Ok l -> List.iter (fun (mnemonic, word) -> check ~mnemonic word) l);
+      | Ok l ->
+          List.iter
+            (fun (mnemonic, word) ->
+              check ~mnemonic word;
+              expect_class word "tile")
+            l);
+      List.iter
+        (fun (word, expected) -> expect_class word expected)
+        [
+          (0x02a00513, "alu");
+          (0x02b50533, "alu");
+          (0x02b54533, "alu");
+          (0x00b50663, "branch");
+          (0x0000006f, "branch");
+          (0x00008067, "branch");
+          (0x00052503, "mem");
+          (0x00b52023, "mem");
+          (0x00052087, "mem");
+          (0x00b52227, "mem");
+          (0x00007053, "fp");
+          (0x003110d3, "fp");
+          (0x0d05f557, "vector");
+          (0x022180d7, "vector");
+          (0x02056087, "vector-mem");
+          (0x0200e3a7, "vector-mem");
+          (0x02057027, "vector-mem");
+          (0xb0202573, "system");
+          (0x30200073, "system");
+          (0x10500073, "system");
+          (0x0ff0000f, "system");
+          (0x08000073, "system");
+        ];
       List.iter
         (fun (word, text) ->
           check word;
