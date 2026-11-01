@@ -138,6 +138,16 @@ let tree ~depth ~vars path scope =
 
 let selected = Text.selected
 
+let jsonl_window (w : Text.window) =
+  if Text.windowed w then
+    Some
+      {
+        Jsonl.first = w.first;
+        last = (if w.last = max_int then None else Some w.last);
+        pcs = w.pcs;
+      }
+  else None
+
 (* [--between-pc A,B --nth N]: the window from the Nth retirement of PC A to the next retirement of PC B,
    found by a first pass over the trace with [commits]. *)
 let between_pc : (int * int * int) option ref = ref None
@@ -208,7 +218,10 @@ let analyze (type k e s)
         selected ctx.window ~cycle:(A.Event.cycle e) ~pc:(Option.value (A.Event.pc e) ~default:(-1))
       in
       Jsonl.write stdout
-        (Jsonl.header ~model:A.name ~platform:p.name ~trace:path)
+        {
+          (Jsonl.header ~model:A.name ~platform:p.name ~trace:path) with
+          window = jsonl_window ctx.window;
+        }
         (module A)
         (Seq.take ctx.limit (Seq.filter keep pulled.events))
         ~diags:pulled.diags pulled.summary);
@@ -899,7 +912,10 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
                         let oc = if f = "-" then stdout else open_out f in
                         output_string oc
                           (Codec.to_line Jsonl.header_jsont
-                             (Jsonl.header ~model:A.name ~platform:p.name ~trace:path));
+                             {
+                               (Jsonl.header ~model:A.name ~platform:p.name ~trace:path) with
+                               window = jsonl_window ctx.window;
+                             });
                         output_char oc '\n';
                         Some (oc, ref 0)
                       end)

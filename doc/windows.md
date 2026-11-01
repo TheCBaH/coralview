@@ -30,24 +30,25 @@ of the plan); the commits that follow implement it model by model.
 
 ## Output
 
-- Text: after the whole-trace summary line, one line
-  `window [first, last]: N events, C cycles` (the cycles the model charges,
-  where it charges: `commits`' `charged`, `stalls`' stalled cycles, and so on).
-  `--profile` and the stall breakdown are computed from the windowed events and
-  say so in their heading.
-- JSONL: the summary record keeps its whole-trace fields and gains
-  `window: {first, last, pcs}`, with the windowed totals beside it, only when a
-  window is given. `schema_version` changes only if an existing field changes
-  shape; none does.
+- Text: after the whole-trace summary, one line
+  `window [first, last] pc …: …` with the model's totals over the window's
+  events (`last` is `end` when unbounded). `--profile` and the stall
+  breakdown are computed from the windowed events only, and shares are of
+  the window's cycles.
+- JSONL: the header gains `"window":{"first":…,"last":…,"pcs":[…]}` (`last`
+  absent when unbounded), only when a window is given. It is an optional
+  member, so `schema_version` stays 1. The rows are the window's; the
+  summary record stays the whole trace's, and totals over the window are the
+  sums of the rows (without `--limit`).
 
 ## Per model
 
 | Model | Event in the window | Windowed totals |
 | --- | --- | --- |
 | `commits` | retire cycle, PC | commits, charged cycles, profile shares |
-| `stalls` | the cycle of the stall | cycles per cause |
+| `stalls` | each span, clipped to the window, so the lane-cycles add up to it | lane-cycles per reason |
 | `memory`, `axi` | the accepted cycle of the request | requests, bytes, latency stats |
-| `tiles`, `ops` | the cycle of the operation | operations, ops, per-class counts |
+| `tiles`, `ops` | the cycle of the write or operation | sub-tile writes; vector instructions, elements, ops per unit |
 
 `registers`, `traps`, `vectors` and `dma` already print only rows; their
 windows stay as they are until one of them needs totals.

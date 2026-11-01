@@ -175,3 +175,12 @@ The retirements as a Kanata log for Konata, each instruction from its dispatch t
   C	1
   E	1	0	Ex
   R	1	1	0
+
+In JSON lines the header says which window the rows are of; a whole-trace header has none:
+
+  $ coralview commits --platform test-core.json --format jsonl --to-cycle 4 --pc 80000000 core.vcd | head -n 1
+  {"type":"coralview","schema_version":1,"model":"commits","platform":"test-core","trace":"core.vcd","window":{"first":0,"last":4,"pcs":[2147483648]}}
+  $ coralview commits --platform test-core.json --format jsonl --from-cycle 5 core.vcd | head -n 1
+  {"type":"coralview","schema_version":1,"model":"commits","platform":"test-core","trace":"core.vcd","window":{"first":5,"pcs":[]}}
+  $ coralview commits --platform test-core.json --format jsonl core.vcd | head -n 1
+  {"type":"coralview","schema_version":1,"model":"commits","platform":"test-core","trace":"core.vcd"}
