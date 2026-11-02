@@ -96,6 +96,14 @@ the second PC has to retire after the first:
   --between-pc reads the trace twice: name a file, not - or --exec
   [2]
 
+`cost` takes the same window, and states it in its header:
+
+  $ coralview cost --platform test-core.json --format jsonl --between-pc 80000000,80000004 core.vcd | head -1
+  {"type":"coralview","schema_version":1,"model":"cost","platform":"test-core","trace":"core.vcd","window":{"first":4,"last":5,"pcs":[]}}
+  $ coralview cost --platform test-core.json --format jsonl --between-pc 90000000,80000000 core.vcd
+  --between-pc: pc 90000000 retires fewer than 1 times
+  [3]
+
 The same retirements as JSON lines, filtered alike; the summary covers
 the whole run:
 
