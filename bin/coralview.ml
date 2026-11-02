@@ -227,7 +227,10 @@ let analyze (type k e s)
         ~diags:pulled.diags pulled.summary);
   match status (pulled.summary ()) with 0 -> () | n -> exit n
 
-let profile_by_class = ref false
+let profile_by = ref Text.Pc
+
+(* [--elf FILE]: the functions of the program, to name PCs. *)
+let elf_symbols : Symbols.t option ref = ref None
 
 let ctx p ?(features = None) ?(region = Region.none) ?(window = Text.everything) ?(limit = max_int)
     ?(profile = 0) () =
@@ -240,7 +243,13 @@ let ctx p ?(features = None) ?(region = Region.none) ?(window = Text.everything)
          match Coral_isa.Rivet_decode.instruction d word with
          | Ok i -> Coral_isa.Iclass.(name (of_instruction i))
          | Error _ -> "unknown");
-    by_class = !profile_by_class;
+    symbol =
+      (match !elf_symbols with
+      | None -> fun _ -> None
+      | Some t ->
+          fun pc ->
+            Option.map (fun ((f : Symbols.func), off) -> (f.name, off)) (Symbols.lookup t pc));
+    profile_by = !profile_by;
     region;
     window;
     limit;
@@ -673,25 +682,44 @@ let manifest =
     & info [ "manifest" ] ~docv:"FILE"
         ~doc:"The emulator archive's $(i,hardware-configurations.json), to check against.")
 
+let elf =
+  let load file =
+    match Symbols.load file with
+    | Ok t -> elf_symbols := Some t
+    | Error e -> fail ~code:2 ("--elf: " ^ e)
+  in
+  Term.(
+    const (Option.iter load)
+    $ Arg.(
+        value
+        & opt (some file) None
+        & info [ "elf" ] ~docv:"FILE"
+            ~doc:
+              "The program's ELF: $(b,commits) shows $(i,function+offset) beside each PC, and \
+               $(b,--profile-by function) groups by function."))
+
 let profile =
   let by =
     Arg.(
       value
-      & opt (enum [ ("pc", false); ("class", true) ]) false
+      & opt (enum [ ("pc", Text.Pc); ("class", Text.Class); ("function", Text.Function) ]) Text.Pc
       & info [ "profile-by" ] ~docv:"KEY"
           ~doc:
-            "Group the $(b,--profile) of $(b,commits) by $(b,pc) (the default) or instruction \
-             $(b,class): alu, fp, mem, branch, vector, vector-mem, tile or system.")
+            "Group the $(b,--profile) of $(b,commits) by $(b,pc) (the default), instruction \
+             $(b,class) (alu, fp, mem, branch, vector, vector-mem, tile or system) or \
+             $(b,function) (needs $(b,--elf)).")
   in
   Term.(
-    const (fun n by_class ->
-        profile_by_class := by_class;
+    const (fun n by () ->
+        if by = Text.Function && !elf_symbols = None then
+          fail ~code:2 "--profile-by function needs --elf";
+        profile_by := by;
         n)
     $ Arg.(
         value & opt int 0
         & info [ "profile" ] ~docv:"N"
-            ~doc:"Print the $(docv) PCs (or classes) with the most cycles charged.")
-    $ by)
+            ~doc:"Print the $(docv) PCs (or classes, or functions) with the most cycles charged.")
+    $ by $ elf)
 
 let regions p = function
   | None -> Region.none

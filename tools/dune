@@ -4,3 +4,8 @@
  (name select_trace)
  (modules select_trace)
  (libraries ovcd ovcd.fst ovcd.vcd_types))
+
+(executable
+ (name mkelf)
+ (modules mkelf)
+ (libraries elf))

@@ -195,3 +195,12 @@ words from the rows):
   $ coralview render --platform test-core.json --profile 3 --profile-by class core.jsonl | tail -n 2
   class         count  cycles  share     d->r
   alu               2       5  62.5%     3.00
+
+With the program's ELF the PCs get the function they are in, and a profile can group by function.
+The ELF here has two functions of one instruction each:
+
+  $ ../../tools/mkelf.exe core.elf 80000000 first:4 second:4
+  $ coralview commits --platform test-core.json --elf core.elf core.vcd
+  $ coralview commits --platform test-core.json --elf core.elf --profile 3 --profile-by function core.vcd | tail -n 3
+  $ coralview commits --platform test-core.json --profile 3 --profile-by function core.vcd
+  $ coralview commits --platform test-core.json --elf core.vcd core.vcd
