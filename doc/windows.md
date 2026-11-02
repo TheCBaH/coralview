@@ -60,8 +60,7 @@ Both only produce the `first`/`last` pair; the rules above apply unchanged.
 - `--between-pc A,B [--nth N]`: from the Nth retirement of PC A to the next
   retirement of PC B, both included. Found by a first pass with `commits`, so
   the trace is a file. Intersects with `--from-cycle`/`--to-cycle`.
-- `--around-symbol NAME --elf FILE [--nth N]` (not implemented; needs the ELF
-  reader): from the Nth retirement of the symbol's address to the first
+- `--around-symbol NAME --elf FILE [--nth N]`: from the Nth retirement of the symbol's address to the first
   retirement of a `ret` (`jalr x0, 0(ra)`) whose PC is inside the symbol's
   `[address, address + size)`. This is the simple rule, chosen on purpose:
   a function that returns early through a different `ret` ends its window

@@ -150,14 +150,47 @@ let jsonl_window (w : Text.window) =
 
 (* [--between-pc A,B --nth N]: the window from the Nth retirement of PC A to the next retirement of PC B,
    found by a first pass over the trace with [commits]. *)
-let between_pc : (int * int * int) option ref = ref None
+type marker = Between of int * int | Around of string
+
+let between_pc : (marker * int) option ref = ref None
+
+(* [--elf FILE]: the functions of the program, to name PCs and to find a function. *)
+let elf_symbols : Symbols.t option ref = ref None
 
 let resolve_between (p : Platform.t) path (ctx : Text.ctx) =
   match !between_pc with
   | None -> ctx
-  | Some (a, b, nth) ->
-      if path = "-" then
-        fail ~code:2 "--between-pc reads the trace twice: name a file, not - or --exec";
+  | Some (marker, nth) ->
+      let flag = match marker with Between _ -> "--between-pc" | Around _ -> "--around-symbol" in
+      if path = "-" then fail ~code:2 (flag ^ " reads the trace twice: name a file, not - or --exec");
+      (* The first retirement of the start, the Nth time, and the first end after it. *)
+      let is_start, is_end, start_name, end_name =
+        match marker with
+        | Between (a, b) ->
+            ( (fun (c : Commits.commit) -> c.pc = a),
+              (fun (c : Commits.commit) -> c.pc = b),
+              Printf.sprintf "pc %08x" a,
+              Printf.sprintf "pc %08x" b )
+        | Around name -> (
+            match !elf_symbols with
+            | None -> fail ~code:2 "--around-symbol needs --elf"
+            | Some t -> (
+                match Symbols.find t name with
+                | [] ->
+                    fail ~code:2 (Printf.sprintf "--around-symbol: no function %s in the ELF" name)
+                | _ :: _ :: _ ->
+                    fail ~code:2
+                      (Printf.sprintf
+                         "--around-symbol: %s names several functions; use --between-pc" name)
+                | [ f ] ->
+                    (* ret is jalr x0, 0(ra). *)
+                    ( (fun c -> c.pc = f.address),
+                      (fun c ->
+                        c.word = Some 0x00008067 && c.pc >= f.address
+                        && c.pc < f.address + max f.size 1),
+                      name,
+                      "a ret of " ^ name )))
+      in
       let pulled =
         guard p (fun () ->
             Analysis.pull (module Commits) () p (Hwfrp.Trace.open_input ~select:!select path))
@@ -169,12 +202,12 @@ let resolve_between (p : Platform.t) path (ctx : Text.ctx) =
              | Commits.Event.Commit c -> (
                  match !first with
                  | None ->
-                     if c.pc = a then begin
+                     if is_start c then begin
                        incr seen;
                        if !seen = nth then first := Some c.retired
                      end
                  | Some f ->
-                     if c.pc = b && c.retired >= f then begin
+                     if is_end c && c.retired >= f then begin
                        last := Some c.retired;
                        raise Exit
                      end)
@@ -185,14 +218,13 @@ let resolve_between (p : Platform.t) path (ctx : Text.ctx) =
         match !first with
         | Some c -> c
         | None ->
-            fail ~code:3 (Printf.sprintf "--between-pc: pc %08x retires fewer than %d times" a nth)
+            fail ~code:3 (Printf.sprintf "%s: %s retires fewer than %d times" flag start_name nth)
       in
       let last =
         match !last with
         | Some c -> c
         | None ->
-            fail ~code:3
-              (Printf.sprintf "--between-pc: pc %08x never retires from cycle %d" b first)
+            fail ~code:3 (Printf.sprintf "%s: %s never retires from cycle %d" flag end_name first)
       in
       {
         ctx with
@@ -229,11 +261,10 @@ let analyze (type k e s)
 
 let profile_by = ref Text.Pc
 
-(* [--elf FILE]: the functions of the program, to name PCs. *)
-let elf_symbols : Symbols.t option ref = ref None
-
 let ctx p ?(features = None) ?(region = Region.none) ?(window = Text.everything) ?(limit = max_int)
     ?(profile = 0) () =
+  if !profile_by = Text.Function && !elf_symbols = None then
+    fail ~code:2 "--profile-by function needs --elf";
   {
     Text.root = Vcd_types.Reference.to_string (Platform.root p);
     disasm = Coral_isa.Rivet_decode.disasm (decoder features);
@@ -625,9 +656,30 @@ let pc_of s =
   | Some pc -> pc
   | None -> fail ~code:2 ("--pc: not a hex PC: " ^ s)
 
+let elf =
+  let load file =
+    match Symbols.load file with
+    | Ok t -> elf_symbols := Some t
+    | Error e -> fail ~code:2 ("--elf: " ^ e)
+  in
+  Term.(
+    const (Option.iter load)
+    $ Arg.(
+        value
+        & opt (some file) None
+        & info [ "elf" ] ~docv:"FILE"
+            ~doc:
+              "The program's ELF: $(b,commits) shows $(i,function+offset) beside each PC, and \
+               $(b,--profile-by function) groups by function."))
+
 let window =
-  let make first last pcs between nth =
-    (between_pc := match between with None -> None | Some (a, b) -> Some (a, b, nth));
+  let make first last pcs between around nth =
+    (between_pc :=
+       match (between, around) with
+       | Some _, Some _ -> fail ~code:2 "--between-pc and --around-symbol are alternatives"
+       | Some (a, b), None -> Some (Between (a, b), nth)
+       | None, Some name -> Some (Around name, nth)
+       | None, None -> None);
     {
       Text.first = Option.value first ~default:0;
       last = Option.value last ~default:max_int;
@@ -652,6 +704,16 @@ let window =
              included; they bound the window as $(b,--from-cycle) and $(b,--to-cycle) do, and are \
              found by a first pass over the trace.")
   in
+  let around =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "around-symbol" ] ~docv:"NAME"
+          ~doc:
+            "Print rows from the retirement of the entry of function $(i,NAME) of the $(b,--elf) \
+             to the first $(b,ret) retired inside it. Call depth is not tracked: a recursive \
+             function ends at its innermost return, and one that leaves by a tail call has no end.")
+  in
   let nth =
     Arg.(
       value & opt int 1
@@ -659,12 +721,13 @@ let window =
           ~doc:"With $(b,--between-pc), start at the $(docv)th retirement of $(i,A).")
   in
   Term.(
-    const make $ from_cycle $ to_cycle
+    const (fun () -> make)
+    $ elf $ from_cycle $ to_cycle
     $ Arg.(
         value & opt_all string []
         & info [ "pc" ] ~docv:"HEX"
             ~doc:"Print only rows of this PC; repeatable. The whole trace is still processed.")
-    $ between $ nth)
+    $ between $ around $ nth)
 
 let features =
   Arg.(
@@ -682,22 +745,6 @@ let manifest =
     & info [ "manifest" ] ~docv:"FILE"
         ~doc:"The emulator archive's $(i,hardware-configurations.json), to check against.")
 
-let elf =
-  let load file =
-    match Symbols.load file with
-    | Ok t -> elf_symbols := Some t
-    | Error e -> fail ~code:2 ("--elf: " ^ e)
-  in
-  Term.(
-    const (Option.iter load)
-    $ Arg.(
-        value
-        & opt (some file) None
-        & info [ "elf" ] ~docv:"FILE"
-            ~doc:
-              "The program's ELF: $(b,commits) shows $(i,function+offset) beside each PC, and \
-               $(b,--profile-by function) groups by function."))
-
 let profile =
   let by =
     Arg.(
@@ -710,16 +757,14 @@ let profile =
              $(b,function) (needs $(b,--elf)).")
   in
   Term.(
-    const (fun n by () ->
-        if by = Text.Function && !elf_symbols = None then
-          fail ~code:2 "--profile-by function needs --elf";
+    const (fun n by ->
         profile_by := by;
         n)
     $ Arg.(
         value & opt int 0
         & info [ "profile" ] ~docv:"N"
             ~doc:"Print the $(docv) PCs (or classes, or functions) with the most cycles charged.")
-    $ by $ elf)
+    $ by)
 
 let regions p = function
   | None -> Region.none

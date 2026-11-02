@@ -68,6 +68,10 @@ smoke: build
 	$(DUNE) exec -- coralview commits $$p $$fst > $$d/commits.txt; \
 	grep -q ' mpause ' $$d/commits.txt; \
 	test "$$(grep -c '\.word' $$d/commits.txt)" = 0; \
+	$(DUNE) exec -- coralview commits $$p --elf $(CORALNPU)/emulators/examples/matrix.elf --around-symbol main \
+	  --limit 0 --profile 5 --profile-by function $$fst | tee $$d/main.txt; \
+	grep -q '^window \[' $$d/main.txt; \
+	grep -q '^main ' $$d/main.txt; \
 	$(DUNE) exec -- coralview stalls $$p --profile 10 $$fst; \
 	$(DUNE) exec -- coralview memory $$p --manifest $(CORALNPU)/emulators/hardware-configurations.json --limit 10 $$fst; \
 	$(DUNE) exec -- coralview tiles $$p --limit 10 $$fst; \
