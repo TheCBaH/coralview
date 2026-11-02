@@ -1,0 +1,130 @@
+$timescale 1ps $end
+$scope module TOP $end
+$scope module core $end
+$var wire 1 ck io_aclk $end
+$var wire 1 df io_debug_dispatch_0_instFire $end
+$var wire 32 da io_debug_dispatch_0_instAddr $end
+$var wire 32 di io_debug_dispatch_0_instInst $end
+$var wire 1 rv io_debug_rb_inst_0_valid $end
+$var wire 32 rp io_debug_rb_inst_0_bits_pc $end
+$var wire 7 ri io_debug_rb_inst_0_bits_idx $end
+$var wire 1 rt io_debug_rb_inst_0_bits_trap $end
+$var wire 1 wv io_debug_regfile_writeData_0_valid $end
+$var wire 5 wa io_debug_regfile_writeData_0_bits_addr $end
+$var wire 32 wd io_debug_regfile_writeData_0_bits_data $end
+$scope module lsu $end
+$var wire 1 tv io_dbus_valid $end
+$var wire 1 tr io_dbus_ready $end
+$var wire 1 tw io_dbus_write $end
+$var wire 32 ta io_dbus_addr $end
+$var wire 16 tm io_dbus_wmask $end
+$var wire 128 td io_dbus_wdata $end
+$var wire 128 tq io_dbus_rdata $end
+$var wire 1 ev io_ebus_dbus_valid $end
+$var wire 1 er io_ebus_dbus_ready $end
+$var wire 1 ew io_ebus_dbus_write $end
+$var wire 32 ea io_ebus_dbus_addr $end
+$var wire 16 em io_ebus_dbus_wmask $end
+$var wire 128 ed io_ebus_dbus_wdata $end
+$var wire 128 eq io_ebus_dbus_rdata $end
+$var wire 1 fv io_fault_valid $end
+$var wire 1 fw io_fault_bits_write $end
+$var wire 32 fa io_fault_bits_addr $end
+$var wire 32 fe io_fault_bits_epc $end
+$scope module slot $end
+$var wire 32 ep io_pc $end
+$upscope $end
+$upscope $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+0ck
+b0 df
+b0 da
+b0 di
+b0 rv
+b0 rp
+b0 ri
+b0 rt
+b0 wv
+b0 wa
+b0 wd
+b0 tv
+b0 tr
+b0 tw
+b0 ta
+b0 tm
+b0 td
+b0 tq
+b0 ev
+b0 er
+b0 ew
+b0 ea
+b0 em
+b0 ed
+b0 eq
+b0 fv
+b0 fw
+b0 fa
+b0 fe
+b0 ep
+$end
+#1
+1ck
+#2
+0ck
+#3
+1ck
+#4
+0ck
+b1 df
+b10000000000000000000000000000000 da
+b00000010101000000000010100010011 di
+#5
+1ck
+#6
+0ck
+b10000000000000000000000000000100 da
+b00000000101001011010000000100011 di
+#7
+1ck
+#8
+0ck
+b0 df
+b1 wv
+b01010 wa
+b00000000000000000000000000101010 wd
+b1 tv
+b1 tr
+b1 tw
+b00000000000000010000000000000000 ta
+b0000000000001111 tm
+b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000011011110101011011011111011101111 td
+b10000000000000000000000000000100 ep
+#9
+1ck
+#10
+0ck
+b0 wv
+b0 tv
+b0 tw
+b1 rv
+b10000000000000000000000000000000 rp
+b0001010 ri
+#11
+1ck
+#12
+0ck
+b10000000000000000000000000000100 rp
+b1111111 ri
+#13
+1ck
+#14
+0ck
+b0 rv
+#15
+1ck
+#16
+0ck
