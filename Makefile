@@ -14,7 +14,7 @@ deps:
 versions:
 	$(OPAM_EXEC) ocamlfind ocamlopt -version
 	$(DUNE) --version
-	opam list --columns=name,version,pin ovcd fst unlz4 err_trace ocamlformat
+	opam list --columns=name,version,pin ovcd fst unlz4 err_trace elf ocamlformat
 	cat $(CORALNPU)/RELEASE
 
 build:

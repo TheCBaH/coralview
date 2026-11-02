@@ -26,6 +26,7 @@
   ovcd
   fst
   err_trace
+  elf
   rivet
   fmt
   menhir
