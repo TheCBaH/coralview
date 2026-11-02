@@ -281,17 +281,16 @@ let events c =
 let in_window (ctx : Text.ctx) =
   List.filter (fun (c : commit) -> Text.selected ctx.window ~cycle:c.retired ~pc:c.pc)
 
-let class_profile (ctx : Text.ctx) commits total_cycles =
-  Printf.printf "%-12s %6s %7s %6s %8s\n" "class" "count" "cycles" "share" "d->r";
+let grouped_profile (ctx : Text.ctx) ~title ~key commits total_cycles =
+  Printf.printf "%-24s %6s %7s %6s %8s\n" title "count" "cycles" "share" "d->r";
   Profile.by
-    ~key:(fun (c : commit) ->
-      Some (match c.word with Some w -> ctx.instruction_class w | None -> "unknown"))
+    ~key:(fun c -> Some (key c))
     ~weight:(fun (c : commit) -> c.charged)
     ~total:(fun (c : commit) -> match c.dispatched with Some x -> c.retired - x | None -> 0)
     (List.to_seq commits)
   |> List.iteri (fun i (r : string Profile.row) ->
       if i < ctx.profile then
-        Printf.printf "%-12s %6d %7d %5.1f%% %8.2f\n" r.key r.count r.weight
+        Printf.printf "%-24s %6d %7d %5.1f%% %8.2f\n" r.key r.count r.weight
           (100. *. float r.weight /. float (max 1 total_cycles))
           (float r.total /. float r.count))
 
@@ -302,26 +301,35 @@ let profile (ctx : Text.ctx) events (s : Summary.t) =
     if Text.windowed ctx.window then List.fold_left (fun n (c : commit) -> n + c.charged) 0 commits
     else s.cycles
   in
-  if ctx.by_class then class_profile ctx commits total_cycles
-  else
-    (* The word of a PC is its first retirement's. *)
-    let words =
-      List.fold_left
-        (fun m (c : commit) -> if IM.mem c.pc m then m else IM.add c.pc c.word m)
-        IM.empty commits
-    in
-    Printf.printf "%8s %6s %7s %6s %8s  %s\n" "pc" "count" "cycles" "share" "d->r" "instruction";
-    Profile.by_pc ~buckets:256
-      ~pc:(fun (c : commit) -> Some c.pc)
-      ~weight:(fun (c : commit) -> c.charged)
-      ~total:(fun (c : commit) -> match c.dispatched with Some x -> c.retired - x | None -> 0)
-      (List.to_seq commits)
-    |> List.iteri (fun i (r : int Profile.row) ->
-        if i < ctx.profile then
-          Printf.printf "%08x %6d %7d %5.1f%% %8.2f  %s\n" r.key r.count r.weight
-            (100. *. float r.weight /. float (max 1 total_cycles))
-            (float r.total /. float r.count)
-            (disasm (IM.find r.key words)))
+  match ctx.profile_by with
+  | Class ->
+      grouped_profile ctx ~title:"class"
+        ~key:(fun (c : commit) ->
+          match c.word with Some w -> ctx.instruction_class w | None -> "unknown")
+        commits total_cycles
+  | Function ->
+      grouped_profile ctx ~title:"function"
+        ~key:(fun (c : commit) -> match ctx.symbol c.pc with Some (name, _) -> name | None -> "?")
+        commits total_cycles
+  | Pc ->
+      (* The word of a PC is its first retirement's. *)
+      let words =
+        List.fold_left
+          (fun m (c : commit) -> if IM.mem c.pc m then m else IM.add c.pc c.word m)
+          IM.empty commits
+      in
+      Printf.printf "%8s %6s %7s %6s %8s  %s\n" "pc" "count" "cycles" "share" "d->r" "instruction";
+      Profile.by_pc ~buckets:256
+        ~pc:(fun (c : commit) -> Some c.pc)
+        ~weight:(fun (c : commit) -> c.charged)
+        ~total:(fun (c : commit) -> match c.dispatched with Some x -> c.retired - x | None -> 0)
+        (List.to_seq commits)
+      |> List.iteri (fun i (r : int Profile.row) ->
+          if i < ctx.profile then
+            Printf.printf "%08x %6d %7d %5.1f%% %8.2f  %s\n" r.key r.count r.weight
+              (100. *. float r.weight /. float (max 1 total_cycles))
+              (float r.total /. float r.count)
+              (disasm (IM.find r.key words)))
 
 let text (ctx : Text.ctx) events (s : Summary.t) =
   let shown = ref 0 in
@@ -332,7 +340,11 @@ let text (ctx : Text.ctx) events (s : Summary.t) =
     (fun (c : commit) ->
       if Text.selected ctx.window ~cycle:c.retired ~pc:c.pc && !shown < ctx.limit then begin
         incr shown;
-        Printf.printf "%8d %d %08x %s %-32s %-16s %3s %3s %3d%s\n" c.retired c.lane c.pc
+        Printf.printf "%8d %d %08x%s %s %-32s %-16s %3s %3s %3d%s\n" c.retired c.lane c.pc
+          (match ctx.symbol c.pc with
+          | Some (name, 0) -> Printf.sprintf " <%s>" name
+          | Some (name, off) -> Printf.sprintf " <%s+%d>" name off
+          | None -> "")
           (match c.word with Some w -> Printf.sprintf "%08x" w | None -> "????????")
           (disasm c.word)
           (match c.dest with

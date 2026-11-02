@@ -189,9 +189,44 @@ The profile by instruction class, from the trace and from its JSON lines (render
 words from the rows):
 
   $ coralview commits --platform test-core.json --profile 3 --profile-by class core.vcd | tail -n 2
-  class         count  cycles  share     d->r
-  alu               2       5  62.5%     3.00
+  class                     count  cycles  share     d->r
+  alu                           2       5  62.5%     3.00
   $ coralview commits --platform test-core.json --format jsonl core.vcd > core.jsonl
   $ coralview render --platform test-core.json --profile 3 --profile-by class core.jsonl | tail -n 2
-  class         count  cycles  share     d->r
-  alu               2       5  62.5%     3.00
+  class                     count  cycles  share     d->r
+  alu                           2       5  62.5%     3.00
+
+With the program's ELF the PCs get the function they are in, and a profile can group by function.
+The ELF here has two functions of one instruction each:
+
+  $ ../../tools/mkelf.exe core.elf 80000000 first:4 second:4
+  $ coralview commits --platform test-core.json --elf core.elf core.vcd
+         4 0 80000000 <first> 02a00513 addi x10, x0, 42                 x10=0000002a       3   2   4
+         5 0 80000004 <second> 00000013 addi x0, x0, 0                                      3   -   1
+  root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
+  $ coralview commits --platform test-core.json --elf core.elf --profile 3 --profile-by function core.vcd | tail -n 3
+  function                  count  cycles  share     d->r
+  first                         1       4  50.0%     3.00
+  second                        1       1  12.5%     3.00
+  $ coralview commits --platform test-core.json --profile 3 --profile-by function core.vcd
+  --profile-by function needs --elf
+  [2]
+  $ coralview commits --platform test-core.json --elf core.vcd core.vcd
+  --elf: core.vcd: not an ELF file (bad magic)
+  [2]
+
+A function is a window from its entry to the first ret retired inside it; these functions have none,
+and an unknown or ambiguous name is refused:
+
+  $ coralview commits --platform test-core.json --elf core.elf --around-symbol first core.vcd
+  --around-symbol: a ret of first never retires from cycle 4
+  [3]
+  $ coralview commits --platform test-core.json --elf core.elf --around-symbol nope core.vcd
+  --around-symbol: no function nope in the ELF
+  [2]
+  $ coralview commits --platform test-core.json --around-symbol first core.vcd
+  --around-symbol needs --elf
+  [2]
+  $ coralview commits --platform test-core.json --elf core.elf --around-symbol first --between-pc 80000000,80000004 core.vcd
+  --between-pc and --around-symbol are alternatives
+  [2]

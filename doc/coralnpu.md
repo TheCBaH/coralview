@@ -950,6 +950,53 @@ Not yet timed:
 These need the fetch and execution-unit blocks and the RVV backend layouts
 (next section).
 
+## Fitting a cycle model from one kernel
+
+A cycle estimate needs, for the kernel alone, what each class of
+instruction costs and where its data was. Everything below takes a window
+([`windows.md`](windows.md)) so that boot and the harness stay out of it.
+
+1. Run the kernel with tracing and find its window: `--around-symbol NAME
+   --elf prog.elf` (entry to the first `ret`), or `--between-pc A,B` with the
+   PCs of the two `csrr … mcycle` reads around the call, read off a
+   `commits` listing.
+2. `coralview commits --elf prog.elf --around-symbol NAME --limit 0 --profile 20
+   --profile-by function` gives the cost per function inside the window;
+   `--profile-by class` per instruction class; the line starting `window`
+   gives the commits and cycles charged in it.
+3. `coralview stalls --from-cycle A --to-cycle B` gives the window's own
+   stall breakdown, in lane-cycles per reason.
+4. `coralview cost --manifest hardware-configurations.json --format jsonl
+   --from-cycle A --to-cycle B` writes one row per class and region:
+   `{"type":"cost.row","class","region","count","cycles","d_to_r"}`, with
+   `cycles` the charged cycles (these add up to the window) and `d_to_r` the
+   summed dispatch-to-retire latency. A data request belongs to the youngest
+   instance of its PC dispatched at or before it, and the instance takes the
+   region of its first request; an instruction with no request, or none that
+   could be joined, has region `-`.
+
+Measured on the v0.0.8 image (2026-11-02), whole programs, `d->r` the mean:
+
+| Program (core) | Class, region | Instructions | `d->r` |
+|---|---|---|---|
+| `memory.elf` (core-mini) | mem, `dtcm` | 1,358 | 4.6 |
+| | mem, `testbench-ram` | 514 | 7.5 |
+| `rvv.elf` (rvv-core-mini) | vector-mem, `dtcm` | 11 | 19.9 |
+| `rvv_matmul_int8.elf` (rvv-core-mini-highmem) | vector-mem, `testbench-ram` | 1,515 | 32.9 |
+| | mem, `dtcm` | 10,501 | 7.7 |
+| | mem, `testbench-ram` | 4,534 | 5.5 |
+
+Read these as latencies under that program's contention, not as per-
+instruction constants: a vector access waits for the others in flight, and
+`d->r` includes the wait for operands and in-order retirement. In the
+`rvv_matmul_int8` trace 52,440 scalar memory instructions (of about 67,000)
+have no joined request, region `-`, so its `mem` rows describe a minority;
+the class totals are sound, the region split is not complete. The
+`vle32.v`/`vse32.v` of `rvv.elf` alone, by PC, are 19.0 and 22.5 cycles
+(`commits --profile`), in `dtcm`; no example program has them on external RAM
+in a short enough trace to profile by PC, so the 32.9 above is the class
+mean, not `vle32.v` alone.
+
 ## Not observed yet
 
 - **Fetch** (`core.score.fetch`: fetcher, instruction buffer, branch

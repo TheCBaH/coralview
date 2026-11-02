@@ -16,6 +16,7 @@ depends: [
   "ovcd"
   "fst"
   "err_trace"
+  "elf"
   "rivet"
   "fmt"
   "menhir"
@@ -48,5 +49,6 @@ pin-depends: [
   ["fst.dev" "git+https://github.com/TheCBaH/ocaml-fst.git#32d68870539fb7422c86e5d8fc62db8568b173a7"]
   ["ovcd.dev" "git+https://github.com/TheCBaH/ovcd.git#9e6d53af48db166d095a506ed350682c7683b48b"]
   ["err_trace.dev" "git+https://github.com/TheCBaH/err_trace.git#1c7a6ba94c81c70008c594c709e7d37feb38f435"]
+  ["elf.dev" "git+https://github.com/TheCBaH/ocaml-elf.git#7530428dc6a11fce2d52244c6b2ad67da7d59051"]
   ["rivet.dev" "git+https://github.com/TheCBaH/rivet.git#e3e17ffbc70506880bd2dfe531f4fd80ea7441d3"]
 ]

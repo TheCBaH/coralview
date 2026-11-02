@@ -2,6 +2,10 @@
  (deps %{bin:coralview}))
 
 (cram
+ (applies_to platform)
+ (deps %{bin:coralview} ../tools/mkelf.exe))
+
+(cram
  (applies_to plan)
  (deps
   (source_tree .)))

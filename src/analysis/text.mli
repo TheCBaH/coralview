@@ -18,12 +18,17 @@ val describe : window -> string
 val selected : window -> cycle:int -> pc:int -> bool
 (** In the cycle range, and of one of [pcs] unless empty. *)
 
+type profile_by = Pc | Class | Function
+
 type ctx = {
   root : string;  (** The platform root, as the summaries name it. *)
   disasm : int -> string;
   instruction_class : int -> string;
       (** ["alu"], ["vector-mem"], …; ["unknown"] for a word Rivet does not decode. *)
-  by_class : bool;  (** [--profile-by class]: a profile has a row per class, not per PC. *)
+  symbol : int -> (string * int) option;
+      (** The function of a PC and the offset in it, with [--elf]. *)
+  profile_by : profile_by;
+      (** What the rows of a profile are: PCs, instruction classes or functions. *)
   region : Region.t;
   window : window;
   limit : int;  (** Rows at most. *)
