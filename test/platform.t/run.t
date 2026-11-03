@@ -96,6 +96,16 @@ the second PC has to retire after the first:
   --between-pc reads the trace twice: name a file, not - or --exec
   [2]
 
+`cost` takes the same window, and joins commits with memory, so it needs
+the lsu block this platform does not describe:
+
+  $ coralview cost --platform test-core.json --format jsonl --between-pc 80000000,80000004 core.vcd
+  platform test-core describes no lsu block
+  [2]
+  $ coralview cost --platform test-core.json --format jsonl --between-pc 90000000,80000000 core.vcd
+  --between-pc: pc 90000000 retires fewer than 1 times
+  [3]
+
 The same retirements as JSON lines, filtered alike; the summary covers
 the whole run:
 

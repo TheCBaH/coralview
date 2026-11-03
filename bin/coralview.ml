@@ -1330,7 +1330,8 @@ let commands =
             let region = regions p manifest in
             redirect output;
             if path = "-" then fail ~code:2 "cost reads the trace twice: name a file, not -";
-            let c = ctx p ~region ~window () in
+            let c = resolve_between p path (ctx p ~region ~window ()) in
+            let window = c.window in
             let open_trace () = Hwfrp.Trace.open_input ~select:!select path in
             let commits =
               let pulled = Analysis.pull (module Commits) () p (open_trace ()) in
