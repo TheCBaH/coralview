@@ -2,7 +2,9 @@
 [@@@ai_model "claude-opus-5-5"]
 [@@@ai_provider "Anthropic"]
 
-type instruction = { mnemonic : string; feature : string option }
+module Cls = Riscv_family_encode.Riscv_types.Cls
+
+type instruction = { mnemonic : string; feature : string option; cls : Cls.t }
 
 type t = {
   driver : (module Target_intf.Target.DRIVER);
@@ -38,9 +40,10 @@ let driver definition spec =
           match C.decode { C.state; address = 0L } (word_bytes word) ~pos:0 with
           | Ok (i, _, _) ->
               let feature =
-                match i.op with C.Opcode.Table r -> Some C.table_rows.(r).feature | _ -> None
+                match i.op with C.Opcode.Table r -> Some (C.Row.feature r) | _ -> None
               in
-              Ok { mnemonic = C.Opcode.name i.op; feature }
+              let cls = Cls.of_word ~xlen:32 (Int64.of_int word) in
+              Ok { mnemonic = C.Opcode.name i.op; feature; cls }
           | Error _ -> Error (Printf.sprintf "no instruction form for %08x" word))
   in
   let assemble text =

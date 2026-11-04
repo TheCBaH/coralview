@@ -18,8 +18,8 @@ val all : t list
 val name : t -> string
 val of_name : string -> t option
 
-val of_mnemonic : ?feature:string -> string -> t
-(** The class of a mnemonic, with the Rivet feature of its table row when it has one: every
-    {!Coral_zvt.feature} row is a {!Tile}, whatever its name. *)
+val of_cls : ?feature:string -> Rivet_decode.Cls.t -> t
+(** The class of Rivet's class of a word, with the feature of its table row when it has one:
+    every {!Coral_zvt.feature} row is a {!Tile}, whatever its encoding. *)
 
 val of_instruction : Rivet_decode.instruction -> t
