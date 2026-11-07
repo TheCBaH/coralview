@@ -1192,6 +1192,33 @@ let saved_platform =
     & info [ "platform"; "p" ] ~docv:"P"
         ~doc:"The platform, when the file's is not built in: as for the analyses.")
 
+let disasm features sections functions range format output path =
+  redirect output;
+  let d = decoder features in
+  let data =
+    try In_channel.with_open_bin path In_channel.input_all with Sys_error e -> fail ~code:2 e
+  in
+  match Disasm.listing d { Disasm.sections; functions; range } data with
+  | Error e -> fail ~code:2 (path ^ ": " ^ e)
+  | Ok items -> (
+      match format with
+      | `Text -> Format.printf "%a@?" Disasm.pp_text items
+      | `Jsonl ->
+          List.iter
+            (fun l -> print_endline (Codec.to_line Disasm.line_jsont l))
+            (Disasm.lines items))
+
+let range_conv =
+  let parse s =
+    match String.split_on_char '-' s with
+    | [ lo; hi ] -> (
+        match (int_of_string_opt lo, int_of_string_opt hi) with
+        | Some lo, Some hi when lo <= hi -> Ok (lo, hi)
+        | _ -> Error (`Msg "expected LO-HI, hexadecimal with 0x or decimal, LO <= HI"))
+    | _ -> Error (`Msg "expected LO-HI")
+  in
+  Arg.conv (parse, fun ppf (lo, hi) -> Format.fprintf ppf "0x%x-0x%x" lo hi)
+
 let jsonl_file = Arg.(required & pos 0 (some file) None & info [] ~docv:"FILE" ~doc:"A JSONL file.")
 
 let beats =
@@ -1214,6 +1241,32 @@ let commands =
       Term.(
         const decode $ features
         $ Arg.(non_empty & pos_all string [] & info [] ~docv:"HEXWORD" ~doc:"Instruction words."));
+    cmd "disasm" "Disassemble the code of an RV32 ELF."
+      Term.(
+        const disasm $ features
+        $ Arg.(
+            value & opt_all string []
+            & info [ "section" ] ~docv:"NAME"
+                ~doc:"List only this executable section; repeatable. All of them by default.")
+        $ Arg.(
+            value & opt_all string []
+            & info [ "function" ] ~docv:"NAME"
+                ~doc:
+                  "List only the extent of this function symbol; repeatable. Needs a symbol table.")
+        $ Arg.(
+            value
+            & opt (some range_conv) None
+            & info [ "range" ] ~docv:"LO-HI"
+                ~doc:"List only addresses in [LO, HI); hexadecimal with 0x, or decimal.")
+        $ Arg.(
+            value
+            & opt (enum [ ("text", `Text); ("jsonl", `Jsonl) ]) `Text
+            & info [ "format" ] ~docv:"FORMAT"
+                ~doc:
+                  "$(b,text), or $(b,jsonl): one object per instruction with its address, word, \
+                   spelling, mnemonic, class, enclosing symbol and branch target.")
+        $ output
+        $ Arg.(required & pos 0 (some file) None & info [] ~docv:"FILE" ~doc:"An RV32 ELF."));
     cmd "platforms" "List the built-in platforms and the models their blocks allow."
       Term.(
         const platforms

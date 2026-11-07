@@ -44,6 +44,10 @@ $ coralview run --platform rvv-core-mini-highmem-axi --model commits --model sta
 ## Commands
 
 * Traces: `probe`, `tree`, `signals`, `decode`, `platforms`, `check`, `bench`.
+* Code: `disasm` lists the code of an RV32 ELF with Rivet (Zvt included), labelled by its
+  symbols, with `jal`/branch targets as `<symbol+off>`; `--section`, `--function`, `--range`
+  and `--format text|jsonl`. A word Rivet has no form for prints as `.word`; an ELF that
+  marks compressed instructions is refused.
 * Models: `commits`, `stalls`, `memory`, `axi`, `dma`, `tiles`, `ops`,
   `registers`, `vectors`, `traps`, each with `--format text|jsonl`.
 * Several models and sinks: `run`; saved JSON lines: `render`, `profile`.
