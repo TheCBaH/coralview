@@ -1370,6 +1370,15 @@ let vector_note p path =
   in
   Vector_notes.notes ~static commits ops
 
+let pair_conv =
+  Arg.conv
+    ( (fun s ->
+        match String.split_on_char ',' s with
+        | [ x ] -> Ok (x, x)
+        | [ x; y ] -> Ok (x, y)
+        | _ -> Error (`Msg "expected A or A,B")),
+      fun ppf (x, y) -> Format.fprintf ppf "%s,%s" x y )
+
 let commands =
   [
     cmd "probe" "Count the signals, timestamps and changes of a trace." Term.(const probe $ file);
@@ -1430,6 +1439,87 @@ let commands =
                    spelling, mnemonic, class, enclosing symbol and branch target.")
         $ output
         $ Arg.(required & pos 0 (some file) None & info [] ~docv:"FILE" ~doc:"An RV32 ELF."));
+    cmd "compare"
+      "Two runs of one kernel side by side: the summaries of their windows and the instructions \
+       whose cycles differ most."
+      Term.(
+        const (fun p elf around entry top format output a b ->
+            redirect output;
+            (match (around, entry) with
+            | Some _, Some _ -> fail ~code:2 "--around-symbol and --entry are alternatives"
+            | _ -> ());
+            let pick = function Some (x, y) -> (Some x, Some y) | None -> (None, None) in
+            let elf_a, elf_b = pick elf in
+            let marker_of f = function Some name -> Some (f name, 1) | None -> None in
+            let side trace elf name_of =
+              elf_symbols :=
+                Option.map
+                  (fun f ->
+                    match Symbols.load f with Ok t -> t | Error e -> fail ~code:2 ("--elf: " ^ e))
+                  elf;
+              elf_path := elf;
+              let name, entry_only = name_of in
+              (between_pc :=
+                 match around with
+                 | Some _ -> marker_of (fun n -> Around n) name
+                 | None -> if entry_only then marker_of (fun n -> Entry n) name else None);
+              let c = resolve_between p trace (ctx p ()) in
+              let summary, commits =
+                guard p (fun () -> Window_summary.analyze p ~window:c.window (open_trace trace))
+              in
+              let base =
+                match (name, !elf_symbols) with
+                | Some n, Some t when around <> None || entry_only -> (
+                    match Symbols.find t n with [ f ] -> f.address | _ -> 0)
+                | _ -> 0
+              in
+              { Compare.trace; summary; window = c.window; commits; base; disasm = c.disasm }
+            in
+            let names =
+              match (around, entry) with
+              | Some x, _ | None, Some x -> pick (Some x)
+              | _ -> (None, None)
+            in
+            let entry_only = entry <> None in
+            let sa = side a elf_a (fst names, entry_only) in
+            let sb = side b elf_b (snd names, entry_only) in
+            match format with
+            | `Text ->
+                banner p;
+                Compare.text ~top sa sb
+            | `Jsonl ->
+                print_endline
+                  (Codec.to_line Jsonl.header_jsont
+                     (jsonl_header ~model:"compare" ~platform:p.name ~trace:(a ^ "," ^ b)));
+                print_endline (Codec.to_line Compare.summary_jsont (sa.summary, sb.summary));
+                List.iter
+                  (fun r -> print_endline (Codec.to_line Compare.row_jsont r))
+                  (Compare.rows ~top sa sb))
+        $ platform
+        $ Arg.(
+            value
+            & opt (some pair_conv) None
+            & info [ "elf" ] ~docv:"A[,B]"
+                ~doc:"The program's ELF of each run, or of both when one is given.")
+        $ Arg.(
+            value
+            & opt (some pair_conv) None
+            & info [ "around-symbol" ] ~docv:"NA[,NB]"
+                ~doc:
+                  "Compare the window from the entry of function $(i,NA) of the first run to its \
+                   first $(b,ret), and of $(i,NB) of the second (the same name for both when one \
+                   is given). Differences are by offset from the function's entry.")
+        $ Arg.(
+            value
+            & opt (some pair_conv) None
+            & info [ "entry" ] ~docv:"NA[,NB]"
+                ~doc:"As $(b,--around-symbol), but to the end of each trace.")
+        $ Arg.(
+            value & opt int 10
+            & info [ "top" ] ~docv:"N" ~doc:"Print the $(docv) largest per-instruction differences.")
+        $ format $ output
+        $ Arg.(required & pos 0 (some file) None & info [] ~docv:"A" ~doc:"The first trace.")
+        $ Arg.(required & pos 1 (some file) None & info [] ~docv:"B" ~doc:"The second trace."));
     cmd "platforms" "List the built-in platforms and the models their blocks allow."
       Term.(
         const platforms
@@ -1587,6 +1677,32 @@ let commands =
                        window = jsonl_window window;
                      });
                 List.iter (fun r -> print_endline (Codec.to_line Cost.row_jsont r)) rows)
+        $ manifest $ window $ format $ output);
+    model "summary"
+      "Instructions, cycles, data requests, vector operations and stall reasons of a window."
+      Term.(
+        const (fun manifest window format output p path ->
+            let region = regions p manifest in
+            redirect output;
+            if path = "-" then
+              fail ~code:2 "summary reads the trace once a model: name a file, not -";
+            let c = resolve_between p path (ctx p ~region ~window ()) in
+            let window = c.window in
+            let s =
+              guard p (fun () -> Window_summary.of_trace p ~window ~region (open_trace path))
+            in
+            match format with
+            | `Text ->
+                banner p;
+                Window_summary.text s
+            | `Jsonl ->
+                print_endline
+                  (Codec.to_line Jsonl.header_jsont
+                     {
+                       (jsonl_header ~model:"summary" ~platform:p.name ~trace:path) with
+                       window = jsonl_window window;
+                     });
+                print_endline (Codec.to_line Window_summary.jsont s))
         $ manifest $ window $ format $ output);
     model "loops"
       "Loops from backward branches: trips, instructions and cycles a trip, cycles by PC."

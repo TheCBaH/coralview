@@ -999,6 +999,32 @@ before the window is not found. `--format jsonl` writes one `loops.loop` per loo
 (`start`, `instructions`, `cycles`) and the totals by PC. A loop whose back edge is never taken is not
 found.
 
+## summary: one record a window
+
+`coralview summary [window options] TRACE` runs the models the platform has over the trace and
+reports one window: the instructions retired in it and the cycles charged to them (`commits`), data
+read and write requests (`memory`), vector instructions and operations (`ops`), and the dispatch
+lane-cycles by reason, clipped to the window (`stalls`). What the platform cannot give is left out, not
+zero. `--format jsonl` writes the header and one `summary.window` record, a stable form for tests and
+for `compare`; the window options are those of `cost`. It reads the trace once, so a pipe works unless
+a marker window (`--between-pc`, `--around-symbol`, `--entry`) needs a first pass.
+
+The same figures are a library call, `Window_summary.of_trace platform ~window trace`, over any
+`Hwfrp.Trace.t`: a file, a pipe, or events held in memory (`Hwfrp.In_memory`), as `hwfrp` hands them over.
+No subprocess or file is involved (`test/unit/test_in_memory.ml`).
+
+## compare: two runs of one kernel
+
+`coralview compare --platform P [--elf A[,B]] [--around-symbol NA[,NB] | --entry NA[,NB]] [--top N] TRACE_A TRACE_B`
+prints the `summary` figures of both windows with their differences, then the instructions whose cycles
+charged differ most. Each run's window is its own: from the entry of `NA` in the first ELF to the first
+`ret` in it (`--around-symbol`) or to the end of the trace (`--entry`), and `NB` in the second; one name,
+or one ELF, serves both. Instructions are matched by their offset from that entry, so generated code
+and a hand-written kernel line up where their layouts do; an offset only one run has counts as zero for
+the other, and the instruction text of both is shown when it differs. Without a symbol the windows are
+the whole runs and offsets are PCs. `--format jsonl` writes a `compare.summary` record (both
+`summary.window` records) and a `compare.pc` record for each difference.
+
 ## Fitting a cycle model from one kernel
 
 A cycle estimate needs, for the kernel alone, what each class of

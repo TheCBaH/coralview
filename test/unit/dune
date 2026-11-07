@@ -12,6 +12,8 @@
    ../memory.t/memory.vcd
    ../tiles.t/tile-core.json
    ../tiles.t/tiles.vcd
+   ../platform.t/test-core.json
+   ../platform.t/core.vcd
    ../stalls.t/stall-core.json
    ../stalls.t/stalls.vcd))
  (preprocess

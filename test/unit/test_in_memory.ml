@@ -87,3 +87,14 @@ let%test "axi, fed in pieces" = batches (module Axi) "../axi.t/axi-core.json" ".
 
 let%test "stalls, fed in pieces" =
   batches (module Stalls) "../stalls.t/stall-core.json" "../stalls.t/stalls.vcd"
+
+(* A summary of a window, taken from events held in memory: no file, no subprocess. *)
+let%expect_test "window summary of an in-memory trace" =
+  let text = read "../platform.t/core.vcd" in
+  let p = platform "../platform.t/test-core.json" in
+  let line trace =
+    Codec.to_line Window_summary.jsont (Window_summary.of_trace p ~window:Text.everything trace)
+  in
+  print_endline (line (from_memory text));
+  assert (line (from_memory text) = line (Hwfrp_vcd.of_string text));
+  [%expect {| {"type":"summary.window","first":0,"instructions":2,"cycles":5} |}]

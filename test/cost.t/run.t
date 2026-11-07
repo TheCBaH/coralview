@@ -26,3 +26,15 @@ A window selects the retirements it covers and states itself in the header:
   platform cost-core
   class        region      count  cycles     d->r
   mem          tcm             1       1     3.00
+
+`summary` gives the figures of a window in one record: the instructions and cycles charged, the data
+requests, and (on platforms that have those models) vector operations and dispatch stall reasons:
+
+  $ coralview summary --platform cost-core.json cost.vcd
+  platform cost-core
+  window [0, end]
+    instructions 2, cycles charged 5
+    data requests: 0 loads, 1 stores
+  $ coralview summary --platform cost-core.json --format jsonl --from-cycle 5 cost.vcd
+  {"type":"coralview","schema_version":2,"model":"summary","platform":"cost-core","trace":"cost.vcd","window":{"first":5,"pcs":[]}}
+  {"type":"summary.window","first":5,"instructions":1,"cycles":1,"loads":0,"stores":0}
