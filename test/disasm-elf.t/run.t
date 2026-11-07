@@ -699,3 +699,37 @@ The vector code of main in rvv_fp.elf, by function, as the same lines of the ful
     0000048c  00000513  addi x10, x0, 0
     00000490  01010113  addi x2, x2, 16
     00000494  00008067  jalr x0, 0(x1)
+
+`--no-padding` prints each run of zero words once; everything else is the listing above:
+
+  $ coralview disasm matrix.elf > full.txt
+  $ coralview disasm --no-padding matrix.elf > packed.txt
+  $ diff full.txt packed.txt
+  445,447c445
+  <   000006b4  00000000  .word 0x00000000
+  <   000006b8  00000000  .word 0x00000000
+  <   000006bc  00000000  .word 0x00000000
+  ---
+  >   000006b4  3 zero words (12 bytes)
+  [1]
+  $ coralview disasm --no-padding --format jsonl matrix.elf | grep padding
+  {"padding_words":3,"address":1716}
+
+`--summary` counts the instructions of each function by class; a `.word` is `data`:
+
+  $ coralview disasm --summary matrix.elf
+  _start: 81 instructions, alu 55, branch 12, mem 4, system 10
+  main: 187 instructions, alu 78, branch 33, fp 8, mem 29, system 4, tile 25, vector-mem 10
+  coralnpu_exception_handler: 2 instructions, branch 1, system 1
+  _write: 58 instructions, alu 21, branch 4, mem 30, system 3
+  __cxa_finalize: 3 instructions, alu 2, branch 1
+  write: 6 instructions, alu 4, branch 1, mem 1
+  __call_exitprocs: 74 instructions, alu 19, branch 19, mem 36
+  _write_r: 21 instructions, alu 7, branch 4, data 3, mem 7
+  crt_section_clear: 11 instructions, alu 3, branch 6, mem 1, system 1
+  crt_section_copy: 17 instructions, alu 7, branch 7, mem 2, system 1
+  $ coralview disasm --summary --function main matrix.elf
+  main: 187 instructions, alu 78, branch 33, fp 8, mem 29, system 4, tile 25, vector-mem 10
+  $ coralview disasm --summary --format jsonl matrix.elf
+  --summary prints text only
+  [2]

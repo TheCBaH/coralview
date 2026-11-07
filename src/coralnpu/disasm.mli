@@ -11,11 +11,16 @@ type line = {
   text : string;  (** Rivet's spelling, or [.word 0x...] for a word it has no form for, or data. *)
   instruction : Coral_isa.Rivet_decode.instruction option;  (** [None] for [.word]. *)
   symbol : string option;  (** The last label at or before the address in its section. *)
+  func : string option;  (** The last [FUNC] symbol at or before the address in its section. *)
   target : string option;
       (** [<name>] or [<name+0xN>] for the destination of a [jal] or a branch inside an executable section. *)
+  vconfig : string option;  (** From {!with_vconfig}. *)
 }
 
-type item = Label of string | Line of line
+type item =
+  | Label of string
+  | Line of line
+  | Padding of { address : int; words : int }  (** A run of zero words, from {!collapse_padding}. *)
 
 type scope = {
   sections : string list;  (** Executable sections to list; all of them when empty. *)
@@ -40,3 +45,22 @@ val line_jsont : line Jsont.t
 (** [{"address","word","text","mnemonic","class","symbol","target"}]: the last four are omitted when absent. *)
 
 val lines : item list -> line list
+
+val collapse_padding : item list -> item list
+(** Runs of two or more consecutive all-zero words become one {!Padding}. *)
+
+val padding_jsont : (int * int) Jsont.t
+(** [{"padding_words":n,"address":a}] for a {!Padding}; with {!collapse_padding} in the JSONL. *)
+
+val summary : item list -> (string * (string * int) list) list
+(** Instructions per class by function, in listing order; the classes are those of [class] in the JSONL, and
+    [data] for a word with no form. [?] is code outside any [FUNC] symbol. *)
+
+val pp_summary : Format.formatter -> (string * (string * int) list) list -> unit
+(** One line a function: [name: N instructions, class n, …]. *)
+
+val with_vconfig : item list -> item list
+(** Sets [vconfig] on each vector instruction to the configuration the vsetvli or vsetivli words reaching it
+    agree on, like [e32,m4,ta,ma avl 16] ([avl x10] for a register, [max] for [x0], no avl where paths
+    disagree), or [vtype unknown] where none does: no vset before it in the function, a call or a vsetvl in
+    between, or two vtypes meeting. The analysis follows branches and jumps inside the FUNC symbol. *)

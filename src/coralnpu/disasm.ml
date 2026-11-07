@@ -10,10 +10,12 @@ type line = {
   text : string;
   instruction : Rd.instruction option;
   symbol : string option;
+  func : string option;
   target : string option;
+  vconfig : string option;
 }
 
-type item = Label of string | Line of line
+type item = Label of string | Line of line | Padding of { address : int; words : int }
 type scope = { sections : string list; functions : string list; range : (int * int) option }
 
 let everything = { sections = []; functions = []; range = None }
@@ -112,6 +114,16 @@ let name_at labels section v =
   else
     let l = labels.(first i) in
     if l.l_section = section then Some l else None
+
+(* The nearest FUNC symbol at or before [v] in the section. *)
+let func_at labels section v =
+  let rec back i =
+    if i < 0 then None
+    else if labels.(i).l_section <> section then None
+    else if labels.(i).l_func then Some labels.(i).l_name
+    else back (i - 1)
+  in
+  back (floor_index (fun l -> l.l_address) labels v)
 
 (* Every label at an address of a section, in the array's order. *)
 let labels_at labels section address =
@@ -241,7 +253,10 @@ let listing decoder scope data =
                    in
                    let target = if instruction = None then None else target_text address word in
                    let symbol = Option.map (fun l -> l.l_name) (name_at labels s.index address) in
-                   out := Line { address; word; text; instruction; symbol; target } :: !out);
+                   let func = func_at labels s.index address in
+                   out :=
+                     Line { address; word; text; instruction; symbol; func; target; vconfig = None }
+                     :: !out);
                 i := !i + 4
               end
             done;
@@ -250,21 +265,44 @@ let listing decoder scope data =
   let* () = run exec in
   Ok (List.rev !out)
 
-let lines items = List.filter_map (function Line l -> Some l | Label _ -> None) items
+let lines items = List.filter_map (function Line l -> Some l | Label _ | Padding _ -> None) items
+
+let collapse_padding items =
+  let flush run acc =
+    match run with
+    | [] -> acc
+    | [ l ] -> Line l :: acc
+    | last :: _ ->
+        let words = List.length run in
+        Padding { address = last.address - (4 * (words - 1)); words } :: acc
+  in
+  let acc, run =
+    List.fold_left
+      (fun (acc, run) item ->
+        match (item, run) with
+        | Line l, [] when l.word = 0 -> (acc, [ l ])
+        | Line l, prev :: _ when l.word = 0 && l.address = prev.address + 4 -> (acc, l :: run)
+        | _ -> (item :: flush run acc, []))
+      ([], []) items
+  in
+  List.rev (flush run acc)
 
 let pp_text ppf items =
   List.iter
     (function
       | Label n -> Format.fprintf ppf "%s:@\n" n
+      | Padding { address; words } ->
+          Format.fprintf ppf "  %08x  %d zero words (%d bytes)@\n" address words (4 * words)
       | Line l ->
-          Format.fprintf ppf "  %08x  %08x  %s%s@\n" l.address l.word l.text
-            (match l.target with Some t -> "  " ^ t | None -> ""))
+          Format.fprintf ppf "  %08x  %08x  %s%s%s@\n" l.address l.word l.text
+            (match l.target with Some t -> "  " ^ t | None -> "")
+            (match l.vconfig with Some v -> "  # " ^ v | None -> ""))
     items
 
 let line_jsont =
-  Jsont.Object.map ~kind:"disasm" (fun address word text mnemonic cls symbol target ->
+  Jsont.Object.map ~kind:"disasm" (fun address word text mnemonic cls symbol target vconfig ->
       ignore (mnemonic, cls);
-      { address; word; text; instruction = None; symbol; target })
+      { address; word; text; instruction = None; symbol; func = None; target; vconfig })
   |> Jsont.Object.mem "address" Jsont.int ~enc:(fun l -> l.address)
   |> Jsont.Object.mem "word" Jsont.int ~enc:(fun l -> l.word)
   |> Jsont.Object.mem "text" Jsont.string ~enc:(fun l -> l.text)
@@ -279,4 +317,156 @@ let line_jsont =
        "class" Jsont.string
   |> Codec.opt (fun l -> l.symbol) "symbol" Jsont.string
   |> Codec.opt (fun l -> l.target) "target" Jsont.string
+  |> Codec.opt (fun l -> l.vconfig) "vconfig" Jsont.string
   |> Jsont.Object.finish
+
+let padding_jsont =
+  Jsont.Object.map ~kind:"padding" (fun address words -> (address, words))
+  |> Jsont.Object.mem "padding_words" Jsont.int ~enc:snd
+  |> Jsont.Object.mem "address" Jsont.int ~enc:fst
+  |> Jsont.Object.finish
+
+let summary items =
+  let module SM = Map.Make (String) in
+  let order = ref [] and table = ref SM.empty in
+  List.iter
+    (function
+      | Line l ->
+          let f = Option.value l.func ~default:"?" in
+          let cls =
+            match l.instruction with
+            | Some i -> Coral_isa.Iclass.(name (of_instruction i))
+            | None -> "data"
+          in
+          if not (SM.mem f !table) then order := f :: !order;
+          let row = Option.value (SM.find_opt f !table) ~default:SM.empty in
+          let n = Option.value (SM.find_opt cls row) ~default:0 in
+          table := SM.add f (SM.add cls (n + 1) row) !table
+      | Label _ | Padding _ -> ())
+    items;
+  List.rev_map (fun f -> (f, SM.bindings (SM.find f !table))) !order
+
+let pp_summary ppf rows =
+  List.iter
+    (fun (f, classes) ->
+      Format.fprintf ppf "%s: %d instructions" f (List.fold_left (fun n (_, c) -> n + c) 0 classes);
+      List.iter (fun (c, n) -> Format.fprintf ppf ", %s %d" c n) classes;
+      Format.fprintf ppf "@\n")
+    rows
+
+(* The vector configuration in force at each vector instruction: a forward dataflow over each function
+   (the FUNC symbol, or a run of code outside any) from the vsetvli / vsetivli words. A call, or a
+   vsetvl (vtype from a register), leaves it unknown. *)
+type vstate = Unreached | Cfg of string * string | Conflict
+
+let join a b =
+  match (a, b) with
+  | Unreached, x | x, Unreached -> x
+  | Cfg (t, v), Cfg (t', v') when t = t' -> Cfg (t, if v = v' then v else "?")
+  | _ -> Conflict
+
+let vtype_text z =
+  let lmul =
+    match z land 7 with
+    | 0 -> "m1"
+    | 1 -> "m2"
+    | 2 -> "m4"
+    | 3 -> "m8"
+    | 5 -> "mf8"
+    | 6 -> "mf4"
+    | 7 -> "mf2"
+    | _ -> "m?"
+  in
+  Printf.sprintf "e%d,%s,%s,%s"
+    (8 lsl ((z lsr 3) land 7))
+    lmul
+    (if z land 0x40 <> 0 then "ta" else "tu")
+    (if z land 0x80 <> 0 then "ma" else "mu")
+
+(* The state after a vsetvli-family word, from the one before; [None] for other words. *)
+let after_vset word before =
+  if word land 0x7f <> 0x57 || (word lsr 12) land 7 <> 7 then None
+  else
+    let rd = (word lsr 7) land 31 and rs1 = (word lsr 15) land 31 in
+    if word lsr 31 = 0 then
+      let avl =
+        if rs1 <> 0 then Printf.sprintf "x%d" rs1
+        else if rd <> 0 then "max"
+        else match before with Cfg (_, v) -> v | _ -> "?"
+      in
+      Some (Cfg (vtype_text ((word lsr 20) land 0x7ff), avl))
+    else if word lsr 30 = 3 then
+      Some (Cfg (vtype_text ((word lsr 20) land 0x3ff), string_of_int rs1))
+    else Some Conflict
+
+let with_vconfig items =
+  let annotated = Hashtbl.create 256 in
+  let flush group =
+    let a = Array.of_list (List.rev group) in
+    let n = Array.length a in
+    if n > 0 then begin
+      let index = Hashtbl.create n in
+      Array.iteri (fun i l -> Hashtbl.replace index l.address i) a;
+      let state = Array.make n Unreached in
+      let work = Queue.create () in
+      let push i s =
+        let s' = join state.(i) s in
+        if s' <> state.(i) then (
+          state.(i) <- s';
+          Queue.add i work)
+      in
+      push 0 Conflict;
+      while not (Queue.is_empty work) do
+        let i = Queue.pop work in
+        let l = a.(i) in
+        let before = state.(i) in
+        let after = Option.value (after_vset l.word before) ~default:before in
+        let next s = if i + 1 < n then push (i + 1) s in
+        let target () =
+          match branch_target l.address l.word with
+          | Some t -> Option.iter (fun j -> push j after) (Hashtbl.find_opt index t)
+          | None -> ()
+        in
+        let rd = (l.word lsr 7) land 31 in
+        match l.word land 0x7f with
+        | 0x63 ->
+            target ();
+            next after
+        | 0x6f -> if rd = 0 then target () else next Conflict
+        | 0x67 -> if rd <> 0 then next Conflict
+        | _ -> next after
+      done;
+      Array.iteri
+        (fun i l ->
+          let vector =
+            match l.instruction with
+            | Some ins -> (
+                match Coral_isa.Iclass.(name (of_instruction ins)) with
+                | "vector" | "vector-mem" -> true
+                | _ -> false)
+            | None -> false
+          in
+          if vector && after_vset l.word Unreached = None then
+            match state.(i) with
+            | Cfg (t, "?") -> Hashtbl.replace annotated l.address t
+            | Cfg (t, v) -> Hashtbl.replace annotated l.address (t ^ " avl " ^ v)
+            | Conflict -> Hashtbl.replace annotated l.address "vtype unknown"
+            | Unreached -> ())
+        a
+    end
+  in
+  let group = ref [] and current = ref None in
+  List.iter
+    (function
+      | Line l ->
+          if !group <> [] && !current <> l.func then (
+            flush !group;
+            group := []);
+          current := l.func;
+          group := l :: !group
+      | Label _ | Padding _ -> ())
+    items;
+  flush !group;
+  List.map
+    (function Line l -> Line { l with vconfig = Hashtbl.find_opt annotated l.address } | i -> i)
+    items

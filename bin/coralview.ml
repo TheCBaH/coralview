@@ -1225,7 +1225,7 @@ let saved_platform =
     & info [ "platform"; "p" ] ~docv:"P"
         ~doc:"The platform, when the file's is not built in: as for the analyses.")
 
-let disasm features sections functions range format output path =
+let disasm features sections functions range no_padding vconfig summary format output path =
   redirect output;
   let d = decoder features in
   let data =
@@ -1234,12 +1234,20 @@ let disasm features sections functions range format output path =
   match Disasm.listing d { Disasm.sections; functions; range } data with
   | Error e -> fail ~code:2 (path ^ ": " ^ e)
   | Ok items -> (
-      match format with
-      | `Text -> Format.printf "%a@?" Disasm.pp_text items
-      | `Jsonl ->
+      let items = if no_padding then Disasm.collapse_padding items else items in
+      let items = if vconfig then Disasm.with_vconfig items else items in
+      match (summary, format) with
+      | true, `Text -> Format.printf "%a@?" Disasm.pp_summary (Disasm.summary items)
+      | true, `Jsonl -> fail ~code:2 "--summary prints text only"
+      | false, `Text -> Format.printf "%a@?" Disasm.pp_text items
+      | false, `Jsonl ->
           List.iter
-            (fun l -> print_endline (Codec.to_line Disasm.line_jsont l))
-            (Disasm.lines items))
+            (function
+              | Disasm.Line l -> print_endline (Codec.to_line Disasm.line_jsont l)
+              | Padding { address; words } ->
+                  print_endline (Codec.to_line Disasm.padding_jsont (address, words))
+              | Label _ -> ())
+            items)
 
 let range_conv =
   let parse s =
@@ -1291,6 +1299,24 @@ let commands =
             & opt (some range_conv) None
             & info [ "range" ] ~docv:"LO-HI"
                 ~doc:"List only addresses in [LO, HI); hexadecimal with 0x, or decimal.")
+        $ Arg.(
+            value & flag
+            & info [ "no-padding" ]
+                ~doc:
+                  "Print each run of two or more zero words as one line (a $(b,padding_words) \
+                   object in JSONL).")
+        $ Arg.(
+            value & flag
+            & info [ "vconfig" ]
+                ~doc:
+                  "Note each vector instruction's static configuration (SEW, LMUL, AVL) from the \
+                   vsetvli words that reach it, as a trailing comment ($(b,vconfig) in JSONL).")
+        $ Arg.(
+            value & flag
+            & info [ "summary" ]
+                ~doc:
+                  "Print the instruction count by class for each $(b,FUNC) symbol instead of the \
+                   listing.")
         $ Arg.(
             value
             & opt (enum [ ("text", `Text); ("jsonl", `Jsonl) ]) `Text

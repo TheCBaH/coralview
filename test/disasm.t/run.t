@@ -87,3 +87,30 @@ Errors name the file:
   $ coralview disasm rvc.elf
   rvc.elf: the ELF marks compressed instructions (RVC); only 4-byte words are listed
   [2]
+
+`--vconfig` notes each vector instruction's configuration, from the vsetvli words that reach it
+(here the vsetivli at the top of kernel, through the loop's back edge), and says so when none does,
+as in a function that loads vectors before any vsetvli, or after a call:
+
+  $ coralview disasm --vconfig --function kernel img.elf | sed -n 2,10p
+    00000100  00000513  addi x10, x0, 0
+    00000104  cd287057  vsetivli x0, 16, e32, m4, ta, ma
+    00000108  0202e007  vle32.v v0, 0(x5)  # e32,m4,ta,ma avl 16
+    0000010c  02036407  vle32.v v8, 0(x6)  # e32,m4,ta,ma avl 16
+    00000110  02041057  vfadd.vv v0, v0, v8  # e32,m4,ta,ma avl 16
+    00000114  0203e027  vse32.v v0, 0(x7)  # e32,m4,ta,ma avl 16
+    00000118  43e06057  vtzero mt0
+    0000011c  feb512e3  bne x10, x11, -28  <kernel>
+    00000120  010000ef  jal x1, 16  <helper>
+  $ ../../tools/mkelf.exe bare.elf 100 bare=0202e007,00008067 after=cd287057,010000ef,0202e007,00008067
+  $ coralview disasm --vconfig bare.elf
+  bare:
+    00000100  0202e007  vle32.v v0, 0(x5)  # vtype unknown
+    00000104  00008067  jalr x0, 0(x1)
+  after:
+    00000108  cd287057  vsetivli x0, 16, e32, m4, ta, ma
+    0000010c  010000ef  jal x1, 16
+    00000110  0202e007  vle32.v v0, 0(x5)  # vtype unknown
+    00000114  00008067  jalr x0, 0(x1)
+  $ coralview disasm --vconfig --format jsonl --function kernel img.elf | sed -n 3p
+  {"address":264,"word":33742855,"text":"vle32.v v0, 0(x5)","mnemonic":"vle32.v","class":"vector-mem","symbol":"kernel","vconfig":"e32,m4,ta,ma avl 16"}
