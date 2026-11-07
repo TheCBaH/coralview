@@ -9,8 +9,22 @@ type t
 
 val create : Trace.t -> Trace.domain_spec array -> t
 
+type poll =
+  | Tick of Trace.tick
+  | Starved  (** The source has no more events for now; a sample may need later ones. *)
+  | Ended
+
+val poll : t -> poll
+(** Advances to the next sample of any domain, or says why there is none. A sample is final only when
+    the next timestamp or the end of the source has been seen, so a source cut mid-timestamp is
+    [Starved] until it continues: the samples are the same however the events are batched. Polling a
+    [Starved] sampler again after the source has more events resumes where it stopped. Domains sampling
+    at the same timestamp tick in this order: [Before_rising] domains, then the changes are applied,
+    then the [After_*] domains, each group in domain order. *)
+
 val next : t -> Trace.tick option
-(** Advances to the next sample of any domain. Domains sampling at the same timestamp tick in this order:
+(** {!poll} for a source that is never starved: [None] at its end. Raises [Invalid_argument] on
+    [Starved]. Advances to the next sample of any domain. Domains sampling at the same timestamp tick in this order:
     [Before_rising] domains, then the changes are applied, then the [After_*] domains, each group in domain
     order. *)
 

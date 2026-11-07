@@ -12,7 +12,7 @@ type domain = {
   changed : Bitset.t;
 }
 
-type action = Tick of int * Timestamp.t | Apply of (int * Value.t) list
+type action = Action_tick of int * Timestamp.t | Apply of (int * Value.t) list
 type stats = { events : int; changes_seen : int; changes_tracked : int; timestamps : int }
 
 type t = {
@@ -21,7 +21,7 @@ type t = {
   widths : int array;
   logic_cache : Logic.t option array;
   domains : domain array;
-  mutable events : Vcd_ast.event Seq.t;
+  events : unit -> Trace.pull;
   mutable batch : (int * Value.t) list;  (** reversed *)
   mutable batch_time : Timestamp.t;
   mutable queue : action list;
@@ -59,7 +59,7 @@ let create trace specs =
             changed = Bitset.create n;
           })
         specs;
-    events = Trace.events trace;
+    events = Trace.pull trace;
     batch = [];
     batch_time = Timestamp.of_int64 0L;
     queue = [];
@@ -96,27 +96,30 @@ let close_batch t =
     Array.iteri
       (fun d dom ->
         match (dom.spec.rule, edge t batch dom.spec) with
-        | Before_rising, `Rising -> pre := Tick (d, t.batch_time) :: !pre
-        | After_rising, `Rising | After_falling, `Falling -> post := Tick (d, t.batch_time) :: !post
+        | Before_rising, `Rising -> pre := Action_tick (d, t.batch_time) :: !pre
+        | After_rising, `Rising | After_falling, `Falling ->
+            post := Action_tick (d, t.batch_time) :: !post
         | _ -> ())
       t.domains;
     t.queue <- List.rev_append !pre (Apply (List.rev batch) :: List.rev !post)
   end
 
+(* [`More]: the queue may hold samples, or the source ended; [`Starved]: nothing until it has more. *)
 let rec pull t =
   match t.events () with
-  | Seq.Nil ->
+  | Trace.Ended ->
       t.finished <- true;
-      close_batch t
-  | Seq.Cons (ev, rest) -> (
-      t.events <- rest;
+      close_batch t;
+      `More
+  | Starved -> `Starved
+  | Event ev -> (
       t.n_events <- t.n_events + 1;
       match ev with
       | Vcd_ast.Timestamp ts ->
           t.n_timestamps <- t.n_timestamps + 1;
           close_batch t;
           t.batch_time <- ts;
-          if t.queue = [] then pull t
+          if t.queue = [] then pull t else `More
       | Change (id, v) ->
           t.n_seen <- t.n_seen + 1;
           (match Hashtbl.find_opt t.slot_of_id (ID.to_string id) with
@@ -156,21 +159,24 @@ let emit t d time =
   t.current <- d;
   tick
 
-let rec next t =
+type poll = Tick of Trace.tick | Starved | Ended
+
+let rec poll t =
   match t.queue with
-  | Tick (d, time) :: rest ->
+  | Action_tick (d, time) :: rest ->
       t.queue <- rest;
-      Some (emit t d time)
+      Tick (emit t d time)
   | Apply b :: rest ->
       t.queue <- rest;
       apply t b;
-      next t
-  | [] ->
-      if t.finished then None
-      else begin
-        pull t;
-        next t
-      end
+      poll t
+  | [] -> ( if t.finished then Ended else match pull t with `More -> poll t | `Starved -> Starved)
+
+let next t =
+  match poll t with
+  | Tick tick -> Some tick
+  | Ended -> None
+  | Starved -> invalid_arg "Sampler.next: the source is starved; use Sampler.poll"
 
 let value t s = t.values.((s : Trace.slot :> int))
 

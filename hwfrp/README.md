@@ -11,7 +11,8 @@ does the rest:
 - re-evaluates only the parts of the graph whose inputs changed;
 - reports X/Z values as diagnostics.
 
-The waveform is read with [ovcd](https://github.com/TheCBaH/ovcd).
+The waveform is read with [ovcd](https://github.com/TheCBaH/ovcd), or taken from memory
+(see [Trace, slots, sampler](#trace-slots-sampler)).
 
 This document covers:
 
@@ -86,9 +87,16 @@ accepts up to 62, the first `Bind` call would raise
 
 ### Trace, slots, sampler
 
-`Hwfrp_native.open_file` (library `hwfrp.native`) opens a VCD or FST (detected by
-content) and reads its header; `Trace.of_string` and `Trace.of_channel` read VCD text
-in the core library, which depends on neither `unix` nor `ovcd.fst`. A signal becomes *tracked* when a model binds it; each tracked
+Where a trace comes from is a choice of library; the core, `hwfrp`, parses nothing and
+depends on neither `unix` nor `ovcd.fst`:
+
+| Library | Gives |
+| --- | --- |
+| `hwfrp` | `Trace.of_parse` and `Trace.of_pull` (any source), `In_memory` (a catalog and value changes held as values), the sampler and the engine |
+| `hwfrp.vcd` | `Hwfrp_vcd.of_string` and `of_channel`: VCD text and streams |
+| `hwfrp.native` | `Hwfrp_native.open_file`, `open_input`, `open_string`: VCD or FST by content, files and standard input; `wall_clock` for the run statistics |
+
+A signal becomes *tracked* when a model binds it; each tracked
 signal gets a dense integer *slot*. The tracked set is frozen when reading
 starts (`Sampler.create` or `Trace.events`), and only the tracked signals'
 changes are decoded: ovcd skips the others' (`~select:false` reads them
@@ -266,6 +274,16 @@ Rules:
   queues of the others (`Port.pending`), so reading one stream to its end
   buffers all the others. Several consumers of one pass should subscribe
   instead.
+
+A source that is fed while it is read (`In_memory.Live`, or any `Trace.of_pull`) can have no
+event *now* and more later. `Run.step` and `Port.poll` tell the three reasons for not
+going on apart: `Starved` (no input yet), `Paused` (the caller called `Run.pause`; nothing
+is consumed until `Run.resume`) and `Ended` (the source is over). Only after `Ended` do
+the finishers run, and `Run.finish` refuses a run that is starved or paused. A sample is
+final only once the next timestamp or the end is seen, so the occurrences are the same
+however the input is split into pieces and however often the run is paused
+(`hwfrp/test/test_live.ml`). `Port.seq` is for a source that is never starved; it raises
+on `Starved` and `Paused`.
 
 ### Outcomes known later: Track
 

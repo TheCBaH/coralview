@@ -777,6 +777,7 @@ module Sched = struct
     clock : unit -> float;
     t0 : float;
     mutable ended : bool;
+    mutable paused : bool;
     mutable stats : run_stats option;
   }
 
@@ -789,28 +790,38 @@ module Sched = struct
       clock;
       t0 = clock ();
       ended = false;
+      paused = false;
       stats = None;
     }
 
+  type step = Stepped | Paused | Starved | Ended
+
   let step_run r =
-    (not r.ended)
-    &&
-    match Sampler.next r.sampler with
-    | None ->
-        r.ended <- true;
-        false
-    | Some tick ->
-        step r.sched r.sampler tick;
-        r.ticks.(tick.domain) <- r.ticks.(tick.domain) + 1;
-        true
+    if r.ended then Ended
+    else if r.paused then Paused
+    else
+      match Sampler.poll r.sampler with
+      | Sampler.Ended ->
+          r.ended <- true;
+          Ended
+      | Starved -> Starved
+      | Tick tick ->
+          step r.sched r.sampler tick;
+          r.ticks.(tick.domain) <- r.ticks.(tick.domain) + 1;
+          Stepped
 
   let finish_run r =
     match r.stats with
     | Some s -> s
     | None ->
-        while step_run r do
-          ()
-        done;
+        let rec drain () =
+          match step_run r with
+          | Stepped -> drain ()
+          | Ended -> ()
+          | Paused -> invalid_arg "Run.finish: the run is paused"
+          | Starved -> invalid_arg "Run.finish: the source has not ended"
+        in
+        drain ();
         finish r.sched;
         let per_node =
           Array.to_list
@@ -856,14 +867,19 @@ end
 
 module Run = struct
   type t = Sched.running
+  type step = Sched.step = Stepped | Paused | Starved | Ended
 
   let start = Sched.start
   let step = Sched.step_run
   let finish = Sched.finish_run
+  let pause (r : t) = r.paused <- true
+  let resume (r : t) = r.paused <- false
+  let paused (r : t) = r.paused
 end
 
 module Port = struct
   type 'a t = { queue : 'a Queue.t; mutable read : bool }
+  type 'a poll = Item of 'a | Paused | Starved | Ended
 
   let create e =
     let p = { queue = Queue.create (); read = false } in
@@ -872,16 +888,27 @@ module Port = struct
 
   let pending p = Queue.length p.queue
 
+  let rec poll run p =
+    match Queue.take_opt p.queue with
+    | Some x -> Item x
+    | None -> (
+        match Run.step run with
+        | Run.Stepped -> poll run p
+        | Run.Paused -> Paused
+        | Run.Starved -> Starved
+        | Run.Ended -> (
+            ignore (Run.finish run);
+            match Queue.take_opt p.queue with Some x -> Item x | None -> Ended))
+
   let seq run p =
     if p.read then invalid_arg "Port.seq: the port is already read";
     p.read <- true;
-    let rec next () =
-      match Queue.take_opt p.queue with
-      | Some _ as x -> x
-      | None when Run.step run -> next ()
-      | None ->
-          ignore (Run.finish run);
-          Queue.take_opt p.queue
+    let next () =
+      match poll run p with
+      | Item x -> Some x
+      | Ended -> None
+      | Paused -> invalid_arg "Port.seq: the run is paused; use Port.poll"
+      | Starved -> invalid_arg "Port.seq: the source is starved; use Port.poll"
     in
     let s = Seq.of_dispenser next and started = ref false in
     fun () ->

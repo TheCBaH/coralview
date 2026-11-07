@@ -239,34 +239,57 @@ end
 
 module Run : sig
   (** A run of a compiled net that the caller advances. {!Sched.run} is {!start}, {!step} until it
-      returns [false], then {!finish}. *)
+      returns [Ended], then {!finish}. *)
 
   type t
 
   val start : ?clock:(unit -> float) -> Sched.t -> Sampler.t -> t
   (** [clock] reads the time for [wall_s] of the statistics (seconds); the library has none of its own. *)
 
-  val step : t -> bool
-  (** Evaluates the next sample; [false] once the sampler has none left. *)
+  type step =
+    | Stepped  (** One sample was evaluated. *)
+    | Paused  (** The caller paused the run and it has not ended: no input was consumed. *)
+    | Starved  (** The source has no more input for now, and may have later. *)
+    | Ended  (** The source is over; only {!finish} remains. *)
+
+  val step : t -> step
+  (** Evaluates the next sample. A paused run does nothing and a starved one stays as it is, so
+      the same events result however the input arrives and however often the run is paused. *)
+
+  val pause : t -> unit
+  val resume : t -> unit
+  val paused : t -> bool
 
   val finish : t -> Sched.run_stats
   (** Evaluates the remaining samples, then runs the finishers and delivers the events they fire. Later
-      calls return the same statistics. *)
+      calls return the same statistics. Raises [Invalid_argument] while the run is paused or the source
+      has not ended. *)
 end
 
 module Port : sig
-  (** An event read as a sequence: pulling from it advances the run. *)
+  (** An event read from a run: asking for it advances the run. *)
 
   type 'a t
 
   val create : ('a, 'c) Ev.t -> 'a t
   (** Before {!Sched.compile}. The port queues every occurrence from then on. *)
 
+  type 'a poll =
+    | Item of 'a
+    | Paused  (** The run is paused. *)
+    | Starved  (** Nothing more until the source has more input. *)
+    | Ended  (** The run is over and every occurrence has been read. *)
+
+  val poll : Run.t -> 'a t -> 'a poll
+  (** The next occurrence in sample order, and in a sample in emission order, the same as a subscriber
+      sees; those that finishers fire come last, after the source has ended. When the queue is empty it
+      steps the run until it is not or the run cannot go on; a paused run still delivers what is queued
+      and is [Paused] once the queue is empty. Several ports of a run share its samples, so
+      reading one fills the queues of the others. *)
+
   val seq : Run.t -> 'a t -> 'a Seq.t
-  (** The occurrences in sample order, and in a sample in emission order, the same as a subscriber sees;
-      those that finishers fire come last. When the queue is empty it steps the run until it is not or
-      the run has finished. Several ports of a run share its samples, so reading one fills the queues of
-      the others.
+  (** {!poll} as a sequence that ends at [Ended], for a run that is neither paused nor starved: those
+      raise [Invalid_argument].
 
       The sequence is ephemeral: traversing it a second time raises [Invalid_argument], and so does a
       second call for the same port. *)

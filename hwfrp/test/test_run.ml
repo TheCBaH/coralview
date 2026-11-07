@@ -64,14 +64,14 @@ let%expect_test "Run steps a sample at a time" =
       Ev.subscribe (every e) (fun _ -> incr n);
       let r = Run.start (Result.get_ok (Sched.compile e.net)) (sampler e) in
       let steps = ref 0 in
-      while Run.step r do
+      while Run.step r = Run.Stepped do
         incr steps;
         if !steps <> !n then print_endline "subscriber behind"
       done;
       let st = Run.finish r in
       let st' = Run.finish r in
       Printf.printf "steps %d ticks %d same %b step-after %b\n" !steps st.ticks.(0) (st == st')
-        (Run.step r);
+        (Run.step r <> Run.Ended);
       [%expect {| steps 6 ticks 6 same true step-after false |}]
 
 let%expect_test "Port pulls what a subscriber sees, finisher events last" =

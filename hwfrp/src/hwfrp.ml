@@ -7,6 +7,7 @@ module Logic = Logic
 module Bitset = Bitset
 module Trace = Trace
 module Sampler = Sampler
+module In_memory = In_memory
 module Net = Frp.Net
 module Clock = Frp.Clock
 module Sig = Frp.Sig

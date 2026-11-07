@@ -235,7 +235,7 @@ let build (w, ops) =
 let run_all ~stepped sched sampler =
   if stepped then begin
     let r = Run.start sched sampler in
-    while Run.step r do
+    while Run.step r = Run.Stepped do
       ()
     done;
     Run.finish r

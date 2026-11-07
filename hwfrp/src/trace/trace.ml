@@ -16,6 +16,7 @@ type signal = {
 }
 
 type format = [ `Vcd | `Fst ]
+type pull = Event of Vcd_ast.event | Starved | Ended
 
 type t = {
   format : format;
@@ -26,16 +27,13 @@ type t = {
   mutable tracked : signal list;
   mutable count : int;
   mutable frozen : bool;
-  mutable events : Vcd_ast.event Seq.t option;
+  mutable events : (unit -> pull) option;
 }
 
 (* The parse reads only the tracked signals' changes: ovcd asks [select] on the first pull, after
    [events] has frozen the tracked set. *)
-let of_parse ?(select = true) ~format parse =
+let of_header ~format header events =
   let by_id = Hashtbl.create 256 in
-  let { Vcd.header; simulation } =
-    parse (if select then Some (fun id -> Hashtbl.mem by_id (ID.to_string id)) else None)
-  in
   let var_types = Hashtbl.create 1024 in
   let rec walk (s : Vcd_ast.scope_node) =
     List.iter
@@ -43,19 +41,46 @@ let of_parse ?(select = true) ~format parse =
       s.vars;
     List.iter walk s.children
   in
-  List.iter walk header.scopes;
-  {
-    format;
-    header;
-    resolver = Vcd.Resolver.make header;
-    var_types;
-    by_id;
-    tracked = [];
-    count = 0;
-    frozen = false;
-    events = Some simulation;
-  }
+  List.iter walk header.Vcd_ast.scopes;
+  ( {
+      format;
+      header;
+      resolver = Vcd.Resolver.make header;
+      var_types;
+      by_id;
+      tracked = [];
+      count = 0;
+      frozen = false;
+      events = Some events;
+    },
+    by_id )
 
+let pull_of_seq seq =
+  let rest = ref seq in
+  fun () ->
+    match !rest () with
+    | Seq.Nil -> Ended
+    | Seq.Cons (e, r) ->
+        rest := r;
+        Event e
+
+(* The parse reads only the tracked signals' changes: ovcd asks [select] on the first pull, after
+   [events] has frozen the tracked set. *)
+let of_parse ?(select = true) ~format parse =
+  let by_id_ref = ref None in
+  let { Vcd.header; simulation } =
+    parse
+      (if select then
+         Some
+           (fun id ->
+             match !by_id_ref with Some h -> Hashtbl.mem h (ID.to_string id) | None -> false)
+       else None)
+  in
+  let t, by_id = of_header ~format header (pull_of_seq simulation) in
+  by_id_ref := Some by_id;
+  t
+
+let of_pull ~format header pull = fst (of_header ~format header pull)
 let format t = t.format
 let header t = t.header
 let resolver t = t.resolver
@@ -92,13 +117,21 @@ let track_path t path = Option.map (track t) (lookup t (Reference.of_string path
 let tracked t = Array.of_list (List.rev t.tracked)
 let freeze t = t.frozen <- true
 
-let events t =
+let pull t =
   t.frozen <- true;
   match t.events with
   | Some e ->
       t.events <- None;
       e
   | None -> invalid_arg "Trace.events: already consumed"
+
+let events t =
+  let next = pull t in
+  Seq.of_dispenser (fun () ->
+      match next () with
+      | Event e -> Some e
+      | Ended -> None
+      | Starved -> invalid_arg "Trace.events: the source is starved; use Trace.pull")
 
 let events_pulled t = Option.is_none t.events
 

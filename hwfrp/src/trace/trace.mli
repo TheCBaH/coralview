@@ -22,6 +22,14 @@ type format = [ `Vcd | `Fst ]
 (** What the events were read from. Informational: the core parses nothing; see the [hwfrp.vcd] and
     [hwfrp.native] libraries. *)
 
+type pull =
+  | Event of Vcd_ast.event
+  | Starved  (** No event now; more may come. *)
+  | Ended  (** No event ever again. *)
+
+val of_pull : format:format -> Vcd_ast.header -> (unit -> pull) -> t
+(** A trace whose events a producer hands over one at a time, and may not have yet. *)
+
 val of_parse :
   ?select:bool -> format:format -> ((Vcd_types.ID.t -> bool) option -> Vcd.parse_result) -> t
 (** A trace from a parser that takes ovcd's [select] predicate: the adapter for any other source.
@@ -46,7 +54,11 @@ val freeze : t -> unit
 
 val events : t -> Vcd_ast.event Seq.t
 (** The raw value changes, of the tracked signals only unless opened with [~select:false]. Freezes
-    the trace. Raises [Invalid_argument] when called twice. *)
+    the trace. Raises [Invalid_argument] when called twice, and when the sequence is traversed to
+    a {!Starved} source. *)
+
+val pull : t -> unit -> pull
+(** {!events} as a function, which tells a source that has no event yet from one that has ended. *)
 
 val events_pulled : t -> bool
 (** Whether {!events} has been called: the trace is no longer a declaration-only binding environment. *)
