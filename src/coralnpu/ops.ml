@@ -13,6 +13,7 @@ type op = {
   mnemonic : string option;
   sew : int;
   lmul : string;
+  lmul_orig : string option;
   vl : int;
   vstart : int;
   tile : (int * int) option;
@@ -48,14 +49,30 @@ module Event = struct
     Codec.case "ops.op"
       (fun o -> Op o)
       (Jsont.Object.map
-         (fun cycle pc unit mnemonic sew lmul vl vstart tile kind float elements ops ->
-           { cycle; pc; unit; mnemonic; sew; lmul; vl; vstart; tile; kind; float; elements; ops })
+         (fun cycle pc unit mnemonic sew lmul lmul_orig vl vstart tile kind float elements ops ->
+           {
+             cycle;
+             pc;
+             unit;
+             mnemonic;
+             sew;
+             lmul;
+             lmul_orig;
+             vl;
+             vstart;
+             tile;
+             kind;
+             float;
+             elements;
+             ops;
+           })
       |> Jsont.Object.mem "cycle" Jsont.int ~enc:(fun (o : op) -> o.cycle)
       |> Codec.opt (fun (o : op) -> o.pc) "pc" Jsont.int
       |> Jsont.Object.mem "unit" Jsont.string ~enc:(fun (o : op) -> o.unit)
       |> Codec.opt (fun (o : op) -> o.mnemonic) "mnemonic" Jsont.string
       |> Jsont.Object.mem "sew" Jsont.int ~enc:(fun (o : op) -> o.sew)
       |> Jsont.Object.mem "lmul" Jsont.string ~enc:(fun (o : op) -> o.lmul)
+      |> Codec.opt (fun (o : op) -> o.lmul_orig) "lmul_orig" Jsont.string
       |> Jsont.Object.mem "vl" Jsont.int ~enc:(fun (o : op) -> o.vl)
       |> Jsont.Object.mem "vstart" Jsont.int ~enc:(fun (o : op) -> o.vstart)
       |> Codec.opt
@@ -322,6 +339,9 @@ let build (cfg : Config.t) (c : _ Core.t) =
       mnemonic = None;
       sew = 8 lsl field e "csr_sew";
       lmul = lmul_name (field e "csr_lmul");
+      lmul_orig =
+        (if List.mem_assoc "csr_lmul_orig" fields then Some (lmul_name (field e "csr_lmul_orig"))
+         else None);
       vl;
       vstart;
       tile =

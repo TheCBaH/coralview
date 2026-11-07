@@ -227,6 +227,13 @@ ISA `extensions`, `system`, `xcoralsys`, and `xcoralzvt` when it has tile regist
 decodes under no listed feature stays a `.word`; one that a feature the configuration lacks would
 decode is an error naming that feature (exit 3). `--features` overrides either.
 
+**Vector configuration.** `--vector` (RVV platforms, text, a file) appends `# e32,m4 vl 16` to each
+vector row: the SEW, the program's LMUL and the `vl` the RVV backend ran the instruction under, from the
+`ops` model's first uop of that instance. With `--elf`, the configuration `disasm --vconfig` finds for
+the PC follows when it differs: `# e32,mf4 vl 1 (static e32,m4)`. On the `rvv_matmul_fp32.elf` run of
+the Coral NPU release (4707 vector instructions) the two agree on all of them. The backend runs a short
+`vl` under a smaller LMUL; the note shows the LMUL of the `vtype` (`csr_lmul_orig`), not that one.
+
 A header line names the columns; `--legend` prints this list before the
 rows. In the JSONL the cycle of the writeback is `writeback`, and the two
 differences are written beside the absolute `instance.dispatched` and

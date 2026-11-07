@@ -375,7 +375,8 @@ let text (ctx : Text.ctx) events (s : Summary.t) =
           | None -> if c.store then "store" else "")
           (delta c.dispatched (Some c.retired))
           (delta c.dispatched c.written) c.charged
-          (if c.trap then "  TRAP" else "")
+          ((if c.trap then "  TRAP" else "")
+          ^ match ctx.note ~pc:c.pc ~cycle:c.retired with Some n -> "  # " ^ n | None -> "")
       end)
     commits;
   Printf.printf

@@ -34,6 +34,9 @@ type ctx = {
   limit : int;  (** Rows at most. *)
   profile : int;  (** Profile rows; 0 for none. *)
   legend : bool;  (** Explain the columns of a row listing. *)
+  note : pc:int -> cycle:int -> string option;
+      (** A note to append to the row of the instruction at [pc] retired in [cycle], like the vector
+          configuration of [commits --vector]. *)
 }
 
 val stats : Hwfrp.Reduce.Stats.t -> string

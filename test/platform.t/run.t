@@ -328,3 +328,16 @@ The second instruction of this trace is changed to a mul:
   [3]
   $ coralview commits --platform test-core.json --manifest isa-i.json --features +m mul.vcd | sed -n 4p
          5 0 80000004 02a50533 mul x10, x10, x10                                   3   -   1
+
+`--vector` joins the RVV backend's configuration to the rows, so it needs a platform with the
+`v_dispatch` block, a file, and the text listing:
+
+  $ coralview commits --platform test-core.json --vector core.vcd
+  platform test-core describes no v_dispatch block
+  [2]
+  $ coralview commits --platform test-core.json --vector - < core.vcd
+  --vector reads the trace twice: name a file, not -
+  [2]
+  $ coralview commits --platform test-core.json --vector --format jsonl core.vcd
+  --vector is for the text listing
+  [2]

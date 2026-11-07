@@ -21,7 +21,9 @@ type op = {
   unit : string;
   mnemonic : string option;  (** Rivet's, from the word the scalar core dispatched at [pc]. *)
   sew : int;  (** Bits. *)
-  lmul : string;
+  lmul : string;  (** As the backend runs it (see [lmul_orig]). *)
+  lmul_orig : string option;
+      (** The LMUL of the program's [vtype], when the layout has [csr_lmul_orig]: the backend may run a short [vl] under a smaller one. *)
   vl : int;
   vstart : int;
   tile : (int * int) option;  (** [tm] and [tk], when the layout has them (Zvt). *)

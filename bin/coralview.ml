@@ -156,6 +156,7 @@ let between_pc : (marker * int) option ref = ref None
 
 (* [--elf FILE]: the functions of the program, to name PCs and to find a function. *)
 let elf_symbols : Symbols.t option ref = ref None
+let elf_path : string option ref = ref None
 
 (* The simulator is only what the trace's own header says; nothing is assumed. *)
 let simulator = ref None
@@ -291,7 +292,7 @@ let profile_by = ref Text.Pc
 let manifest_file : string option ref = ref None
 
 let ctx (p : Platform.t) ?(features = None) ?(region = Region.none) ?(window = Text.everything)
-    ?(limit = max_int) ?(profile = 0) ?(legend = false) () =
+    ?(limit = max_int) ?(profile = 0) ?(legend = false) ?(note = fun ~pc:_ ~cycle:_ -> None) () =
   if !profile_by = Text.Function && !elf_symbols = None then
     fail ~code:2 "--profile-by function needs --elf";
   (* Without --features, the manifest's configuration of the platform says which instructions exist. *)
@@ -345,6 +346,7 @@ let ctx (p : Platform.t) ?(features = None) ?(region = Region.none) ?(window = T
     limit;
     profile;
     legend;
+    note;
   }
 
 let signals platform ~raw ~format ~changes ~cycles:(from_cycle, to_cycle)
@@ -721,7 +723,9 @@ let pc_of s =
 let elf =
   let load file =
     match Symbols.load file with
-    | Ok t -> elf_symbols := Some t
+    | Ok t ->
+        elf_symbols := Some t;
+        elf_path := Some file
     | Error e -> fail ~code:2 ("--elf: " ^ e)
   in
   Term.(
@@ -1327,6 +1331,45 @@ let beats =
   Arg.(
     value & opt int 0 & info [ "beats" ] ~docv:"N" ~doc:"Print the first $(docv) beats of each job.")
 
+(* [commits --vector]: the vsetvli configuration each vector instruction ran under, from [ops], with the
+   static one of [disasm --vconfig] when there is an --elf. *)
+let vector_note p path =
+  if path = "-" then fail ~code:2 "--vector reads the trace twice: name a file, not -";
+  let commits =
+    let pulled = guard p (fun () -> Analysis.pull (module Commits) () p (open_trace path)) in
+    List.of_seq
+      (Seq.filter_map
+         (function Commits.Event.Commit c -> Some c | In_flight _ -> None)
+         pulled.events)
+  in
+  let ops =
+    let pulled =
+      guard p (fun () -> Analysis.pull (module Ops) Ops.Config.default p (open_trace path))
+    in
+    List.of_seq
+      (Seq.filter_map (function Ops.Event.Op o -> Some o | Burst _ -> None) pulled.events)
+  in
+  let static =
+    match !elf_path with
+    | None -> fun _ -> None
+    | Some file -> (
+        let data =
+          try In_channel.with_open_bin file In_channel.input_all
+          with Sys_error e -> fail ~code:2 e
+        in
+        match Disasm.listing (decoder None) Disasm.everything data with
+        | Error _ -> fun _ -> None
+        | Ok items ->
+            let t = Hashtbl.create 256 in
+            List.iter
+              (function
+                | Disasm.Line { address; vconfig = Some v; _ } -> Hashtbl.replace t address v
+                | _ -> ())
+              (Disasm.with_vconfig items);
+            Hashtbl.find_opt t)
+  in
+  Vector_notes.notes ~static commits ops
+
 let commands =
   [
     cmd "probe" "Count the signals, timestamps and changes of a trace." Term.(const probe $ file);
@@ -1475,14 +1518,24 @@ let commands =
             & info [] ~docv:"PATH" ~doc:"An absolute signal path, components separated by $(b,/)."));
     model "commits" "Retired instructions with values and per-instruction cycles."
       Term.(
-        const (fun features _manifest window limit profile legend format output p path ->
+        const (fun features _manifest window limit profile legend vector format output p path ->
             redirect output;
+            if vector && format = `Jsonl then fail ~code:2 "--vector is for the text listing";
+            let note = if vector then Some (vector_note p path) else None in
             analyze
               (module Commits)
               () p ~format
-              ~ctx:(ctx p ~features ~window ~limit ~profile ~legend ())
+              ~ctx:(ctx p ~features ~window ~limit ~profile ~legend ?note ())
               Commits.text path)
-        $ features $ manifest $ window $ limit $ profile $ legend $ format $ output);
+        $ features $ manifest $ window $ limit $ profile $ legend
+        $ Arg.(
+            value & flag
+            & info [ "vector" ]
+                ~doc:
+                  "Append to each vector instruction's row the SEW, LMUL and $(b,vl) the RVV \
+                   backend ran it under (the $(b,ops) model), and the $(b,disasm --vconfig) one \
+                   with $(b,--elf) where they differ. Text only; the trace must be a file.")
+        $ format $ output);
     model "stalls" Stalls.doc
       Term.(
         const (fun window profile format output p path ->

@@ -78,7 +78,8 @@ defined`: `make deps` removes it.
   and `--format text|jsonl`. A word Rivet has no form for prints as `.word`; an ELF that
   marks compressed instructions is refused. `--no-padding` prints each run of zero words
   once; `--summary` counts instructions by class per function; `--vconfig` notes each vector
-  instruction's SEW, LMUL and AVL from the `vsetvli` words that reach it (`vtype unknown` where none does).
+  instruction's SEW, LMUL and AVL from the `vsetvli` words that reach it (`vtype unknown` where none does). `commits --vector` adds the SEW, LMUL and `vl` the RVV backend ran
+  each vector instruction under, and flags a difference from the static one.
 * Models: `commits`, `stalls`, `memory`, `axi`, `dma`, `tiles`, `ops`,
   `registers`, `vectors`, `traps`, each with `--format text|jsonl`.
 * Loops: `loops` finds loops from backward branches and prints trips, instructions and cycles a trip
