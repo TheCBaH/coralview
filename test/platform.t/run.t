@@ -283,5 +283,48 @@ and an unknown or ambiguous name is refused:
   --around-symbol needs --elf
   [2]
   $ coralview commits --platform test-core.json --elf core.elf --around-symbol first --between-pc 80000000,80000004 core.vcd
-  --between-pc and --around-symbol are alternatives
+  --between-pc, --around-symbol and --entry are alternatives
   [2]
+
+`--entry` starts the window at a function's entry and runs to the end of the trace, so a startup before the
+kernel is not in the rows or the totals:
+
+  $ coralview commits --platform test-core.json --elf core.elf --entry second core.vcd
+  platform test-core
+     cycle L pc       word     instruction                      dest             d>r d>w chg
+         5 0 80000004 <second> 00000013 addi x0, x0, 0                                      3   -   1
+  root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
+  window [5, end]: 1 commits, 1 cycles charged
+  $ coralview commits --platform test-core.json --elf core.elf --entry nope core.vcd
+  --entry: no function nope in the ELF
+  [2]
+  $ coralview commits --platform test-core.json --entry first core.vcd
+  --entry needs --elf
+  [2]
+  $ coralview commits --platform test-core.json --elf core.elf --entry first --around-symbol second core.vcd
+  --between-pc, --around-symbol and --entry are alternatives
+  [2]
+
+With a manifest and no --features, the instruction set is the platform's configuration: its ISA
+extensions, `system` and `xcoralsys`, and `xcoralzvt` when it has tile registers. A word that needs
+a feature the configuration does not list is an error that names the features, not a `.word`.
+The second instruction of this trace is changed to a mul:
+
+  $ sed 's/^b10011 \$$/b10101001010000010100110011 $/' core.vcd > mul.vcd
+  $ cat > isa-m.json <<'JSON'
+  > { "schema_version": "1.0", "configurations": [
+  >   { "name": "test-core", "simulation": { "top_level": "Core" },
+  >     "isa": { "extensions": ["i", "m"] }, "memory_regions": [] } ] }
+  > JSON
+  $ sed 's/"i", "m"/"i"/' isa-m.json > isa-i.json
+  $ coralview commits --platform test-core.json --manifest isa-m.json --limit 2 mul.vcd | sed -n 3,4p
+         4 0 80000000 02a00513 addi x10, x0, 42                 x10=0000002a       3   2   4
+         5 0 80000004 02a50533 mul x10, x10, x10                                   3   -   1
+  $ coralview commits --platform test-core.json --manifest isa-i.json mul.vcd
+  platform test-core
+     cycle L pc       word     instruction                      dest             d>r d>w chg
+         4 0 80000000 02a00513 addi x10, x0, 42                 x10=0000002a       3   2   4
+  word 02a50533 needs m or zmmul, which configuration test-core of the manifest does not list (extensions: i); name them with --features to override
+  [3]
+  $ coralview commits --platform test-core.json --manifest isa-i.json --features +m mul.vcd | sed -n 4p
+         5 0 80000004 02a50533 mul x10, x10, x10                                   3   -   1

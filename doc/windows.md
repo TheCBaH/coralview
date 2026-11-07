@@ -69,3 +69,6 @@ Both only produce the `first`/`last` pair; the rules above apply unchanged.
   recursive function ends at its innermost return.
   Tracking depth over `jal`/`jalr` links is the refinement if the simple rule
   proves too coarse.
+- `--entry NAME --elf FILE [--nth N]`: from the Nth retirement of the symbol's
+  address to the end of the trace, so a startup before the kernel is not in
+  the rows or the totals. The three markers are alternatives.

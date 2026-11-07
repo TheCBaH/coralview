@@ -221,6 +221,12 @@ The columns are:
 8. `d>w`: dispatch→writeback cycles (JSONL `dispatch_to_writeback`);
 9. `chg`: cycles charged (JSONL `charged`).
 
+**Instruction set.** Without `--features`, Rivet's default set plus `xcoralzvt` and `xcoralsys` decodes
+the words. With `--manifest hardware-configurations.json` the platform's configuration decides: its
+ISA `extensions`, `system`, `xcoralsys`, and `xcoralzvt` when it has tile registers. A word that
+decodes under no listed feature stays a `.word`; one that a feature the configuration lacks would
+decode is an error naming that feature (exit 3). `--features` overrides either.
+
 A header line names the columns; `--legend` prints this list before the
 rows. In the JSONL the cycle of the writeback is `writeback`, and the two
 differences are written beside the absolute `instance.dispatched` and
@@ -970,6 +976,11 @@ instruction costs and where its data was. Everything below takes a window
    --elf prog.elf` (entry to the first `ret`), or `--between-pc A,B` with the
    PCs of the two `csrr … mcycle` reads around the call, read off a
    `commits` listing.
+   A trace that starts with a runtime's setup (an input copy before the kernel) swamps `cost`
+   over the whole run; the window options leave it out. `coralview cost --manifest
+   hardware-configurations.json --elf prog.elf --around-symbol NAME trace.fst` counts only the
+   memory accesses and instruction classes of the call, and `--entry NAME` does the same from a
+   function's entry to the end of the trace when the function never returns.
 2. `coralview commits --elf prog.elf --around-symbol NAME --limit 0 --profile 20
    --profile-by function` gives the cost per function inside the window;
    `--profile-by class` per instruction class; the line starting `window`

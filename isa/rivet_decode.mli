@@ -30,3 +30,12 @@ val instruction : t -> int -> (instruction, string) result
 val assemble : t -> string -> (string, string) result
 (** The little-endian bytes of the assembly text, assembled at address 0 under the features, or
     Rivet's diagnostic. The text is a whole source: one instruction per line. *)
+
+val needs : t -> int -> string list
+(** For a word the features do not decode: the Rivet features that each make it decode when added to
+    them; empty when the word decodes, or when no feature does. *)
+
+val spec_of_extensions : extensions:string list -> matrix:bool -> string
+(** The feature spec of a platform: [none], the manifest's ISA extensions (the base [i] is not a
+    Rivet feature), [system] and [xcoralsys] for Coral's privileged and pause instructions, and
+    [xcoralzvt] when the platform has tile registers. *)

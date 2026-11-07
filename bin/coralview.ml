@@ -150,7 +150,7 @@ let jsonl_window (w : Text.window) =
 
 (* [--between-pc A,B --nth N]: the window from the Nth retirement of PC A to the next retirement of PC B,
    found by a first pass over the trace with [commits]. *)
-type marker = Between of int * int | Around of string
+type marker = Between of int * int | Around of string | Entry of string
 
 let between_pc : (marker * int) option ref = ref None
 
@@ -181,7 +181,12 @@ let resolve_between (p : Platform.t) path (ctx : Text.ctx) =
   match !between_pc with
   | None -> ctx
   | Some (marker, nth) ->
-      let flag = match marker with Between _ -> "--between-pc" | Around _ -> "--around-symbol" in
+      let flag =
+        match marker with
+        | Between _ -> "--between-pc"
+        | Around _ -> "--around-symbol"
+        | Entry _ -> "--entry"
+      in
       if path = "-" then fail ~code:2 (flag ^ " reads the trace twice: name a file, not - or --exec");
       (* The first retirement of the start, the Nth time, and the first end after it. *)
       let is_start, is_end, start_name, end_name =
@@ -191,17 +196,17 @@ let resolve_between (p : Platform.t) path (ctx : Text.ctx) =
               (fun (c : Commits.commit) -> c.pc = b),
               Printf.sprintf "pc %08x" a,
               Printf.sprintf "pc %08x" b )
-        | Around name -> (
+        | Around name | Entry name -> (
             match !elf_symbols with
-            | None -> fail ~code:2 "--around-symbol needs --elf"
+            | None -> fail ~code:2 (flag ^ " needs --elf")
             | Some t -> (
                 match Symbols.find t name with
-                | [] ->
-                    fail ~code:2 (Printf.sprintf "--around-symbol: no function %s in the ELF" name)
+                | [] -> fail ~code:2 (Printf.sprintf "%s: no function %s in the ELF" flag name)
                 | _ :: _ :: _ ->
                     fail ~code:2
-                      (Printf.sprintf
-                         "--around-symbol: %s names several functions; use --between-pc" name)
+                      (Printf.sprintf "%s: %s names several functions; use --between-pc" flag name)
+                | [ f ] when match marker with Entry _ -> true | _ -> false ->
+                    ((fun c -> c.pc = f.address), (fun _ -> false), name, "")
                 | [ f ] ->
                     (* ret is jalr x0, 0(ra). *)
                     ( (fun c -> c.pc = f.address),
@@ -221,7 +226,10 @@ let resolve_between (p : Platform.t) path (ctx : Text.ctx) =
                  | None ->
                      if is_start c then begin
                        incr seen;
-                       if !seen = nth then first := Some c.retired
+                       if !seen = nth then begin
+                         first := Some c.retired;
+                         if match marker with Entry _ -> true | _ -> false then raise Exit
+                       end
                      end
                  | Some f ->
                      if is_end c && c.retired >= f then begin
@@ -238,9 +246,10 @@ let resolve_between (p : Platform.t) path (ctx : Text.ctx) =
             fail ~code:3 (Printf.sprintf "%s: %s retires fewer than %d times" flag start_name nth)
       in
       let last =
-        match !last with
-        | Some c -> c
-        | None ->
+        match (!last, marker) with
+        | Some c, _ -> c
+        | None, Entry _ -> max_int
+        | None, _ ->
             fail ~code:3 (Printf.sprintf "%s: %s never retires from cycle %d" flag end_name first)
       in
       {
@@ -278,13 +287,46 @@ let analyze (type k e s)
 
 let profile_by = ref Text.Pc
 
-let ctx p ?(features = None) ?(region = Region.none) ?(window = Text.everything) ?(limit = max_int)
-    ?(profile = 0) ?(legend = false) () =
+(* [--manifest FILE], read by [ctx] for the platform's instruction set. *)
+let manifest_file : string option ref = ref None
+
+let ctx (p : Platform.t) ?(features = None) ?(region = Region.none) ?(window = Text.everything)
+    ?(limit = max_int) ?(profile = 0) ?(legend = false) () =
   if !profile_by = Text.Function && !elf_symbols = None then
     fail ~code:2 "--profile-by function needs --elf";
+  (* Without --features, the manifest's configuration of the platform says which instructions exist. *)
+  let features, configuration =
+    match (features, !manifest_file) with
+    | Some _, _ | None, None -> (features, None)
+    | None, Some file -> (
+        let m = match Manifest.load file with Ok m -> m | Error e -> fail ~code:2 e in
+        match Manifest.find m p.name with
+        | None -> (None, None)
+        | Some c ->
+            ( Some
+                (Coral_isa.Rivet_decode.spec_of_extensions ~extensions:c.extensions
+                   ~matrix:(c.tile_registers <> None)),
+              Some c ))
+  in
+  let disasm =
+    let d = decoder features in
+    fun word ->
+      let s = Coral_isa.Rivet_decode.disasm d word in
+      match configuration with
+      | Some c when String.starts_with ~prefix:".word" s -> (
+          match Coral_isa.Rivet_decode.needs d word with
+          | [] -> s
+          | fs ->
+              fail ~code:3
+                (Printf.sprintf
+                   "word %08x needs %s, which configuration %s of the manifest does not list \
+                    (extensions: %s); name them with --features to override"
+                   word (String.concat " or " fs) c.name (String.concat ", " c.extensions)))
+      | _ -> s
+  in
   {
     Text.root = Vcd_types.Reference.to_string (Platform.root p);
-    disasm = Coral_isa.Rivet_decode.disasm (decoder features);
+    disasm;
     instruction_class =
       (let d = decoder features in
        fun word ->
@@ -693,13 +735,14 @@ let elf =
                $(b,--profile-by function) groups by function."))
 
 let window =
-  let make first last pcs between around nth =
+  let make first last pcs between around entry nth =
     (between_pc :=
-       match (between, around) with
-       | Some _, Some _ -> fail ~code:2 "--between-pc and --around-symbol are alternatives"
-       | Some (a, b), None -> Some (Between (a, b), nth)
-       | None, Some name -> Some (Around name, nth)
-       | None, None -> None);
+       match (between, around, entry) with
+       | None, None, None -> None
+       | Some (a, b), None, None -> Some (Between (a, b), nth)
+       | None, Some name, None -> Some (Around name, nth)
+       | None, None, Some name -> Some (Entry name, nth)
+       | _ -> fail ~code:2 "--between-pc, --around-symbol and --entry are alternatives");
     {
       Text.first = Option.value first ~default:0;
       last = Option.value last ~default:max_int;
@@ -734,11 +777,22 @@ let window =
              to the first $(b,ret) retired inside it. Call depth is not tracked: a recursive \
              function ends at its innermost return, and one that leaves by a tail call has no end.")
   in
+  let entry =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "entry" ] ~docv:"NAME"
+          ~doc:
+            "Print rows from the first retirement of the entry of function $(i,NAME) of the \
+             $(b,--elf) to the end of the trace: the startup before it is not counted.")
+  in
   let nth =
     Arg.(
       value & opt int 1
       & info [ "nth" ] ~docv:"N"
-          ~doc:"With $(b,--between-pc), start at the $(docv)th retirement of $(i,A).")
+          ~doc:
+            "With $(b,--between-pc) or $(b,--entry), start at the $(docv)th retirement of the \
+             start.")
   in
   Term.(
     const (fun () -> make)
@@ -747,7 +801,7 @@ let window =
         value & opt_all string []
         & info [ "pc" ] ~docv:"HEX"
             ~doc:"Print only rows of this PC; repeatable. The whole trace is still processed.")
-    $ between $ around $ nth)
+    $ between $ around $ entry $ nth)
 
 let features =
   Arg.(
@@ -759,11 +813,18 @@ let features =
            $(b,+xcoralzvt,+xcoralsys) when absent.")
 
 let manifest =
-  Arg.(
-    value
-    & opt (some file) None
-    & info [ "manifest" ] ~docv:"FILE"
-        ~doc:"The emulator archive's $(i,hardware-configurations.json), to check against.")
+  Term.(
+    const (fun f ->
+        manifest_file := f;
+        f)
+    $ Arg.(
+        value
+        & opt (some file) None
+        & info [ "manifest" ] ~docv:"FILE"
+            ~doc:
+              "The emulator archive's $(i,hardware-configurations.json), to check against. Without \
+               $(b,--features) it also gives the instruction set: the platform's configuration \
+               lists the extensions, and a word that needs another is an error naming it."))
 
 let profile =
   let by =
@@ -1414,14 +1475,14 @@ let commands =
             & info [] ~docv:"PATH" ~doc:"An absolute signal path, components separated by $(b,/)."));
     model "commits" "Retired instructions with values and per-instruction cycles."
       Term.(
-        const (fun features window limit profile legend format output p path ->
+        const (fun features _manifest window limit profile legend format output p path ->
             redirect output;
             analyze
               (module Commits)
               () p ~format
               ~ctx:(ctx p ~features ~window ~limit ~profile ~legend ())
               Commits.text path)
-        $ features $ window $ limit $ profile $ legend $ format $ output);
+        $ features $ manifest $ window $ limit $ profile $ legend $ format $ output);
     model "stalls" Stalls.doc
       Term.(
         const (fun window profile format output p path ->

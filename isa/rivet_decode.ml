@@ -13,6 +13,7 @@ type t = {
   instruction : int -> (instruction, string) result;
   decoded : (int, (instruction, string) result) Hashtbl.t;
   assemble : string -> (string, string) result;
+  needs : int -> string list;
 }
 
 let render e = String.trim (Foundation.Diagnostic.render_all (Foundation.Diag.diagnostics e))
@@ -31,20 +32,29 @@ let driver definition spec =
       end)
   in
   let module D = Driver.Pipeline.Make (C) in
+  let decode_under config word =
+    let state = C.initial_state config in
+    match C.decode { C.state; address = 0L } (word_bytes word) ~pos:0 with
+    | Ok (i, _, _) ->
+        let feature = match i.op with C.Opcode.Table r -> Some (C.Row.feature r) | _ -> None in
+        let cls = Cls.of_word ~xlen:32 (Int64.of_int word) in
+        Ok { mnemonic = C.Opcode.name i.op; feature; cls }
+    | Error _ -> Error (Printf.sprintf "no instruction form for %08x" word)
+  in
   let instruction =
     match Target_config.resolve C.components spec with
     | Error e -> fun _ -> Error e
-    | Ok config -> (
-        let state = C.initial_state config in
-        fun word ->
-          match C.decode { C.state; address = 0L } (word_bytes word) ~pos:0 with
-          | Ok (i, _, _) ->
-              let feature =
-                match i.op with C.Opcode.Table r -> Some (C.Row.feature r) | _ -> None
-              in
-              let cls = Cls.of_word ~xlen:32 (Int64.of_int word) in
-              Ok { mnemonic = C.Opcode.name i.op; feature; cls }
-          | Error _ -> Error (Printf.sprintf "no instruction form for %08x" word))
+    | Ok config -> decode_under config
+  in
+  (* The features that, each added to the spec alone, make the word decode. *)
+  let needs word =
+    let known = Target_config.features (Target_config.all_enabled C.components) in
+    List.filter
+      (fun f ->
+        match Target_config.resolve C.components (spec @ [ Target_config.Enable f ]) with
+        | Error _ -> false
+        | Ok config -> Result.is_ok (decode_under config word))
+      known
   in
   let assemble text =
     let source = Foundation.Span.source ~name:"coral.s" ~contents:(".text\n" ^ text) in
@@ -60,7 +70,7 @@ let driver definition spec =
         | Error e -> Error (render e)
         | Ok img -> ( match img.Image.segments with s :: _ -> Ok s.Image.bytes | [] -> Ok ""))
   in
-  ((module D : Target_intf.Target.DRIVER), instruction, assemble)
+  ((module D : Target_intf.Target.DRIVER), instruction, assemble, needs)
 
 let create ?(features = "+" ^ Coral_zvt.feature ^ ",+" ^ Coral_zvt.system_feature) () =
   match Coral_zvt.definition () with
@@ -69,7 +79,7 @@ let create ?(features = "+" ^ Coral_zvt.feature ^ ",+" ^ Coral_zvt.system_featur
       match Target_config.parse_spec features with
       | Error e -> Error e
       | Ok spec ->
-          let driver, instruction, assemble = driver definition spec in
+          let driver, instruction, assemble, needs = driver definition spec in
           Ok
             {
               driver;
@@ -78,6 +88,7 @@ let create ?(features = "+" ^ Coral_zvt.feature ^ ",+" ^ Coral_zvt.system_featur
               instruction;
               decoded = Hashtbl.create 256;
               assemble;
+              needs;
             })
 
 let decode t word =
@@ -105,3 +116,11 @@ let instruction t word =
       r
 
 let assemble t text = t.assemble text
+let needs t word = if Result.is_ok (instruction t word) then [] else t.needs word
+
+let spec_of_extensions ~extensions ~matrix =
+  let known = List.filter (fun e -> e <> "i") extensions in
+  String.concat ","
+    (("none" :: List.map (fun e -> "+" ^ e) known)
+    @ [ "+system"; "+" ^ Coral_zvt.system_feature ]
+    @ if matrix then [ "+" ^ Coral_zvt.feature ] else [])

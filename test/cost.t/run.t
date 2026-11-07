@@ -18,3 +18,11 @@ A window selects the retirements it covers and states itself in the header:
   $ coralview cost --platform cost-core.json --format jsonl --from-cycle 5 cost.vcd
   {"type":"coralview","schema_version":2,"model":"cost","platform":"cost-core","trace":"cost.vcd","window":{"first":5,"pcs":[]}}
   {"type":"cost.row","class":"mem","region":"tcm","count":1,"cycles":1,"d_to_r":3}
+
+`--entry` drops what runs before a function, here the addi before the store:
+
+  $ ../../tools/mkelf.exe cost.elf 80000000 startup:4 kernel:4
+  $ coralview cost --platform cost-core.json --elf cost.elf --entry kernel cost.vcd
+  platform cost-core
+  class        region      count  cycles     d->r
+  mem          tcm             1       1     3.00

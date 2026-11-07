@@ -41,6 +41,35 @@ $ coralview run --platform rvv-core-mini-highmem-axi --model commits --model sta
     --perfetto trace.json /tmp/VRvvCoreMiniHighmemAxi.core.fst
 ```
 
+## Scripted runs
+
+The simulators write their FST to a fixed path (`/tmp/V<Top>.core.fst` with `--trace`), so two runs of
+one core at once overwrite each other. Choose the path with `--trace_file=PATH`, or skip the file: the
+VCD simulators (`*_vcd_sim`) write the trace to a descriptor, and `--exec` gives them descriptor 3 and
+reads it as it is produced (the trace argument is `-`):
+
+```
+$ e=/opt/coralnpu/emulators
+$ coralview commits --platform core-mini-axi --elf $e/examples/exit_status.elf \
+    --exec "$e/bin/core_mini_axi_vcd_sim --trace_fd=3 --binary=$e/examples/exit_status.elf" -
+$ $e/bin/core_mini_axi_sim --trace_file=run1.fst --binary=$e/examples/exit_status.elf
+$ coralview cost --platform core-mini-axi --manifest $e/hardware-configurations.json \
+    --elf $e/examples/exit_status.elf --entry main run1.fst
+```
+
+A command that reads the trace twice (`cost`, and anything with `--between-pc`, `--around-symbol` or
+`--entry`) needs a file. The simulator's own exit status (here 125, the program's) is reported after
+the results as `# producer: failed, exited with status N`; coralview exits 4 for it.
+
+## Installing
+
+`make deps` is what the devcontainer runs. To install the package elsewhere, `opam install
+./coralview.opam` takes Rivet from the commit its `pin-depends` names and replaces a Rivet you have
+pinned to a path; install coralview first and pin your own Rivet afterwards (`opam pin rivet.dev
+PATH`). opam writes into the switch, so the switch must be one your user owns. In a checkout dune
+builds `vendor/rivet`, and an installed `rivet` next to it makes dune fail with `rivet.fmt is already
+defined`: `make deps` removes it.
+
 ## Commands
 
 * Traces: `probe`, `tree`, `signals`, `decode`, `platforms`, `check`, `bench`.
