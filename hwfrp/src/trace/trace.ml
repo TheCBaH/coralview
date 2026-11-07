@@ -15,8 +15,10 @@ type signal = {
   var_type : Vcd_ast.var_type;
 }
 
+type format = [ `Vcd | `Fst ]
+
 type t = {
-  format : Vcd_fst.format;
+  format : format;
   header : Vcd_ast.header;
   resolver : Vcd.Resolver.t;
   var_types : (string, Vcd_ast.var_type) Hashtbl.t;
@@ -29,7 +31,7 @@ type t = {
 
 (* The parse reads only the tracked signals' changes: ovcd asks [select] on the first pull, after
    [events] has frozen the tracked set. *)
-let make ~select format parse =
+let of_parse ?(select = true) ~format parse =
   let by_id = Hashtbl.create 256 in
   let { Vcd.header; simulation } =
     parse (if select then Some (fun id -> Hashtbl.mem by_id (ID.to_string id)) else None)
@@ -53,22 +55,6 @@ let make ~select format parse =
     frozen = false;
     events = Some simulation;
   }
-
-let open_file ?(select = true) path =
-  make ~select (Vcd_fst.detect_file path) (fun select -> Vcd_fst.open_file ?select path)
-
-let of_string ?(select = true) s =
-  make ~select (Vcd_fst.detect_string s) (fun select -> Vcd_fst.open_string ?select s)
-
-let of_channel ?(select = true) ic =
-  make ~select `Vcd (fun select -> Vcd.parse_channel ?select ~strict:true ic)
-
-let open_input ?select path =
-  if path = "-" then begin
-    set_binary_mode_in stdin true;
-    of_channel ?select stdin
-  end
-  else open_file ?select path
 
 let format t = t.format
 let header t = t.header

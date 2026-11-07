@@ -48,7 +48,7 @@ module Verilator : sig
   val manifest :
     catalog:Trace.t ->
     producer:string ->
-    format:Vcd_fst.format ->
+    format:Trace.format ->
     plan ->
     (string, string list) result
   (** The producer's selection manifest (version 1): one native name per alias of every planned signal, found by

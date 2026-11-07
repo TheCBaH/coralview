@@ -28,7 +28,7 @@ type 'c env = { tr : Trace.t; net : Net.t; clk : 'c Clock.t; d : (int, 'c) Sig.t
 type any_env = E : 'c env -> any_env
 
 let env () =
-  let tr = Trace.of_string vcd in
+  let tr = Hwfrp_vcd.of_string vcd in
   let net = Net.create () in
   let clk = Option.get (Trace.track_path tr "top.clk") in
   match Clock.define net ~name:"clk" { clock = clk.slot; rule = Before_rising; enable = None } with
@@ -151,3 +151,18 @@ let%expect_test "Track" =
     warning[track.not-open] t cycle 3 time 7: updated a key that is not open
     warning[track.not-open] t cycle 4 time 9: closed a key that is not open
     |}]
+
+(* The statistics read time from the injected clock only. *)
+let%expect_test "stats clock" =
+  let run ?clock () =
+    let (E e) = env () in
+    let sched = Result.get_ok (Sched.compile e.net) in
+    (Sched.run ?clock sched (sampler e)).wall_s
+  in
+  let t = ref 10. in
+  let clock () =
+    t := !t +. 1.5;
+    !t
+  in
+  Printf.printf "none=%g injected=%g\n" (run ()) (run ~clock ());
+  [%expect {| none=0 injected=1.5 |}]

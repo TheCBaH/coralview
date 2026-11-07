@@ -53,7 +53,7 @@ let core = at [ "core.x" ]
 
 (* One graph: the clock with its enable and the named signals of [core.x]. *)
 let graph ?(extra = fun _ -> ()) text model signals =
-  let tr = Trace.of_string text in
+  let tr = Hwfrp_vcd.of_string text in
   let net = Net.create () in
   let (Clock.Any c) =
     Bind.clock net tr ~model ~purpose:"clock" ~name:"clk" ~enable:(at [ "en" ]) After_rising
@@ -106,7 +106,7 @@ let%expect_test "plan: events pulled" =
   (match Capture.plan ~origin:"m1" tr [ net ] with
   | _ -> print_endline "planned"
   | exception Invalid_argument m -> print_endline m);
-  (match Capture.plan ~origin:"a,b" (Trace.of_string vcd) [] with
+  (match Capture.plan ~origin:"a,b" (Hwfrp_vcd.of_string vcd) [] with
   | _ -> print_endline "planned"
   | exception Invalid_argument m -> print_endline m);
   [%expect
@@ -256,7 +256,7 @@ let vcd_of vars =
 let file_round_trip =
   QCheck2.Test.make ~name:"plan file round trip" ~count:300 gen_vars (fun vars ->
       let text = vcd_of vars in
-      let tr = Trace.of_string text in
+      let tr = Hwfrp_vcd.of_string text in
       Vcd.Resolver.fold (fun e () -> ignore (Trace.track tr e)) (Trace.resolver tr) ();
       let p = Capture.plan ~origin:"o" tr [] in
       let file = Capture.to_file p in
@@ -268,7 +268,7 @@ let file_round_trip =
           if List.length (Capture.entries q) <> List.length (Capture.entries p) then
             QCheck2.Test.fail_reportf "entries";
           (* the plan describes its own trace *)
-          let tr2 = Trace.of_string text in
+          let tr2 = Hwfrp_vcd.of_string text in
           Vcd.Resolver.fold (fun e () -> ignore (Trace.track tr2 e)) (Trace.resolver tr2) ();
           (match Capture.check q ~origins:[ "o" ] tr2 with
           | Ok () -> ()
@@ -307,7 +307,7 @@ $enddefinitions $end
 |}
 
 let manifest_of ?(format = `Fst) ?(producer = "sim") paths =
-  let tr = Trace.of_string catalog_text in
+  let tr = Hwfrp_vcd.of_string catalog_text in
   List.iter (fun p -> ignore (Option.get (Trace.find tr p))) paths;
   let plan = Capture.plan ~origin:"o" tr [] in
   match Capture.Verilator.manifest ~catalog:tr ~producer ~format plan with
@@ -344,7 +344,7 @@ let%expect_test "manifest: unsupported scopes and indexes" =
     error: top.core.x.u.g: under a union scope |}]
 
 let%expect_test "manifest: other errors" =
-  let tr = Trace.of_string catalog_text in
+  let tr = Hwfrp_vcd.of_string catalog_text in
   ignore (Trace.find tr [ "top"; "clk" ]);
   let plan = Capture.plan ~origin:"o" tr [] in
   let show = function

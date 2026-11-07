@@ -224,14 +224,14 @@ module Sched : sig
   type run_stats = {
     ticks : int array;  (** Per domain. *)
     node_evals : int;
-    wall_s : float;
+    wall_s : float;  (** Elapsed time of the injected clock; 0 without one. *)
     per_node : (string * node_stats) list;
   }
 
   val compile : ?strategy:strategy -> Net.t -> (t, build_error list) result
   (** Freezes the net: no node can be added afterwards. *)
 
-  val run : t -> Sampler.t -> run_stats
+  val run : ?clock:(unit -> float) -> t -> Sampler.t -> run_stats
   (** The sampler must have been created with {!Net.domains}. *)
 
   val dump_dot : t -> out_channel -> unit
@@ -243,7 +243,8 @@ module Run : sig
 
   type t
 
-  val start : Sched.t -> Sampler.t -> t
+  val start : ?clock:(unit -> float) -> Sched.t -> Sampler.t -> t
+  (** [clock] reads the time for [wall_s] of the statistics (seconds); the library has none of its own. *)
 
   val step : t -> bool
   (** Evaluates the next sample; [false] once the sampler has none left. *)

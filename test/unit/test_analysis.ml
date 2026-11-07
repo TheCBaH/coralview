@@ -116,12 +116,12 @@ let toy : (Toy.Event.t, Toy.Summary.t) Analysis.t = (module Toy)
 let show (e : Toy.Event.t) = Printf.sprintf "%d:%x" e.cycle e.pc
 
 let%expect_test "pull = subscribe; a dependency is shared" =
-  let p = Analysis.pull (module Toy) () platform (Trace.of_string vcd) in
+  let p = Analysis.pull (module Toy) () platform (Hwfrp_vcd.of_string vcd) in
   let pulled = List.of_seq p.events in
   Printf.printf "pulled %s; summary %d\n"
     (String.concat " " (List.map show pulled))
     (p.summary ()).dispatches;
-  let (Core.Any c) = Core.bind platform (Trace.of_string vcd) ~model:"toy" in
+  let (Core.Any c) = Core.bind platform (Hwfrp_vcd.of_string vcd) ~model:"toy" in
   builds := 0;
   let pushed = ref [] and even = ref [] in
   let s = Analysis.subscribe (module Toy) () c (fun e -> pushed := e :: !pushed) in
@@ -139,7 +139,7 @@ let%expect_test "pull = subscribe; a dependency is shared" =
     pushed equal true; even 2:14 4:18; builds 1; summary 3 |}]
 
 let%expect_test "JSONL" =
-  let p = Analysis.pull (module Toy) () platform (Trace.of_string vcd) in
+  let p = Analysis.pull (module Toy) () platform (Hwfrp_vcd.of_string vcd) in
   let file = Filename.temp_file "toy" ".jsonl" in
   Out_channel.with_open_text file (fun oc ->
       Jsonl.write oc
@@ -194,7 +194,7 @@ let replace_all s sub by =
   Buffer.contents b
 
 let%expect_test "stream: the events, diagnostics and summary of pull" =
-  let s = Analysis.stream (module Toy) () platform (Trace.of_string vcd) in
+  let s = Analysis.stream (module Toy) () platform (Hwfrp_vcd.of_string vcd) in
   let pulled = List.of_seq s.events in
   Printf.printf "events %s; diags %d; summary %d; pending %d\n"
     (String.concat " " (List.map show pulled))
@@ -203,7 +203,7 @@ let%expect_test "stream: the events, diagnostics and summary of pull" =
   [%expect {| events 1:10 2:14 4:18; diags 0; summary 3; pending 0 |}]
 
 let%expect_test "stream: finish after a partial read, twice, then nothing" =
-  let s = Analysis.stream (module Toy) () platform (Trace.of_string vcd) in
+  let s = Analysis.stream (module Toy) () platform (Hwfrp_vcd.of_string vcd) in
   (match s.events () with Seq.Cons (e, _) -> Printf.printf "first %s\n" (show e) | Nil -> ());
   s.finish ();
   s.finish ();
@@ -228,7 +228,7 @@ let%expect_test "stream: finish does not queue the events it skips" =
       (ev, s)
   end in
   let n = 5000 in
-  let s = Analysis.stream (module Probe) () platform (Trace.of_string (long_vcd n)) in
+  let s = Analysis.stream (module Probe) () platform (Hwfrp_vcd.of_string (long_vcd n)) in
   hook := s.pending;
   (match s.events () with Seq.Cons _ -> () | Nil -> ());
   s.finish ();
@@ -237,7 +237,7 @@ let%expect_test "stream: finish does not queue the events it skips" =
 
 let%expect_test "stream: a diagnostic of the bind is there once finished" =
   let unknown = replace_all vcd "b10011 i" "bx0011 i" in
-  let s = Analysis.stream (module Toy) () platform (Trace.of_string unknown) in
+  let s = Analysis.stream (module Toy) () platform (Hwfrp_vcd.of_string unknown) in
   s.finish ();
   List.iter (fun (d : Diag.t) -> Printf.printf "%s %s\n" d.source d.code) (s.diags ());
   [%expect {| toy bind.unknown-bits |}]

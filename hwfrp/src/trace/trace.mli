@@ -18,22 +18,17 @@ type signal = {
 
 type t
 
-val open_file : ?select:bool -> string -> t
-(** VCD or FST, by content. Raises [Vcd.Parse_error] or [Sys_error]. With [select] (the default),
-    only the changes of the signals tracked by the time {!events} is called are read. *)
+type format = [ `Vcd | `Fst ]
+(** What the events were read from. Informational: the core parses nothing; see the [hwfrp.vcd] and
+    [hwfrp.native] libraries. *)
 
-val of_string : ?select:bool -> string -> t
+val of_parse :
+  ?select:bool -> format:format -> ((Vcd_types.ID.t -> bool) option -> Vcd.parse_result) -> t
+(** A trace from a parser that takes ovcd's [select] predicate: the adapter for any other source.
+    With [select] (the default), only the changes of the signals tracked by the time {!events} is
+    called are read. *)
 
-val of_channel : ?select:bool -> in_channel -> t
-(** A VCD stream, read as it arrives. Strict parsing (see [Vcd.parse_string]): a header that does not reach
-    [$enddefinitions], and, when the events are consumed to the end, an open dump block or a last byte that is not
-    a newline, raise [Vcd.Parse_error]. A cut at a record boundary is a valid prefix and is not detected. FST is not
-    accepted. *)
-
-val open_input : ?select:bool -> string -> t
-(** {!open_file}, or {!of_channel} on standard input for the path ["-"]. *)
-
-val format : t -> Vcd_fst.format
+val format : t -> format
 val header : t -> Vcd_ast.header
 val resolver : t -> Vcd.Resolver.t
 val lookup : t -> Vcd_types.Reference.t -> Vcd.Resolver.entry option

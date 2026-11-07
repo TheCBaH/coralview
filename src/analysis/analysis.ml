@@ -108,4 +108,4 @@ let stream (type k e s)
     finish;
   }
 
-let events_file m cfg p path = stream m cfg p (Trace.open_input path)
+let events_file m cfg p path = stream m cfg p (Hwfrp_native.open_input path)

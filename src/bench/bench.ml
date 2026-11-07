@@ -21,7 +21,7 @@ let read path =
 
 (* Decoding alone, of what sampling would read. *)
 let read_tracked (p : Platform.t) ~select path =
-  let tr = Trace.open_file ~select path in
+  let tr = Hwfrp_native.open_file ~select path in
   let root = Platform.root p in
   let find n = ignore (Option.get (Trace.find tr (Reference.to_list root @ [ n ]))) in
   find p.clock;
@@ -29,7 +29,7 @@ let read_tracked (p : Platform.t) ~select path =
   Seq.fold_left (fun n _ -> n + 1) 0 (Trace.events tr)
 
 let sample (p : Platform.t) ~select path =
-  let tr, open_s = time (fun () -> Trace.open_file ~select path) in
+  let tr, open_s = time (fun () -> Hwfrp_native.open_file ~select path) in
   let root = Platform.root p in
   let find n = Option.get (Trace.find tr (Reference.to_list root @ [ n ])) in
   let clk = find p.clock in
@@ -41,7 +41,7 @@ let sample (p : Platform.t) ~select path =
   (open_s, ticks, List.length names, drain_s, Sampler.stats s)
 
 let engine (p : Platform.t) ~select ~nodes ~strategy path =
-  let tr = Trace.open_file ~select path in
+  let tr = Hwfrp_native.open_file ~select path in
   let root = Platform.root p in
   let net = Net.create () in
   let (Clock.Any c) =
@@ -71,7 +71,7 @@ let engine (p : Platform.t) ~select ~nodes ~strategy path =
     pool := Array.append !pool [| s |]
   done;
   let sched = Result.get_ok (Sched.compile ~strategy net) in
-  Sched.run sched (Sampler.create tr (Net.domains net))
+  Sched.run ~clock:Hwfrp_native.wall_clock sched (Sampler.create tr (Net.domains net))
 
 let run p ~select ~nodes path =
   let { Vcd.header; _ }, header_s = time (fun () -> Vcd_fst.open_file path) in

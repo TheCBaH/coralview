@@ -56,7 +56,7 @@ let at name = Reference.of_list [ "top"; "core"; name ]
 type k = { k : 'c. Trace.t -> Net.t -> 'c Bind.scope -> unit }
 
 let setup { k } =
-  let tr = Trace.of_string vcd in
+  let tr = Hwfrp_vcd.of_string vcd in
   let net = Net.create () in
   let (Clock.Any c) =
     Bind.clock net tr ~model:"m" ~name:"clk" ~purpose:"clock" After_falling (at "clk")
@@ -119,7 +119,7 @@ let%expect_test "check" =
     |}]
 
 let%expect_test "values" =
-  let tr = Trace.of_string vcd in
+  let tr = Hwfrp_vcd.of_string vcd in
   let net = Net.create () in
   let (Clock.Any c) = Bind.clock net tr ~model:"m" ~name:"clk" After_falling (at "clk") in
   let sc = Bind.root net tr c ~model:"m" core in

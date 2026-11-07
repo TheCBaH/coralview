@@ -193,7 +193,7 @@ let resolve_between (p : Platform.t) path (ctx : Text.ctx) =
       in
       let pulled =
         guard p (fun () ->
-            Analysis.pull (module Commits) () p (Hwfrp.Trace.open_input ~select:!select path))
+            Analysis.pull (module Commits) () p (Hwfrp_native.open_input ~select:!select path))
       in
       let seen = ref 0 and first = ref None and last = ref None in
       (try
@@ -241,7 +241,8 @@ let analyze (type k e s)
   let ctx = resolve_between p path ctx in
   producer_status := if format = `Jsonl then `Jsonl else `Text;
   let pulled =
-    guard p (fun () -> Analysis.pull (module A) cfg p (Hwfrp.Trace.open_input ~select:!select path))
+    guard p (fun () ->
+        Analysis.pull (module A) cfg p (Hwfrp_native.open_input ~select:!select path))
   in
   (match format with
   | `Text -> text ctx (List.of_seq pulled.events) (pulled.summary ())
@@ -293,7 +294,7 @@ let signals platform ~raw ~format ~changes ~cycles:(from_cycle, to_cycle)
   producer_status := if jsonl then `Jsonl else `Text;
   if raw && !plan_path <> None then
     fail ~code:2 "--plan checks the sampled signals, which --raw does not build: drop --raw";
-  let tr = Hwfrp.Trace.open_input ~select:!select path in
+  let tr = Hwfrp_native.open_input ~select:!select path in
   (try Signals.require tr paths
    with Signals.Missing p -> fail ~code:3 ("no signal " ^ p ^ " in the trace"));
   let phase, run =
@@ -471,7 +472,7 @@ let check p names ~format path =
       (Codec.to_line Jsonl.header_jsont (Jsonl.header ~model:"check" ~platform:p.name ~trace:path));
   List.iter
     (fun m ->
-      let tr = Hwfrp.Trace.open_file ~select:!select path in
+      let tr = Hwfrp_native.open_file ~select:!select path in
       guard p (fun () ->
           let (Core.Any c) = Core.bind p tr ~model:m.name in
           m.build c;
@@ -496,7 +497,7 @@ let check p names ~format path =
 let plan_command (p : Platform.t) names signal_paths catalogs dir producer ~format =
   if catalogs = [] then fail ~code:2 "plan needs --catalog";
   let models = if names = [] && signal_paths <> [] then [] else select_models p names in
-  let catalog file = try Hwfrp.Trace.open_file file with Sys_error e -> fail ~code:2 e in
+  let catalog file = try Hwfrp_native.open_file file with Sys_error e -> fail ~code:2 e in
   let plans =
     List.concat_map
       (fun file ->
@@ -982,7 +983,7 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
   in
   let ctx = resolve_between p path ctx in
   run_origins := Some models;
-  let tr = Hwfrp.Trace.open_input ~select:!select path in
+  let tr = Hwfrp_native.open_input ~select:!select path in
   let (Core.Any c) = Core.bind p tr ~model:"run" in
   let finishers =
     guard p (fun () ->
@@ -1332,7 +1333,7 @@ let commands =
             if path = "-" then fail ~code:2 "cost reads the trace twice: name a file, not -";
             let c = resolve_between p path (ctx p ~region ~window ()) in
             let window = c.window in
-            let open_trace () = Hwfrp.Trace.open_input ~select:!select path in
+            let open_trace () = Hwfrp_native.open_input ~select:!select path in
             let commits =
               let pulled = Analysis.pull (module Commits) () p (open_trace ()) in
               List.of_seq

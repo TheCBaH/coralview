@@ -11,7 +11,7 @@ let platform file =
 let pull m cfg dir json vcd =
   Analysis.pull m cfg
     (platform (Printf.sprintf "../%s.t/%s" dir json))
-    (Trace.of_string (read (Printf.sprintf "../%s.t/%s" dir vcd)))
+    (Hwfrp_vcd.of_string (read (Printf.sprintf "../%s.t/%s" dir vcd)))
 
 let line jsont v = Codec.to_line jsont v
 let memory = Accumulator.tap (module Memory.Accumulator)

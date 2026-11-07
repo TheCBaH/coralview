@@ -43,7 +43,7 @@ b111 "
 |}
 
 let sample rule =
-  let tr = Trace.of_string vcd in
+  let tr = Hwfrp_vcd.of_string vcd in
   let clk = Option.get (Trace.track_path tr "top.clk") in
   let data = Option.get (Trace.track_path tr "top.data") in
   let en = Option.get (Trace.track_path tr "top.en") in
@@ -94,7 +94,7 @@ let%expect_test "after rising" =
     events=27 seen=16 tracked=16 timestamps=9 |}]
 
 let%expect_test "combinators" =
-  let tr = Trace.of_string vcd in
+  let tr = Hwfrp_vcd.of_string vcd in
   let net = Net.create () in
   let clk = Option.get (Trace.track_path tr "top.clk") in
   let (Clock.Any c) =
@@ -166,7 +166,7 @@ let%expect_test "combinators" =
     ticks=4 evals=48 |}]
 
 let%expect_test "diagnostics carry the cycle" =
-  let tr = Trace.of_string vcd in
+  let tr = Hwfrp_vcd.of_string vcd in
   let net = Net.create () in
   let clk = Option.get (Trace.track_path tr "top.clk") in
   let (Clock.Any c) =

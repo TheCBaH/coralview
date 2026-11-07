@@ -1,6 +1,15 @@
 (library
  (name hwfrp_test)
- (inline_tests)
+ (inline_tests
+  (deps
+   (glob_files data/*)))
  (preprocess
   (pps ppx_expect))
- (libraries hwfrp ovcd ovcd.vcd_types ovcd.vcd_filter qcheck-core))
+ (libraries
+  hwfrp
+  hwfrp.vcd
+  hwfrp.native
+  ovcd
+  ovcd.vcd_types
+  ovcd.vcd_filter
+  qcheck-core))

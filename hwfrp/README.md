@@ -55,7 +55,7 @@ let transfers tr =
   let sched = Result.get_ok (Sched.compile net) in
   ignore (Sched.run sched (Sampler.create tr (Net.domains net)))
 
-let () = transfers (Trace.open_file "sim.fst")
+let () = transfers (Hwfrp_native.open_file "sim.fst")
 ```
 
 ```
@@ -86,8 +86,9 @@ accepts up to 62, the first `Bind` call would raise
 
 ### Trace, slots, sampler
 
-`Trace.open_file` opens a VCD or FST (detected by content) and reads its
-header. A signal becomes *tracked* when a model binds it; each tracked
+`Hwfrp_native.open_file` (library `hwfrp.native`) opens a VCD or FST (detected by
+content) and reads its header; `Trace.of_string` and `Trace.of_channel` read VCD text
+in the core library, which depends on neither `unix` nor `ovcd.fst`. A signal becomes *tracked* when a model binds it; each tracked
 signal gets a dense integer *slot*. The tracked set is frozen when reading
 starts (`Sampler.create` or `Trace.events`), and only the tracked signals'
 changes are decoded: ovcd skips the others' (`~select:false` reads them

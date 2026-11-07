@@ -5,6 +5,7 @@
  (public_name coralview)
  (libraries
   hwfrp
+  hwfrp.native
   ovcd
   ovcd.vcd_types
   ovcd.fst

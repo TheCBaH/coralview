@@ -19,6 +19,7 @@
  (libraries
   coralview
   hwfrp
+  hwfrp.vcd
   ovcd
   ovcd.vcd_types
   qcheck-core

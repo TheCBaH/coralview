@@ -199,7 +199,7 @@ let apply p = function
 let decode : Value.t -> int = function Int n -> n | Scalar B0 -> 0 | Scalar B1 -> 1 | _ -> -1
 
 let build (w, ops) =
-  let tr = Trace.of_string (vcd w) in
+  let tr = Hwfrp_vcd.of_string (vcd w) in
   let net = Net.create () in
   let pools =
     Array.init w.nclk (fun k ->
@@ -435,7 +435,7 @@ module Ref = struct
     Array.iteri (fun i n -> if n.ch then Printf.bprintf log " e%d=%d" i n.v) d.evs
 
   let run (w, ops) =
-    let tr = Trace.of_string (vcd w) in
+    let tr = Hwfrp_vcd.of_string (vcd w) in
     let clocks =
       Array.init w.nclk (fun k -> Option.get (Trace.track_path tr (Printf.sprintf "top.clk%d" k)))
     in
@@ -529,7 +529,7 @@ let sampled_state =
     gen_wave
     (fun w ->
       let text = vcd w in
-      let tr = Trace.of_string text in
+      let tr = Hwfrp_vcd.of_string text in
       let signals =
         List.init (w.nclk + w.ndata) (fun i ->
             Option.get
@@ -630,7 +630,7 @@ let pull_push =
 (* The sampled ticks and values of the clock and a strict subset of the data, and the stats. *)
 let sample_subset ~select w keep =
   let text = vcd w in
-  let tr = Trace.of_string ~select text in
+  let tr = Hwfrp_vcd.of_string ~select text in
   let track n = Option.get (Trace.track_path tr n) in
   let clk = track "top.clk0" in
   let data =

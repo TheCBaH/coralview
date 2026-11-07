@@ -3,4 +3,4 @@
 (library
  (name hwfrp)
  (public_name hwfrp)
- (libraries ovcd ovcd.fst ovcd.vcd_types ovcd.vcd_filter unix))
+ (libraries ovcd ovcd.vcd_types ovcd.vcd_filter))

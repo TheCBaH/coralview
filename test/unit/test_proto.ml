@@ -35,7 +35,7 @@ let vcd decls cycles n =
 type build = { build : 'c. 'c Clock.t -> 'c Bind.scope -> unit }
 
 let setup text { build } =
-  let tr = Trace.of_string text in
+  let tr = Hwfrp_vcd.of_string text in
   let net = Net.create () in
   let at = Vcd_types.Reference.of_list in
   let (Clock.Any clk) =

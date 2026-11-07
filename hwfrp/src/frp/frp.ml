@@ -774,18 +774,20 @@ module Sched = struct
     sched : t;
     sampler : Sampler.t;
     ticks : int array;
+    clock : unit -> float;
     t0 : float;
     mutable ended : bool;
     mutable stats : run_stats option;
   }
 
-  let start t sampler =
+  let start ?(clock = fun () -> 0.) t sampler =
     t.net.sampler <- Some sampler;
     {
       sched = t;
       sampler;
       ticks = Array.make (Array.length t.clocks) 0;
-      t0 = Unix.gettimeofday ();
+      clock;
+      t0 = clock ();
       ended = false;
       stats = None;
     }
@@ -820,14 +822,14 @@ module Sched = struct
           {
             ticks = r.ticks;
             node_evals = List.fold_left (fun a (_, (s : node_stats)) -> a + s.evals) 0 per_node;
-            wall_s = Unix.gettimeofday () -. r.t0;
+            wall_s = r.clock () -. r.t0;
             per_node;
           }
         in
         r.stats <- Some s;
         s
 
-  let run t sampler = finish_run (start t sampler)
+  let run ?clock t sampler = finish_run (start ?clock t sampler)
 
   let dump_dot t oc =
     let shape = function

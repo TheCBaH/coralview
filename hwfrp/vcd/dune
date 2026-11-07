@@ -1,0 +1,4 @@
+(library
+ (name hwfrp_vcd)
+ (public_name hwfrp.vcd)
+ (libraries hwfrp ovcd ovcd.vcd_types))

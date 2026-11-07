@@ -157,18 +157,18 @@ let stats tr = Reduce.Stats.of_seq (Seq.map fst (transfers_seq tr))
 let%expect_test "pull, track, reduce" =
   Seq.iter
     (fun (d, c) -> Printf.printf "%d at cycle %d\n" d c)
-    (Seq.take 1 (transfers_seq (Trace.of_string vcd)));
+    (Seq.take 1 (transfers_seq (Hwfrp_vcd.of_string vcd)));
   [%expect {| 42 at cycle 0 |}];
-  bursts (Trace.of_string vcd);
+  bursts (Hwfrp_vcd.of_string vcd);
   [%expect {|
     burst from cycle 0, 1 cycles
     burst from cycle 3, 2 cycles |}];
-  let s = stats (Trace.of_string vcd) in
+  let s = stats (Hwfrp_vcd.of_string vcd) in
   Printf.printf "n %d, min %d, max %d, mean %.2f\n" s.n s.min s.max (Reduce.Stats.mean s);
   [%expect {| n 3, min 7, max 42, mean 19.00 |}]
 
 let%expect_test "quick start" =
-  transfers (Trace.of_string vcd);
+  transfers (Hwfrp_vcd.of_string vcd);
   [%expect
     {|
     cycle 0: 42
