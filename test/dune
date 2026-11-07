@@ -2,7 +2,7 @@
  (deps %{bin:coralview}))
 
 (cram
- (applies_to platform disasm cost loops)
+ (applies_to platform disasm cost loops entry)
  (deps %{bin:coralview} ../tools/mkelf.exe))
 
 (cram

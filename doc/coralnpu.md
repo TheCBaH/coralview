@@ -1041,7 +1041,7 @@ changes nothing without it. This format is the plan's proposal (tracker CV-D04),
 `coralview compare --platform P [--elf A[,B]] [--around-symbol NA[,NB] | --entry NA[,NB]] [--top N] TRACE_A TRACE_B`
 prints the `summary` figures of both windows with their differences, then the instructions whose cycles
 charged differ most. Each run's window is its own: from the entry of `NA` in the first ELF to the first
-`ret` in it (`--around-symbol`) or to the end of the trace (`--entry`), and `NB` in the second; one name,
+`ret` in it (`--around-symbol`) or to the `ret` that returns from it (`--entry`), and `NB` in the second; one name,
 or one ELF, serves both. Instructions are matched by their offset from that entry, so generated code
 and a hand-written kernel line up where their layouts do; an offset only one run has counts as zero for
 the other, and the instruction text of both is shown when it differs. Without a symbol the windows are
@@ -1062,7 +1062,8 @@ instruction costs and where its data was. Everything below takes a window
    over the whole run; the window options leave it out. `coralview cost --manifest
    hardware-configurations.json --elf prog.elf --around-symbol NAME trace.fst` counts only the
    memory accesses and instruction classes of the call, and `--entry NAME` does the same from a
-   function's entry to the end of the trace when the function never returns.
+   function's entry to the `ret` that pops its frame (calls inside it nest), or to the end of the trace
+   when the function never returns; unlike `--around-symbol` it works when a label splits the function.
 2. `coralview commits --elf prog.elf --around-symbol NAME --limit 0 --profile 20
    --profile-by function` gives the cost per function inside the window;
    `--profile-by class` per instruction class; the line starting `window`

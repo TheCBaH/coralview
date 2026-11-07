@@ -207,7 +207,23 @@ let resolve_between (p : Platform.t) path (ctx : Text.ctx) =
                     fail ~code:2
                       (Printf.sprintf "%s: %s names several functions; use --between-pc" flag name)
                 | [ f ] when match marker with Entry _ -> true | _ -> false ->
-                    ((fun c -> c.pc = f.address), (fun _ -> false), name, "")
+                    (* The ret that pops the entry's frame: calls (jal/jalr with rd = ra) nest. *)
+                    let depth = ref 0 in
+                    ( (fun c -> c.pc = f.address),
+                      (fun c ->
+                        match c.word with
+                        | Some w when w land 0xfff = 0x0ef || w land 0xfff = 0x0e7 ->
+                            incr depth;
+                            false
+                        | Some 0x00008067 ->
+                            if !depth = 0 then true
+                            else begin
+                              decr depth;
+                              false
+                            end
+                        | _ -> false),
+                      name,
+                      "" )
                 | [ f ] ->
                     (* ret is jalr x0, 0(ra). *)
                     ( (fun c -> c.pc = f.address),
@@ -227,10 +243,7 @@ let resolve_between (p : Platform.t) path (ctx : Text.ctx) =
                  | None ->
                      if is_start c then begin
                        incr seen;
-                       if !seen = nth then begin
-                         first := Some c.retired;
-                         if match marker with Entry _ -> true | _ -> false then raise Exit
-                       end
+                       if !seen = nth then first := Some c.retired
                      end
                  | Some f ->
                      if is_end c && c.retired >= f then begin

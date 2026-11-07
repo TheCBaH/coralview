@@ -1,0 +1,143 @@
+$timescale 1ps $end
+$scope module TOP $end
+$scope module core $end
+$var wire 1 ck io_aclk $end
+$var wire 1 df io_debug_dispatch_0_instFire $end
+$var wire 32 da io_debug_dispatch_0_instAddr $end
+$var wire 32 di io_debug_dispatch_0_instInst $end
+$var wire 1 rv io_debug_rb_inst_0_valid $end
+$var wire 32 rp io_debug_rb_inst_0_bits_pc $end
+$var wire 7 ri io_debug_rb_inst_0_bits_idx $end
+$var wire 1 rt io_debug_rb_inst_0_bits_trap $end
+$var wire 1 wv io_debug_regfile_writeData_0_valid $end
+$var wire 5 wa io_debug_regfile_writeData_0_bits_addr $end
+$var wire 32 wd io_debug_regfile_writeData_0_bits_data $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+0ck
+b0 df
+b0 da
+b0 di
+b0 rv
+b0 rp
+b0 ri
+b0 rt
+b0 wv
+b0 wa
+b0 wd
+$end
+#1
+1ck
+#2
+0ck
+#3
+1ck
+#4
+0ck
+b1 df
+b10000000000000000000000000000000 da
+b00000000000100000000010100010011 di
+#5
+1ck
+#6
+0ck
+b10000000000000000000000000000100 da
+b00000000001000000000010100010011 di
+#7
+1ck
+#8
+0ck
+b10000000000000000000000000001000 da
+b00000000110000000000000011101111 di
+#9
+1ck
+#10
+0ck
+b10000000000000000000000000010100 da
+b00000000001100000000010110010011 di
+#11
+1ck
+#12
+0ck
+b10000000000000000000000000011000 da
+b00000000000000001000000001100111 di
+#13
+1ck
+#14
+0ck
+b10000000000000000000000000001100 da
+b00000000010000000000011000010011 di
+#15
+1ck
+#16
+0ck
+b10000000000000000000000000010000 da
+b00000000000000001000000001100111 di
+#17
+1ck
+#18
+0ck
+b10000000000000000000000000100000 da
+b00000000010100000000011010010011 di
+#19
+1ck
+#20
+0ck
+b0 df
+b1 rv
+b10000000000000000000000000000000 rp
+b0001010 ri
+#21
+1ck
+#22
+0ck
+b10000000000000000000000000000100 rp
+b0001010 ri
+#23
+1ck
+#24
+0ck
+b10000000000000000000000000001000 rp
+b0000001 ri
+#25
+1ck
+#26
+0ck
+b10000000000000000000000000010100 rp
+b0001011 ri
+#27
+1ck
+#28
+0ck
+b10000000000000000000000000011000 rp
+b1111111 ri
+#29
+1ck
+#30
+0ck
+b10000000000000000000000000001100 rp
+b0001100 ri
+#31
+1ck
+#32
+0ck
+b10000000000000000000000000010000 rp
+b1111111 ri
+#33
+1ck
+#34
+0ck
+b10000000000000000000000000100000 rp
+b0001101 ri
+#35
+1ck
+#36
+0ck
+b0 rv
+#37
+1ck
+#38
+0ck

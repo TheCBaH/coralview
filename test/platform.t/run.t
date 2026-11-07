@@ -286,8 +286,8 @@ and an unknown or ambiguous name is refused:
   --between-pc, --around-symbol and --entry are alternatives
   [2]
 
-`--entry` starts the window at a function's entry and runs to the end of the trace, so a startup before the
-kernel is not in the rows or the totals:
+`--entry` starts the window at a function's entry and runs to the `ret` that returns from it (to the end of the
+trace if it never does), so a startup before the kernel is not in the rows or the totals:
 
   $ coralview commits --platform test-core.json --elf core.elf --entry second core.vcd
   platform test-core
