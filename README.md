@@ -81,6 +81,8 @@ defined`: `make deps` removes it.
   instruction's SEW, LMUL and AVL from the `vsetvli` words that reach it (`vtype unknown` where none does).
 * Models: `commits`, `stalls`, `memory`, `axi`, `dma`, `tiles`, `ops`,
   `registers`, `vectors`, `traps`, each with `--format text|jsonl`.
+* Loops: `loops` finds loops from backward branches and prints trips, instructions and cycles a trip
+  (median, range) and each PC's mean cycles over the trips; it takes the windows of the other commands.
 * Several models and sinks: `run`; saved JSON lines: `render`, `profile`.
 
 ## Documentation

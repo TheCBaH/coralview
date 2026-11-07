@@ -966,6 +966,32 @@ Not yet timed:
 These need the fetch and execution-unit blocks and the RVV backend layouts
 (next section).
 
+## loops: cycles a trip
+
+`coralview loops [--elf FILE] [window options] TRACE` reads the retired instructions of `commits` and
+finds loops by their backward branches: a conditional branch, or a `jal x0`, followed by a retirement at
+a PC at or below its own (a call links to `x1` and is not one). A trip runs from the last retirement of
+the header PC to the branch, both included; the last trip, which leaves through the same branch not
+taken, counts too. Cycles are the cycles `commits` charges, so they add up to the run's. Nested loops
+have their own trips, and an outer trip contains the inner ones.
+
+```
+loop 80000004 <body>, back edge at 80000008: 3 trips
+  instructions a trip 2 (2..2)
+  cycles a trip 3 (3..5)
+  cycles by trip: 5 3 3
+        pc  count cyc/trip  instruction
+  80000004      3    2.67  addi x10, x10, -1
+  80000008      3    1.00  bne x10, x0, -4
+```
+
+The statistics are median (lower middle) and range; `cycles by trip` shows trip to trip variation, such
+as a slow first trip. The window is by cycle (`--from-cycle`, `--to-cycle`, `--between-pc`,
+`--around-symbol`, `--entry`); `--pc` is ignored, since it would cut the trips apart. A trip that began
+before the window is not found. `--format jsonl` writes one `loops.loop` per loop, with every trip
+(`start`, `instructions`, `cycles`) and the totals by PC. A loop whose back edge is never taken is not
+found.
+
 ## Fitting a cycle model from one kernel
 
 A cycle estimate needs, for the kernel alone, what each class of

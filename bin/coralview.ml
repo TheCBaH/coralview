@@ -1535,6 +1535,41 @@ let commands =
                      });
                 List.iter (fun r -> print_endline (Codec.to_line Cost.row_jsont r)) rows)
         $ manifest $ window $ format $ output);
+    model "loops"
+      "Loops from backward branches: trips, instructions and cycles a trip, cycles by PC."
+      Term.(
+        const (fun features _manifest window format output p path ->
+            redirect output;
+            let c = resolve_between p path (ctx p ~features ~window ()) in
+            let window = c.window in
+            let pulled =
+              guard p (fun () -> Analysis.pull (module Commits) () p (open_trace path))
+            in
+            (* Only the cycle range: a PC filter would cut the trips apart. *)
+            let commits =
+              List.of_seq
+                (Seq.filter_map
+                   (function
+                     | Commits.Event.Commit k
+                       when k.retired >= window.first && k.retired <= window.last ->
+                         Some k
+                     | _ -> None)
+                   pulled.events)
+            in
+            let loops = Loops.detect commits in
+            match format with
+            | `Text ->
+                banner p;
+                Loops.text ~disasm:c.disasm ~symbol:c.symbol loops
+            | `Jsonl ->
+                print_endline
+                  (Codec.to_line Jsonl.header_jsont
+                     {
+                       (jsonl_header ~model:"loops" ~platform:p.name ~trace:path) with
+                       window = jsonl_window window;
+                     });
+                List.iter (fun l -> print_endline (Codec.to_line Loops.loop_jsont l)) loops)
+        $ features $ manifest $ window $ format $ output);
     model "axi" Axi.doc
       Term.(
         const (fun features manifest window limit profile format output p path ->
