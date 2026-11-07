@@ -341,3 +341,14 @@ The second instruction of this trace is changed to a mul:
   $ coralview commits --platform test-core.json --vector --format jsonl core.vcd
   --vector is for the text listing
   [2]
+
+The same sidecar labels the rows of `commits` (names need --elf):
+
+  $ printf 'first       the first function\n0x80000004-0x80000008 the nop\n' > labels.txt
+  $ coralview commits --platform test-core.json --elf core.elf --annotate labels.txt core.vcd | sed -n 3,4p
+         4 0 80000000 <first> 02a00513 addi x10, x0, 42                 x10=0000002a       3   2   4  # the first function
+         5 0 80000004 <second> 00000013 addi x0, x0, 0                                      3   -   1  # the nop
+  $ printf 'first x\n' > only-names.txt
+  $ coralview commits --platform test-core.json --annotate only-names.txt core.vcd
+  --annotate: first needs --elf
+  [2]

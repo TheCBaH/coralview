@@ -84,6 +84,8 @@ defined`: `make deps` removes it.
   `registers`, `vectors`, `traps`, each with `--format text|jsonl`.
 * Loops: `loops` finds loops from backward branches and prints trips, instructions and cycles a trip
   (median, range) and each PC's mean cycles over the trips; it takes the windows of the other commands.
+* `--annotate FILE` (`disasm`, `commits`) joins a sidecar of `symbol+offset` or address-range labels from the
+  producer of the code into the rows.
 * `summary` gives the figures of a window (instructions, cycles, data requests, vector operations,
   stall reasons) as text or one JSONL record.
 * `compare` puts two runs of one kernel side by side: both windows' summaries and the instructions whose

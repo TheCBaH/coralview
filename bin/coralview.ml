@@ -291,6 +291,22 @@ let profile_by = ref Text.Pc
 (* [--manifest FILE], read by [ctx] for the platform's instruction set. *)
 let manifest_file : string option ref = ref None
 
+(* [--annotate FILE]: labels for addresses, joined into the rows. *)
+let annotate_file : string option ref = ref None
+
+let annotation_labels ~functions =
+  match !annotate_file with
+  | None -> fun _ -> []
+  | Some file -> (
+      match Annotate.load ~functions file with
+      | Ok a -> Annotate.labels a
+      | Error e -> fail ~code:2 ("--annotate: " ^ e))
+
+let elf_functions name =
+  match !elf_symbols with
+  | None -> fail ~code:2 ("--annotate: " ^ name ^ " needs --elf")
+  | Some t -> List.map (fun (f : Symbols.func) -> (f.address, f.size)) (Symbols.find t name)
+
 let ctx (p : Platform.t) ?(features = None) ?(region = Region.none) ?(window = Text.everything)
     ?(limit = max_int) ?(profile = 0) ?(legend = false) ?(note = fun ~pc:_ ~cycle:_ -> None) () =
   if !profile_by = Text.Function && !elf_symbols = None then
@@ -324,6 +340,14 @@ let ctx (p : Platform.t) ?(features = None) ?(region = Region.none) ?(window = T
                     (extensions: %s); name them with --features to override"
                    word (String.concat " or " fs) c.name (String.concat ", " c.extensions)))
       | _ -> s
+  in
+  let note =
+    let labels = annotation_labels ~functions:elf_functions in
+    fun ~pc ~cycle ->
+      match (note ~pc ~cycle, labels pc) with
+      | n, [] -> n
+      | None, ls -> Some (String.concat "; " ls)
+      | Some n, ls -> Some (String.concat "; " (n :: ls))
   in
   {
     Text.root = Vcd_types.Reference.to_string (Platform.root p);
@@ -851,6 +875,21 @@ let profile =
             ~doc:"Print the $(docv) PCs (or classes, or functions) with the most cycles charged.")
     $ by)
 
+let annotate =
+  Term.(
+    const (fun f ->
+        annotate_file := f;
+        f)
+    $ Arg.(
+        value
+        & opt (some file) None
+        & info [ "annotate" ] ~docv:"FILE"
+            ~doc:
+              "Labels for addresses, one $(i,LOCATION LABEL) a line, joined into the rows as a \
+               trailing comment. A location is $(b,NAME) (a whole function), $(b,NAME+OFF), \
+               $(b,NAME+OFF-OFF) (offsets, the end exclusive) or $(b,0xADDR[-0xADDR]); names need \
+               an ELF. Lines starting with # are skipped."))
+
 let legend =
   Arg.(
     value & flag
@@ -1290,7 +1329,8 @@ let saved_platform =
     & info [ "platform"; "p" ] ~docv:"P"
         ~doc:"The platform, when the file's is not built in: as for the analyses.")
 
-let disasm features sections functions range no_padding vconfig summary format output path =
+let disasm features sections functions range no_padding vconfig summary annotate format output path
+    =
   redirect output;
   let d = decoder features in
   let data =
@@ -1301,6 +1341,20 @@ let disasm features sections functions range no_padding vconfig summary format o
   | Ok items -> (
       let items = if no_padding then Disasm.collapse_padding items else items in
       let items = if vconfig then Disasm.with_vconfig items else items in
+      let items =
+        match annotate with
+        | None -> items
+        | Some file -> (
+            let functions name =
+              match Symbols.of_string data with
+              | Ok t ->
+                  List.map (fun (f : Symbols.func) -> (f.address, f.size)) (Symbols.find t name)
+              | Error _ -> []
+            in
+            match Annotate.load ~functions file with
+            | Ok a -> Disasm.with_annotations (Annotate.labels a) items
+            | Error e -> fail ~code:2 ("--annotate: " ^ e))
+      in
       match (summary, format) with
       | true, `Text -> Format.printf "%a@?" Disasm.pp_summary (Disasm.summary items)
       | true, `Jsonl -> fail ~code:2 "--summary prints text only"
@@ -1430,6 +1484,7 @@ let commands =
                 ~doc:
                   "Print the instruction count by class for each $(b,FUNC) symbol instead of the \
                    listing.")
+        $ annotate
         $ Arg.(
             value
             & opt (enum [ ("text", `Text); ("jsonl", `Jsonl) ]) `Text
@@ -1608,7 +1663,9 @@ let commands =
             & info [] ~docv:"PATH" ~doc:"An absolute signal path, components separated by $(b,/)."));
     model "commits" "Retired instructions with values and per-instruction cycles."
       Term.(
-        const (fun features _manifest window limit profile legend vector format output p path ->
+        const
+          (fun
+            features _manifest window limit profile legend vector _annotate format output p path ->
             redirect output;
             if vector && format = `Jsonl then fail ~code:2 "--vector is for the text listing";
             let note = if vector then Some (vector_note p path) else None in
@@ -1625,7 +1682,7 @@ let commands =
                   "Append to each vector instruction's row the SEW, LMUL and $(b,vl) the RVV \
                    backend ran it under (the $(b,ops) model), and the $(b,disasm --vconfig) one \
                    with $(b,--elf) where they differ. Text only; the trace must be a file.")
-        $ format $ output);
+        $ annotate $ format $ output);
     model "stalls" Stalls.doc
       Term.(
         const (fun window profile format output p path ->

@@ -13,6 +13,7 @@ type line = {
   func : string option;
   target : string option;
   vconfig : string option;
+  annotation : string option;
 }
 
 type item = Label of string | Line of line | Padding of { address : int; words : int }
@@ -255,7 +256,18 @@ let listing decoder scope data =
                    let symbol = Option.map (fun l -> l.l_name) (name_at labels s.index address) in
                    let func = func_at labels s.index address in
                    out :=
-                     Line { address; word; text; instruction; symbol; func; target; vconfig = None }
+                     Line
+                       {
+                         address;
+                         word;
+                         text;
+                         instruction;
+                         symbol;
+                         func;
+                         target;
+                         vconfig = None;
+                         annotation = None;
+                       }
                      :: !out);
                 i := !i + 4
               end
@@ -294,15 +306,17 @@ let pp_text ppf items =
       | Padding { address; words } ->
           Format.fprintf ppf "  %08x  %d zero words (%d bytes)@\n" address words (4 * words)
       | Line l ->
-          Format.fprintf ppf "  %08x  %08x  %s%s%s@\n" l.address l.word l.text
+          Format.fprintf ppf "  %08x  %08x  %s%s%s%s@\n" l.address l.word l.text
             (match l.target with Some t -> "  " ^ t | None -> "")
-            (match l.vconfig with Some v -> "  # " ^ v | None -> ""))
+            (match l.vconfig with Some v -> "  # " ^ v | None -> "")
+            (match l.annotation with Some a -> "  ; " ^ a | None -> ""))
     items
 
 let line_jsont =
-  Jsont.Object.map ~kind:"disasm" (fun address word text mnemonic cls symbol target vconfig ->
+  Jsont.Object.map ~kind:"disasm"
+    (fun address word text mnemonic cls symbol target vconfig annotation ->
       ignore (mnemonic, cls);
-      { address; word; text; instruction = None; symbol; func = None; target; vconfig })
+      { address; word; text; instruction = None; symbol; func = None; target; vconfig; annotation })
   |> Jsont.Object.mem "address" Jsont.int ~enc:(fun l -> l.address)
   |> Jsont.Object.mem "word" Jsont.int ~enc:(fun l -> l.word)
   |> Jsont.Object.mem "text" Jsont.string ~enc:(fun l -> l.text)
@@ -318,6 +332,7 @@ let line_jsont =
   |> Codec.opt (fun l -> l.symbol) "symbol" Jsont.string
   |> Codec.opt (fun l -> l.target) "target" Jsont.string
   |> Codec.opt (fun l -> l.vconfig) "vconfig" Jsont.string
+  |> Codec.opt (fun l -> l.annotation) "annotation" Jsont.string
   |> Jsont.Object.finish
 
 let padding_jsont =
@@ -469,4 +484,14 @@ let with_vconfig items =
   flush !group;
   List.map
     (function Line l -> Line { l with vconfig = Hashtbl.find_opt annotated l.address } | i -> i)
+    items
+
+let with_annotations labels items =
+  List.map
+    (function
+      | Line l -> (
+          match labels l.address with
+          | [] -> Line l
+          | ls -> Line { l with annotation = Some (String.concat "; " ls) })
+      | i -> i)
     items

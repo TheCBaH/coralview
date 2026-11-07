@@ -1013,6 +1013,29 @@ The same figures are a library call, `Window_summary.of_trace platform ~window t
 `Hwfrp.Trace.t`: a file, a pipe, or events held in memory (`Hwfrp.In_memory`), as `hwfrp` hands them over.
 No subprocess or file is involved (`test/unit/test_in_memory.ml`).
 
+## --annotate: labels from the producer
+
+`disasm --annotate FILE` and `commits --annotate FILE` append labels from a sidecar to the rows, for a
+producer that knows where its code came from (a compiler that can say `kernel+0x6c` is the vector body of
+`residual_add`). The sidecar is text, one entry a line, `LOCATION LABEL`, the label being the rest of the
+line; blank lines and lines starting with `#` are skipped:
+
+```
+# where each part of kernel came from
+kernel+0x6c-0x8c   vector body of residual_add
+kernel+0x8c        loop back edge
+helper             shared helper
+0x80000130-0x80000134  helper prologue
+```
+
+A location is a function name (all of it), `NAME+OFF` (that byte), `NAME+OFF-OFF` (the offsets from the
+first up to, not including, the second; decimal or `0x` hexadecimal), or an address, `0xADDR` or
+`0xADDR-0xADDR` (eight hex digits also read as an address). Names need the ELF (`disasm`'s own, or
+`commits --elf`); an unknown function or a malformed line is an error with its line number. Entries may
+overlap: every label that covers the address is shown, in file order, as `; label` in `disasm` and
+`# … ; label` in `commits`; JSONL `disasm` has an `annotation` member. The flag is off by default and
+changes nothing without it. This format is the plan's proposal (tracker CV-D04), not a settled one.
+
 ## compare: two runs of one kernel
 
 `coralview compare --platform P [--elf A[,B]] [--around-symbol NA[,NB] | --entry NA[,NB]] [--top N] TRACE_A TRACE_B`

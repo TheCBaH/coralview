@@ -15,6 +15,7 @@ type line = {
   target : string option;
       (** [<name>] or [<name+0xN>] for the destination of a [jal] or a branch inside an executable section. *)
   vconfig : string option;  (** From {!with_vconfig}. *)
+  annotation : string option;  (** From {!with_annotations}. *)
 }
 
 type item =
@@ -64,3 +65,7 @@ val with_vconfig : item list -> item list
     agree on, like [e32,m4,ta,ma avl 16] ([avl x10] for a register, [max] for [x0], no avl where paths
     disagree), or [vtype unknown] where none does: no vset before it in the function, a call or a vsetvl in
     between, or two vtypes meeting. The analysis follows branches and jumps inside the FUNC symbol. *)
+
+val with_annotations : (int -> string list) -> item list -> item list
+(** Sets [annotation] on each line the function gives labels for, joined with ["; "]; printed as
+    [  ; label] after the other comments. *)
