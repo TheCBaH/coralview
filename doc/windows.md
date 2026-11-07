@@ -37,7 +37,7 @@ of the plan); the commits that follow implement it model by model.
   the window's cycles.
 - JSONL: the header gains `"window":{"first":…,"last":…,"pcs":[…]}` (`last`
   absent when unbounded), only when a window is given. It is an optional
-  member, so `schema_version` stays 1. The rows are the window's; the
+  member, so it did not change the schema version. The rows are the window's; the
   summary record stays the whole trace's, and totals over the window are the
   sums of the rows (without `--limit`).
 

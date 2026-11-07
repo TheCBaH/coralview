@@ -6,6 +6,7 @@ before its fault arrives in cycle 8; the CSRs are updated and the handler
 dispatched, but it never retires, so the trap is not delivered:
 
   $ coralview traps --platform trap-core.json traps.vcd
+  platform trap-core
          2 store fault: cause 7 (store access fault), pc 00000010, mtval 00000100
            csr      mcause/mepc/mtval hold them at 3
            pc       retired up to the fault never, after it at 3 as a trap

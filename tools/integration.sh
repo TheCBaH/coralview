@@ -63,7 +63,11 @@ analyses() {
   "$cv" signals --platform $platform --changes --to-cycle 600 "$@" "$trace" $signal > "$out/signals.txt"
   echo $? > "$out/signals.status"
   set -e
+  normalize "$out"/*.txt "$out"/*.jsonl
 }
+
+# An FST and a VCD name different writers: the simulator is not part of a comparison between them.
+normalize() { sed -i 's/^\(platform [^,]*\), simulator .*/\1/; s/,"simulator":"[^"]*"//' "$@"; }
 
 compare() { diff -r "$1" "$2" > "$d/diff.txt" || { head -40 "$d/diff.txt"; fail "$3"; }; }
 
@@ -112,6 +116,7 @@ stream)
     pipeline=$?
     set -e
     echo "$m: pipeline status $pipeline"
+    normalize "$d/piped/$m.txt"
     cmp "$d/piped/$m.txt" "$d/vcd/$m.txt" || fail "$m from a pipe differs from the saved VCD"
     [ "$pipeline" = "$(cat "$d/vcd/$m.status")" ] || fail "$m: pipeline status $pipeline, file status $(cat "$d/vcd/$m.status")"
   done
@@ -136,6 +141,7 @@ stream)
   # The same through --exec, which also records how the simulator ended.
   "$cv" commits --platform $platform --exec "'$vcd' --cycles=$cycles --binary='$elf' --trace_fd=3 > '$d/exec.log' 2>&1" - > "$d/exec.txt"
   tail -n 1 "$d/exec.txt" | grep -q '^# producer: complete, exited with status 0$' || fail "--exec: no complete status"
+  normalize "$d/exec.txt"
   sed '$d' "$d/exec.txt" | cmp - "$d/vcd/commits.txt" || fail "--exec: the results differ"
   set +e
   "$cv" commits --platform $platform --exec "'$vcd' --cycles=2000 --binary='$elf' --trace_fd=3 > '$d/exec.log' 2>&1" - > "$d/exec-cut.txt"
@@ -156,6 +162,7 @@ selected-stream)
       _ "$vcd" $cycles "$elf" "$d/plan/select" "$d/stream.log" "$cv" "$m" $platform "$d/plan/plan" > "$d/selected-$m.txt"
     pipeline=$?
     set -e
+    normalize "$d/selected-$m.txt"
     cmp "$d/selected-$m.txt" "$d/full/$m.txt" || fail "$m from a selected stream differs from the full FST"
     [ "$pipeline" = "$(cat "$d/full/$m.status")" ] || fail "$m: pipeline status $pipeline"
   done

@@ -157,6 +157,26 @@ let between_pc : (marker * int) option ref = ref None
 (* [--elf FILE]: the functions of the program, to name PCs and to find a function. *)
 let elf_symbols : Symbols.t option ref = ref None
 
+(* The simulator is only what the trace's own header says; nothing is assumed. *)
+let simulator = ref None
+
+let open_trace path =
+  let tr = Hwfrp_native.open_input ~select:!select path in
+  simulator :=
+    Option.map String.trim (Hwfrp.Trace.header tr).version
+    |> Option.map (fun v -> if v = "" then None else Some v)
+    |> Option.join;
+  tr
+
+let banner_line ~platform ~simulator =
+  Printf.sprintf "platform %s%s\n" platform
+    (match simulator with Some v -> ", simulator " ^ v | None -> "")
+
+let banner (p : Platform.t) = print_string (banner_line ~platform:p.name ~simulator:!simulator)
+
+let jsonl_header ~model ~platform ~trace =
+  { (Jsonl.header ~model ~platform ~trace) with simulator = !simulator }
+
 let resolve_between (p : Platform.t) path (ctx : Text.ctx) =
   match !between_pc with
   | None -> ctx
@@ -191,10 +211,7 @@ let resolve_between (p : Platform.t) path (ctx : Text.ctx) =
                       name,
                       "a ret of " ^ name )))
       in
-      let pulled =
-        guard p (fun () ->
-            Analysis.pull (module Commits) () p (Hwfrp_native.open_input ~select:!select path))
-      in
+      let pulled = guard p (fun () -> Analysis.pull (module Commits) () p (open_trace path)) in
       let seen = ref 0 and first = ref None and last = ref None in
       (try
          Seq.iter
@@ -240,19 +257,18 @@ let analyze (type k e s)
     (text : Text.ctx -> e list -> s -> unit) path =
   let ctx = resolve_between p path ctx in
   producer_status := if format = `Jsonl then `Jsonl else `Text;
-  let pulled =
-    guard p (fun () ->
-        Analysis.pull (module A) cfg p (Hwfrp_native.open_input ~select:!select path))
-  in
+  let pulled = guard p (fun () -> Analysis.pull (module A) cfg p (open_trace path)) in
   (match format with
-  | `Text -> text ctx (List.of_seq pulled.events) (pulled.summary ())
+  | `Text ->
+      banner p;
+      text ctx (List.of_seq pulled.events) (pulled.summary ())
   | `Jsonl ->
       let keep e =
         selected ctx.window ~cycle:(A.Event.cycle e) ~pc:(Option.value (A.Event.pc e) ~default:(-1))
       in
       Jsonl.write stdout
         {
-          (Jsonl.header ~model:A.name ~platform:p.name ~trace:path) with
+          (jsonl_header ~model:A.name ~platform:p.name ~trace:path) with
           window = jsonl_window ctx.window;
         }
         (module A)
@@ -263,7 +279,7 @@ let analyze (type k e s)
 let profile_by = ref Text.Pc
 
 let ctx p ?(features = None) ?(region = Region.none) ?(window = Text.everything) ?(limit = max_int)
-    ?(profile = 0) () =
+    ?(profile = 0) ?(legend = false) () =
   if !profile_by = Text.Function && !elf_symbols = None then
     fail ~code:2 "--profile-by function needs --elf";
   {
@@ -286,6 +302,7 @@ let ctx p ?(features = None) ?(region = Region.none) ?(window = Text.everything)
     window;
     limit;
     profile;
+    legend;
   }
 
 let signals platform ~raw ~format ~changes ~cycles:(from_cycle, to_cycle)
@@ -294,7 +311,7 @@ let signals platform ~raw ~format ~changes ~cycles:(from_cycle, to_cycle)
   producer_status := if jsonl then `Jsonl else `Text;
   if raw && !plan_path <> None then
     fail ~code:2 "--plan checks the sampled signals, which --raw does not build: drop --raw";
-  let tr = Hwfrp_native.open_input ~select:!select path in
+  let tr = open_trace path in
   (try Signals.require tr paths
    with Signals.Missing p -> fail ~code:3 ("no signal " ^ p ^ " in the trace"));
   let phase, run =
@@ -324,7 +341,7 @@ let signals platform ~raw ~format ~changes ~cycles:(from_cycle, to_cycle)
   if jsonl then
     print_endline
       (Codec.to_line Jsonl.header_jsont
-         (Jsonl.header ~model:Signals.model
+         (jsonl_header ~model:Signals.model
             ~platform:(if raw then "-" else (platform ()).name)
             ~trace:path));
   let print (r : Signals.record) =
@@ -467,9 +484,11 @@ let select_models (p : Platform.t) = function
 let check p names ~format path =
   let selected = select_models p names in
   let jsonl = format = `Jsonl and bound = ref 0 and failed = ref 0 in
+  ignore (open_trace path);
+  if not jsonl then banner p;
   if jsonl then
     print_endline
-      (Codec.to_line Jsonl.header_jsont (Jsonl.header ~model:"check" ~platform:p.name ~trace:path));
+      (Codec.to_line Jsonl.header_jsont (jsonl_header ~model:"check" ~platform:p.name ~trace:path));
   List.iter
     (fun m ->
       let tr = Hwfrp_native.open_file ~select:!select path in
@@ -560,7 +579,7 @@ let plan_command (p : Platform.t) names signal_paths catalogs dir producer ~form
   | `Jsonl ->
       print_endline
         (Codec.to_line Jsonl.header_jsont
-           (Jsonl.header ~model:"plan" ~platform:p.name ~trace:(List.hd catalogs)));
+           (jsonl_header ~model:"plan" ~platform:p.name ~trace:(List.hd catalogs)));
       List.iter
         (fun e -> print_endline (Codec.to_line Plan_view.signal_jsont (Plan_view.of_entry e)))
         entries;
@@ -766,6 +785,13 @@ let profile =
         & info [ "profile" ] ~docv:"N"
             ~doc:"Print the $(docv) PCs (or classes, or functions) with the most cycles charged.")
     $ by)
+
+let legend =
+  Arg.(
+    value & flag
+    & info [ "legend" ]
+        ~doc:
+          "Explain the columns of the row listing before it. The listing always has a header line.")
 
 let regions p = function
   | None -> Region.none
@@ -983,7 +1009,7 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
   in
   let ctx = resolve_between p path ctx in
   run_origins := Some models;
-  let tr = Hwfrp_native.open_input ~select:!select path in
+  let tr = open_trace path in
   let (Core.Any c) = Core.bind p tr ~model:"run" in
   let finishers =
     guard p (fun () ->
@@ -1011,7 +1037,7 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
                         output_string oc
                           (Codec.to_line Jsonl.header_jsont
                              {
-                               (Jsonl.header ~model:A.name ~platform:p.name ~trace:path) with
+                               (jsonl_header ~model:A.name ~platform:p.name ~trace:path) with
                                window = jsonl_window ctx.window;
                              });
                         output_char oc '\n';
@@ -1054,7 +1080,12 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
                       if oc == stdout then flush oc else close_out oc)
                     jsonl;
                   let events = List.rev !events in
-                  List.iter (fun f -> printing_to f (fun () -> text o ctx events s)) texts;
+                  List.iter
+                    (fun f ->
+                      printing_to f (fun () ->
+                          banner p;
+                          text o ctx events s))
+                    texts;
                   let section =
                     Option.map
                       (fun _ ->
@@ -1171,8 +1202,10 @@ let opts_ctx p o =
 
 (* A saved JSONL back to the text its model prints. *)
 let render p o file =
-  let (E { a = (module A); text; status; _ }) = entry file (read_jsonl file) in
+  let h = read_jsonl file in
+  let (E { a = (module A); text; status; _ }) = entry file h in
   let events, s = decode_jsonl (module A) file in
+  print_string (banner_line ~platform:h.platform ~simulator:h.simulator);
   text o (opts_ctx p o) events s;
   match status s with 0 -> () | n -> exit n
 
@@ -1355,14 +1388,14 @@ let commands =
             & info [] ~docv:"PATH" ~doc:"An absolute signal path, components separated by $(b,/)."));
     model "commits" "Retired instructions with values and per-instruction cycles."
       Term.(
-        const (fun features window limit profile format output p path ->
+        const (fun features window limit profile legend format output p path ->
             redirect output;
             analyze
               (module Commits)
               () p ~format
-              ~ctx:(ctx p ~features ~window ~limit ~profile ())
+              ~ctx:(ctx p ~features ~window ~limit ~profile ~legend ())
               Commits.text path)
-        $ features $ window $ limit $ profile $ format $ output);
+        $ features $ window $ limit $ profile $ legend $ format $ output);
     model "stalls" Stalls.doc
       Term.(
         const (fun window profile format output p path ->
@@ -1386,7 +1419,7 @@ let commands =
             if path = "-" then fail ~code:2 "cost reads the trace twice: name a file, not -";
             let c = resolve_between p path (ctx p ~region ~window ()) in
             let window = c.window in
-            let open_trace () = Hwfrp_native.open_input ~select:!select path in
+            let open_trace () = open_trace path in
             let commits =
               let pulled = Analysis.pull (module Commits) () p (open_trace ()) in
               List.of_seq
@@ -1403,12 +1436,14 @@ let commands =
             in
             let rows = Cost.join ~classify:c.instruction_class ~window commits accesses in
             match format with
-            | `Text -> Cost.text rows
+            | `Text ->
+                banner p;
+                Cost.text rows
             | `Jsonl ->
                 print_endline
                   (Codec.to_line Jsonl.header_jsont
                      {
-                       (Jsonl.header ~model:"cost" ~platform:p.name ~trace:path) with
+                       (jsonl_header ~model:"cost" ~platform:p.name ~trace:path) with
                        window = jsonl_window window;
                      });
                 List.iter (fun r -> print_endline (Codec.to_line Cost.row_jsont r)) rows)

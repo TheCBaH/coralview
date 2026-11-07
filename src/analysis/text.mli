@@ -33,6 +33,7 @@ type ctx = {
   window : window;
   limit : int;  (** Rows at most. *)
   profile : int;  (** Profile rows; 0 for none. *)
+  legend : bool;  (** Explain the columns of a row listing. *)
 }
 
 val stats : Hwfrp.Reduce.Stats.t -> string

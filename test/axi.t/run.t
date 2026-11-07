@@ -5,6 +5,7 @@ data is accepted before its address. A write response arrives for an ID with not
 the last read is not the address the LSU asked for and is never answered:
 
   $ coralview axi --platform axi-core.json --profile 3 axi.vcd
+  platform axi-core
      start   accept     done dir  id source addr                 bytes beats B/cycle out  origin
          1        3        6 R     0 lsu    20000000                16  1x16    2.67   1  pc 00000100 lw x10, 0(x10) (dispatched 0, op 1, retired 7)
          3        4        5 R     1 fetch  20001000                16  1x16    5.33   2  request 20001004
@@ -27,6 +28,7 @@ the last read is not the address the LSU asked for and is never answered:
 A window selects the transactions accepted in it, and the totals and profile follow:
 
   $ coralview axi --platform axi-core.json --from-cycle 4 --to-cycle 12 --profile 3 axi.vcd
+  platform axi-core
      start   accept     done dir  id source addr                 bytes beats B/cycle out  origin
          3        4        5 R     1 fetch  20001000                16  1x16    5.33   2  request 20001004
          8        9       11 W     0 lsu    20000010                 4  1x16    1.00   1  pc 00000104 sw x11, 16(x10) (dispatched 7, op 8, retired 9)
@@ -54,7 +56,7 @@ is pinned to, the unmatched ones as they came, and the summary. The window and t
 events; the summary covers the whole trace:
 
   $ coralview axi --platform axi-core.json --format jsonl --limit 2 axi.vcd
-  {"type":"coralview","schema_version":1,"model":"axi","platform":"axi-core","trace":"axi.vcd"}
+  {"type":"coralview","schema_version":2,"model":"axi","platform":"axi-core","trace":"axi.vcd"}
   {"type":"axi.transaction","transaction":{"id":0,"write":false,"address":536870912,"bytes":16,"beats":1,"requested":2,"accepted":3,"first_data":6,"completed":6,"status":0,"outstanding":1},"source":"lsu","origin":{"issued":1,"request":536870912,"write":false,"agrees":true,"instance":{"pc":256,"word":337155,"dispatched":0,"issued":1,"retired":7}},"burst":1,"beat_bytes":16}
   {"type":"axi.transaction","transaction":{"id":1,"write":false,"address":536875008,"bytes":16,"beats":1,"requested":4,"accepted":4,"first_data":5,"completed":5,"status":0,"outstanding":2},"source":"fetch","origin":{"issued":3,"request":536875012,"agrees":true},"burst":1,"beat_bytes":16}
   {"type":"axi.summary","cycles":21,"reads":3,"read_bytes":32,"writes":2,"write_bytes":8,"unmatched":1,"read_latency":{"n":2,"min":1,"max":3,"sum":4},"write_latency":{"n":2,"min":2,"max":2,"sum":4},"incomplete":1,"first":1,"last":20,"occupancy":[5,11,2],"max_reads":2,"max_writes":1,"sources":[{"id":0,"source":"lsu","transactions":4,"bytes":24,"pinned":4,"instances":4,"disagreeing":1},{"id":1,"source":"fetch","transactions":1,"bytes":16,"pinned":1,"instances":0,"disagreeing":0}],"resyncs":0,"words":[{"pc":256,"word":337155},{"pc":260,"word":11872291},{"pc":264,"word":33891587}]}
@@ -150,6 +152,7 @@ A Markdown report of the analyses run:
   Retired instructions with values and per-instruction cycles.
   
   ```text
+     cycle L pc       word     instruction                      dest             d>r d>w chg
   root TOP.core: 21 cycles, 0 before the first dispatch, 5 later with nothing in flight; 1 retires without dispatch, 0 dispatches skipped, 0 values missing, 1 in flight at the end
   in flight at the end, oldest first:
     dispatched       16 pc 00000108 02052503 lw x10, 32(x10)

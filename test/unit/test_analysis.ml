@@ -158,7 +158,7 @@ let%expect_test "JSONL" =
   Sys.remove file;
   [%expect
     {|
-    {"type":"coralview","schema_version":1,"model":"toy","platform":"toy-core","trace":"toy.vcd"}
+    {"type":"coralview","schema_version":2,"model":"toy","platform":"toy-core","trace":"toy.vcd"}
     {"type":"toy.dispatch","cycle":1,"pc":16}
     {"type":"toy.dispatch","cycle":2,"pc":20}
     {"type":"toy.dispatch","cycle":4,"pc":24}

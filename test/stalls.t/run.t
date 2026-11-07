@@ -4,6 +4,7 @@ hazard for two more cycles, with lane 1 behind it. Then both lanes run dry, and 
 instruction meets a halt:
 
   $ coralview stalls --platform stall-core.json --profile 3 stalls.vcd
+  platform stall-core
   root TOP.core: 6 cycles
   reason           lane0   lane1
   dispatched           2       0
@@ -20,6 +21,7 @@ In a window the breakdown counts the cycles of each span inside it, so the
 reasons add up to the window; spans are clipped at its edges:
 
   $ coralview stalls --platform stall-core.json --from-cycle 2 --to-cycle 4 --profile 3 stalls.vcd
+  platform stall-core
   root TOP.core: 6 cycles
   window [2, 4]: 6 lane-cycles
   reason           lane0   lane1

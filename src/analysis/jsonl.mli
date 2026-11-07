@@ -13,6 +13,7 @@ type header = {
   model : string;
   platform : string;
   trace : string;
+  simulator : string option;  (** The trace's own [$version], when it has one. *)
   window : window option;  (** Present only when the rows are a window's. *)
 }
 
@@ -22,8 +23,8 @@ val header : model:string -> platform:string -> trace:string -> header
 (** Without a window. *)
 
 val header_jsont : header Jsont.t
-(** [{"type":"coralview","schema_version":1,"model":…,"platform":…,"trace":…}], with
-    ["window":{"first":…,"last":…,"pcs":[…]}] after [trace] when the rows are a window's. *)
+(** [{"type":"coralview","schema_version":2,"model":…,"platform":…,"trace":…}], with
+    ["simulator":…] after [trace] when the trace names one, and ["window":{"first":…,"last":…,"pcs":[…]}] after [trace] when the rows are a window's. *)
 
 val write :
   out_channel ->

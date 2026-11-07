@@ -9,11 +9,14 @@ type header = {
   model : string;
   platform : string;
   trace : string;
+  simulator : string option;
   window : window option;
 }
 
-let schema_version = 1
-let header ~model ~platform ~trace = { schema_version; model; platform; trace; window = None }
+let schema_version = 2
+
+let header ~model ~platform ~trace =
+  { schema_version; model; platform; trace; simulator = None; window = None }
 
 let window_jsont =
   Jsont.Object.map ~kind:"window" (fun first last pcs -> { first; last; pcs })
@@ -23,12 +26,13 @@ let window_jsont =
   |> Jsont.Object.finish
 
 let header_jsont =
-  Codec.record "coralview" (fun schema_version model platform trace window ->
-      { schema_version; model; platform; trace; window })
+  Codec.record "coralview" (fun schema_version model platform trace simulator window ->
+      { schema_version; model; platform; trace; simulator; window })
   |> Jsont.Object.mem "schema_version" Jsont.int ~enc:(fun h -> h.schema_version)
   |> Jsont.Object.mem "model" Jsont.string ~enc:(fun h -> h.model)
   |> Jsont.Object.mem "platform" Jsont.string ~enc:(fun h -> h.platform)
   |> Jsont.Object.mem "trace" Jsont.string ~enc:(fun h -> h.trace)
+  |> Codec.opt (fun h -> h.simulator) "simulator" Jsont.string
   |> Codec.opt (fun h -> h.window) "window" window_jsont
   |> Jsont.Object.finish
 

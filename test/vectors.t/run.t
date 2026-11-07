@@ -4,6 +4,7 @@ instruction writes all of v1 and the high byte of v0, while the previous
 one retires v0. Each instruction retires a cycle after its writes:
 
   $ coralview vectors --platform vector-core.json vectors.vcd
+  platform vector-core
          1 port0 pc 00000100 v0  strobe 1 00ab
          2 port0 pc 00000104 v0  strobe 2 cd00
          2 port1 pc 00000104 v0  strobe 1 0011
@@ -23,6 +24,7 @@ The storage keeps the old low byte of v0 instead of port 1's write, and the
 instruction retiring v1 is not the one that wrote it:
 
   $ coralview vectors --platform vector-core.json --limit 0 bad.vcd
+  platform vector-core
   root TOP.core: 7 cycles, 5 vector register writes from 3 PCs
     pc 00000100: 1 writes to v0, cycles 1-1
     pc 00000104: 2 writes to v0, cycles 2-2

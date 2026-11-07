@@ -26,6 +26,7 @@ type ctx = {
   window : window;
   limit : int;
   profile : int;
+  legend : bool;  (** Explain the columns of a row listing. *)
 }
 
 let stats (s : Hwfrp.Reduce.Stats.t) =

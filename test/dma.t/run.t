@@ -3,6 +3,7 @@ chains to a second, which polls a word until it reads 1 before its beat; a write
 outside any:
 
   $ coralview dma --platform dma-sub.json --beats 2 dma.vcd
+  platform dma-sub
   job 1: started 3 by pc 00000104, descriptor 20006000
     descriptor 20006000 fetched 5-8: 20004000 -> 00010040, 4 bytes in 4-byte beats, next 20006020
     descriptor 20006020 fetched 14-17: 20004010 -> 00010050, 4 bytes in 4-byte beats, polls 20000100 & 000000ff = 00000001
@@ -26,6 +27,6 @@ As JSON lines, each job once it is done with, its beats as transactions, then th
   $ coralview dma --platform dma-sub.json --format jsonl dma.vcd | jq -c 'select(.type == "dma.job") | [.span, .pc, [.descriptors[] | [.src.address, .dst.address, .len]], (.beats | length), .observed]'
   [{"start":3,"stop":25},260,[[536887296,65600,4],[536887312,65616,4]],2,{"cycle":27,"pc":268}]
   $ coralview dma --platform dma-sub.json --format jsonl dma.vcd | jq -c 'select(.type != "dma.job")'
-  {"type":"coralview","schema_version":1,"model":"dma","platform":"dma-sub","trace":"dma.vcd"}
+  {"type":"coralview","schema_version":2,"model":"dma","platform":"dma-sub","trace":"dma.vcd"}
   {"type":"dma.stray","cycle":29,"what":"host write 00010060 with no job"}
   {"type":"dma.summary","cycles":32,"jobs":1,"bytes":8,"max_outstanding":1,"stray":1}

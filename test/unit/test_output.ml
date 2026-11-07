@@ -29,7 +29,7 @@ let%expect_test "events round-trip without a header" =
   assert (back = [ Ok commit; Ok in_flight ]);
   [%expect
     {|
-      {"type":"commits.commit","lane":0,"instance":{"pc":16,"word":19,"dispatched":1,"retired":3},"dest":{"reg":10,"value":7},"store":false,"trap":false,"charged":2}
+      {"type":"commits.commit","lane":0,"instance":{"pc":16,"word":19,"dispatched":1,"retired":3},"dest":{"reg":10,"value":7},"store":false,"trap":false,"charged":2,"dispatch_to_retire":2}
       {"type":"commits.in_flight","pc":20,"word":51,"dispatched":2,"charged":1}
     |}]
 

@@ -3,6 +3,7 @@ A vfmacc.vf (8 elements, 16 operations), a vle32.v, a vadd.vv from element 2 of 
 never dispatched. A second uop of the first vfmacc.vf, and a uop not taken, are not counted:
 
   $ coralview ops --platform ops-core.json --gap 3 --peak-window 4 --profile 5 ops.vcd
+  platform ops-core
   root TOP.core: 12 cycles, 6 vector instructions dispatched (1 not decoded)
     unit   instructions     elements          ops
     alu               3           14            4
@@ -25,6 +26,7 @@ never dispatched. A second uop of the first vfmacc.vf, and a uop not taken, are 
 A window counts the operations inside it and profiles only those:
 
   $ coralview ops --platform ops-core.json --gap 3 --peak-window 4 --from-cycle 4 --profile 5 ops.vcd
+  platform ops-core
   root TOP.core: 12 cycles, 6 vector instructions dispatched (1 not decoded)
     unit   instructions     elements          ops
     alu               3           14            4

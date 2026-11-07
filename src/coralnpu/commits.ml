@@ -43,6 +43,10 @@ let instance (c : commit) =
 module Event = struct
   type t = Commit of commit | In_flight of flight
 
+  (* Derived from the cycles above; read back from them, never from these members. *)
+  let delta later (c : commit) =
+    match (c.dispatched, later c) with Some d, Some l -> Some (l - d) | _ -> None
+
   let dest =
     Jsont.Object.map ~kind:"dest" (fun reg value -> (reg, value))
     |> Jsont.Object.mem "reg" Jsont.int ~enc:fst
@@ -51,7 +55,7 @@ module Event = struct
   let commit =
     Codec.case "commits.commit"
       (fun c -> Commit c)
-      (Jsont.Object.map (fun lane (i : Instance.t) written dest store trap charged ->
+      (Jsont.Object.map (fun lane (i : Instance.t) written dest store trap charged _ _ ->
            {
              lane;
              pc = i.pc;
@@ -66,11 +70,13 @@ module Event = struct
            })
       |> Jsont.Object.mem "lane" Jsont.int ~enc:(fun (c : commit) -> c.lane)
       |> Jsont.Object.mem "instance" Instance.jsont ~enc:instance
-      |> Codec.opt (fun (c : commit) -> c.written) "written" Jsont.int
+      |> Codec.opt (fun (c : commit) -> c.written) "writeback" Jsont.int
       |> Codec.opt (fun (c : commit) -> c.dest) "dest" dest
       |> Jsont.Object.mem "store" Jsont.bool ~enc:(fun (c : commit) -> c.store)
       |> Jsont.Object.mem "trap" Jsont.bool ~enc:(fun (c : commit) -> c.trap)
       |> Jsont.Object.mem "charged" Jsont.int ~enc:(fun (c : commit) -> c.charged)
+      |> Codec.opt (delta (fun (c : commit) -> Some c.retired)) "dispatch_to_retire" Jsont.int
+      |> Codec.opt (delta (fun (c : commit) -> c.written)) "dispatch_to_writeback" Jsont.int
       |> Jsont.Object.finish)
 
   let in_flight =
@@ -331,8 +337,24 @@ let profile (ctx : Text.ctx) events (s : Summary.t) =
               (float r.total /. float r.count)
               (disasm (IM.find r.key words)))
 
+let legend =
+  [
+    "cycle   the cycle the instruction retired";
+    "L       the retire lane";
+    "pc      the PC, with <function+offset> given --elf";
+    "word    the instruction word, ???????? when it is not known";
+    "instr   the disassembly";
+    "dest    the register written and its value (store for a store, ? for a value not seen)";
+    "d>r     cycles from dispatch to retire (JSONL: dispatch_to_retire), - without a dispatch";
+    "d>w     cycles from dispatch to writeback (JSONL: dispatch_to_writeback), - without a write";
+    "chg     cycles charged to the instruction (JSONL: charged); they sum to the run's cycles";
+  ]
+
 let text (ctx : Text.ctx) events (s : Summary.t) =
   let shown = ref 0 in
+  if ctx.legend then List.iter (fun l -> Printf.printf "  %s\n" l) legend;
+  Printf.printf "%8s %s %-8s %-8s %-32s %-16s %3s %3s %3s\n" "cycle" "L" "pc" "word" "instruction"
+    "dest" "d>r" "d>w" "chg";
   let disasm w = match w with Some w -> ctx.disasm w | None -> "?" in
   let delta a b = match (a, b) with Some a, Some b -> string_of_int (b - a) | _ -> "-" in
   let commits = commits events in

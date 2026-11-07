@@ -3,6 +3,7 @@ stored in the register file one sample later and retired. The pipeline flushes i
 register file, the scoreboards and the retirements agree:
 
   $ coralview registers --platform reg-core.json registers.vcd
+  platform reg-core
   root TOP.core: 7 cycles
   registers.storage                 2 comparisons, 0 failures
   registers.scoreboard             69 comparisons, 0 failures
@@ -16,7 +17,7 @@ As JSON lines: every register at the first sample (the initial state), each chan
 storage, each flush, and at the end the comparisons made over the whole trace:
 
   $ coralview registers --platform reg-core.json --format jsonl registers.vcd | grep -v '"type":"registers.summary"'
-  {"type":"coralview","schema_version":1,"model":"registers","platform":"reg-core","trace":"registers.vcd"}
+  {"type":"coralview","schema_version":2,"model":"registers","platform":"reg-core","trace":"registers.vcd"}
   {"type":"registers.write","cycle":0,"reg":1,"value":0}
   {"type":"registers.write","cycle":0,"reg":2,"value":0}
   {"type":"registers.write","cycle":0,"reg":3,"value":0}
@@ -29,6 +30,7 @@ storage, each flush, and at the end the comparisons made over the whole trace:
 bad.vcd stores 9 in x2 where 7 was written back and retired:
 
   $ coralview registers --platform reg-core.json bad.vcd
+  platform reg-core
   root TOP.core: 7 cycles
   registers.storage                 2 comparisons, 1 failures
   registers.scoreboard             69 comparisons, 0 failures

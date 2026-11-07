@@ -188,6 +188,7 @@ cycle on the cycle's dispatched, written and retired lanes, keeps:
 
 ```
 $ coralview commits --platform vme-core-mini-axi --limit 6 --profile 5 matrix.fst
+   cycle L pc       word     instruction                      dest             d>r d>w chg
      407 0 00000000 b0205073 csrwi minstret, 0                                   1   -   2
      409 0 00000004 b8205073 csrwi minstreth, 0                                  1   -   2
      411 0 00000008 b0202573 csrr x10, minstret               x10=00000000       1   1   2
@@ -216,9 +217,14 @@ The columns are:
    and Coral's `mpause` (feature `xcoralsys`); `.word` where no form
    matches;
 6. destination and value;
-7. dispatch→retire cycles;
-8. dispatch→writeback cycles;
-9. cycles charged.
+7. `d>r`: dispatch→retire cycles (JSONL `dispatch_to_retire`);
+8. `d>w`: dispatch→writeback cycles (JSONL `dispatch_to_writeback`);
+9. `chg`: cycles charged (JSONL `charged`).
+
+A header line names the columns; `--legend` prints this list before the
+rows. In the JSONL the cycle of the writeback is `writeback`, and the two
+differences are written beside the absolute `instance.dispatched` and
+`instance.retired`; a reader may ignore them.
 
 The "10 values missing" are the vector loads: their results go to the
 vector register file, which the mini cores do not expose at retirement.
@@ -765,9 +771,12 @@ $ coralview signals --platform core-mini-axi --changes --from-cycle 600 trap-x0.
 Every analysis command (`commits`, `stalls`, `memory`, `axi`, `dma`,
 `tiles`, `registers`, `vectors`, `traps`) and `check` and `signals` take:
 
-- `--format text` (the default): the tables shown in this document;
+- `--format text` (the default): the tables shown in this document, after a
+  first line `platform NAME`, with `, simulator VERSION` when the trace's own
+  `$version` names one (nothing is assumed otherwise; the JSONL header gets a
+  `simulator` member in the same case);
 - `--format jsonl`: JSON Lines, one object per line, each with a `type`:
-  - a header, `{"type":"coralview","schema_version":1,"model":…,"platform":…,"trace":…}`;
+  - a header, `{"type":"coralview","schema_version":2,"model":…,"platform":…,"trace":…}`;
   - the analysis' events, in the order it produces them, as
     `<model>.<record>` (`axi.transaction`, `stalls.span`, …), selected by
     `--from-cycle`, `--to-cycle`, `--pc` and `--limit` as the text rows are;
@@ -856,8 +865,9 @@ For a program that reads the lines without the library:
   the events follow in the order the analysis produced them, then the
   diagnostics, then the summary. A reader should accept diagnostics
   anywhere and a file with no header or summary.
-- `schema_version` is 1. It is there for readers to check; coralview does
-  not enforce it yet.
+- `schema_version` is 2. It is there for readers to check; coralview does
+  not enforce it yet. Version 2 renamed `commits.commit` `written` to
+  `writeback` and added `dispatch_to_retire` and `dispatch_to_writeback`.
 - Integers are JSON numbers: cycles, addresses and PCs. A `cycle` counts
   the samples of the platform's clock; a `time` is the trace's timestamp.
 - `span` is `{"start", "stop"}` in cycles, both included; `stop` is left
@@ -884,7 +894,7 @@ axi.transaction: beat_bytes burst origin.agrees origin.instance.dispatched origi
 axi.unmatched: cycle id what write
 check.binding: actual model path purpose root status width
 check.summary: bound failed
-commits.commit: charged dest.reg dest.value instance.dispatched instance.pc instance.retired instance.word lane store trap written
+commits.commit: charged dest.reg dest.value dispatch_to_retire dispatch_to_writeback instance.dispatched instance.pc instance.retired instance.word lane store trap writeback
 commits.summary: before cycles empty in_flight missing_values skipped unmatched_retires
 coralview: model platform schema_version trace
 diag: code cycle message paths[] severity source time

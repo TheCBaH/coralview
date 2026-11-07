@@ -17,6 +17,7 @@ A platform description for a one-lane test core. Every signal its blocks
 imply is in core.vcd:
 
   $ coralview check --platform test-core.json core.vcd
+  platform test-core
   commits at TOP.core
     bound   io_aclk 1: core clock
     bound   io_debug_dispatch_0_instFire 1: dispatch lane fires
@@ -34,6 +35,8 @@ Two instructions dispatched in cycles 1 and 2; x10 is written back in cycle 3,
 then they retire in cycles 4 and 5, the second without a destination:
 
   $ coralview commits --platform test-core.json --profile 2 core.vcd
+  platform test-core
+     cycle L pc       word     instruction                      dest             d>r d>w chg
          4 0 80000000 02a00513 addi x10, x0, 42                 x10=0000002a       3   2   4
          5 0 80000004 00000013 addi x0, x0, 0                                      3   -   1
   root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
@@ -41,14 +44,47 @@ then they retire in cycles 4 and 5, the second without a destination:
   80000000      1       4  50.0%     3.00  addi x10, x0, 42
   80000004      1       1  12.5%     3.00  addi x0, x0, 0
 
+Every listing starts with a header line; --legend explains its columns, and
+names the JSONL members the cycle columns are written as:
+
+  $ coralview commits --platform test-core.json --legend --limit 0 core.vcd | head -11
+  platform test-core
+    cycle   the cycle the instruction retired
+    L       the retire lane
+    pc      the PC, with <function+offset> given --elf
+    word    the instruction word, ???????? when it is not known
+    instr   the disassembly
+    dest    the register written and its value (store for a store, ? for a value not seen)
+    d>r     cycles from dispatch to retire (JSONL: dispatch_to_retire), - without a dispatch
+    d>w     cycles from dispatch to writeback (JSONL: dispatch_to_writeback), - without a write
+    chg     cycles charged to the instruction (JSONL: charged); they sum to the run's cycles
+     cycle L pc       word     instruction                      dest             d>r d>w chg
+
+Every text report starts with the platform, and with the simulator when the
+trace's own header names one; a trace that does not is not given a default:
+
+  $ (echo '$version Verilator 5.032 $end'; cat core.vcd) > versioned.vcd
+  $ coralview commits --platform test-core.json --limit 0 versioned.vcd | head -1
+  platform test-core, simulator Verilator 5.032
+  $ coralview cost --platform test-core.json versioned.vcd | head -1
+  platform test-core describes no lsu block
+  $ coralview commits --platform test-core.json --format jsonl --limit 0 versioned.vcd | head -1
+  {"type":"coralview","schema_version":2,"model":"commits","platform":"test-core","trace":"versioned.vcd","simulator":"Verilator 5.032"}
+  $ coralview commits --platform test-core.json --limit 0 core.vcd | head -1
+  platform test-core
+
 Rows can be selected by cycle and PC; the totals still cover the whole
 run:
 
   $ coralview commits --platform test-core.json --pc 80000004 core.vcd
+  platform test-core
+     cycle L pc       word     instruction                      dest             d>r d>w chg
          5 0 80000004 00000013 addi x0, x0, 0                                      3   -   1
   root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
   window [0, end] pc 80000004: 1 commits, 1 cycles charged
   $ coralview commits --platform test-core.json --to-cycle 4 core.vcd
+  platform test-core
+     cycle L pc       word     instruction                      dest             d>r d>w chg
          4 0 80000000 02a00513 addi x10, x0, 42                 x10=0000002a       3   2   4
   root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
   window [0, 4]: 1 commits, 4 cycles charged
@@ -58,12 +94,16 @@ inside it, and a profile whose shares are of those cycles. Without a window
 none of this is printed:
 
   $ coralview commits --platform test-core.json --to-cycle 4 --profile 2 core.vcd
+  platform test-core
+     cycle L pc       word     instruction                      dest             d>r d>w chg
          4 0 80000000 02a00513 addi x10, x0, 42                 x10=0000002a       3   2   4
   root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
   window [0, 4]: 1 commits, 4 cycles charged
         pc  count  cycles  share     d->r  instruction
   80000000      1       4 100.0%     3.00  addi x10, x0, 42
   $ coralview commits --platform test-core.json --pc 80000004 --profile 2 core.vcd
+  platform test-core
+     cycle L pc       word     instruction                      dest             d>r d>w chg
          5 0 80000004 00000013 addi x0, x0, 0                                      3   -   1
   root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
   window [0, end] pc 80000004: 1 commits, 1 cycles charged
@@ -76,6 +116,8 @@ next of the second, both included. It is a first pass over the trace, and
 the second PC has to retire after the first:
 
   $ coralview commits --platform test-core.json --between-pc 80000000,80000004 core.vcd
+  platform test-core
+     cycle L pc       word     instruction                      dest             d>r d>w chg
          4 0 80000000 02a00513 addi x10, x0, 42                 x10=0000002a       3   2   4
          5 0 80000004 00000013 addi x0, x0, 0                                      3   -   1
   root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
@@ -110,9 +152,9 @@ The same retirements as JSON lines, filtered alike; the summary covers
 the whole run:
 
   $ coralview commits --platform test-core.json --format jsonl core.vcd
-  {"type":"coralview","schema_version":1,"model":"commits","platform":"test-core","trace":"core.vcd"}
-  {"type":"commits.commit","lane":0,"instance":{"pc":2147483648,"word":44041491,"dispatched":1,"retired":4},"written":3,"dest":{"reg":10,"value":42},"store":false,"trap":false,"charged":4}
-  {"type":"commits.commit","lane":0,"instance":{"pc":2147483652,"word":19,"dispatched":2,"retired":5},"store":false,"trap":false,"charged":1}
+  {"type":"coralview","schema_version":2,"model":"commits","platform":"test-core","trace":"core.vcd"}
+  {"type":"commits.commit","lane":0,"instance":{"pc":2147483648,"word":44041491,"dispatched":1,"retired":4},"writeback":3,"dest":{"reg":10,"value":42},"store":false,"trap":false,"charged":4,"dispatch_to_retire":3,"dispatch_to_writeback":2}
+  {"type":"commits.commit","lane":0,"instance":{"pc":2147483652,"word":19,"dispatched":2,"retired":5},"store":false,"trap":false,"charged":1,"dispatch_to_retire":3}
   {"type":"commits.summary","cycles":8,"before":1,"empty":2,"unmatched_retires":0,"skipped":0,"missing_values":0,"in_flight":0,"pending":[]}
   $ coralview commits --platform test-core.json --format jsonl --pc 80000004 core.vcd | jq -c 'select(.type == "commits.commit") | .instance'
   {"pc":2147483652,"word":19,"dispatched":2,"retired":5}
@@ -139,6 +181,7 @@ description, which is a hard error:
 Nor does a valid signal of the wrong width:
 
   $ coralview check --platform test-core.json wide.vcd
+  platform test-core
   platform test-core does not match the trace (model commits):
     width   io_debug_rb_inst_0_valid 2, expected 1: retirement lane valid
   [3]
@@ -189,11 +232,11 @@ The retirements as a Kanata log for Konata, each instruction from its dispatch t
 In JSON lines the header says which window the rows are of; a whole-trace header has none:
 
   $ coralview commits --platform test-core.json --format jsonl --to-cycle 4 --pc 80000000 core.vcd | head -n 1
-  {"type":"coralview","schema_version":1,"model":"commits","platform":"test-core","trace":"core.vcd","window":{"first":0,"last":4,"pcs":[2147483648]}}
+  {"type":"coralview","schema_version":2,"model":"commits","platform":"test-core","trace":"core.vcd","window":{"first":0,"last":4,"pcs":[2147483648]}}
   $ coralview commits --platform test-core.json --format jsonl --from-cycle 5 core.vcd | head -n 1
-  {"type":"coralview","schema_version":1,"model":"commits","platform":"test-core","trace":"core.vcd","window":{"first":5,"pcs":[]}}
+  {"type":"coralview","schema_version":2,"model":"commits","platform":"test-core","trace":"core.vcd","window":{"first":5,"pcs":[]}}
   $ coralview commits --platform test-core.json --format jsonl core.vcd | head -n 1
-  {"type":"coralview","schema_version":1,"model":"commits","platform":"test-core","trace":"core.vcd"}
+  {"type":"coralview","schema_version":2,"model":"commits","platform":"test-core","trace":"core.vcd"}
 
 The profile by instruction class, from the trace and from its JSON lines (render takes the
 words from the rows):
@@ -211,6 +254,8 @@ The ELF here has two functions of one instruction each:
 
   $ ../../tools/mkelf.exe core.elf 80000000 first:4 second:4
   $ coralview commits --platform test-core.json --elf core.elf core.vcd
+  platform test-core
+     cycle L pc       word     instruction                      dest             d>r d>w chg
          4 0 80000000 <first> 02a00513 addi x10, x0, 42                 x10=0000002a       3   2   4
          5 0 80000004 <second> 00000013 addi x0, x0, 0                                      3   -   1
   root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end

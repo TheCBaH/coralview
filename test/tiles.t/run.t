@@ -2,6 +2,7 @@ A tile load into tile 1 sub-tile 2, then two writes by the PE array into tile 3 
 of its upper two bytes only:
 
   $ coralview tiles --platform tile-core.json tiles.vcd
+  platform tile-core
          0 blk0 port0 load        tile  1 sub  2 mask 000f 11223344
          2 blk0 port0 pc 00000200 tile  3 sub  0 mask 000f aabbccdd
          3 blk0 port0 pc 00000200 tile  3 sub  0 mask 000c 55660000
@@ -12,6 +13,7 @@ of its upper two bytes only:
 In a window the writes and the PCs are the window's:
 
   $ coralview tiles --platform tile-core.json --from-cycle 2 tiles.vcd
+  platform tile-core
          2 blk0 port0 pc 00000200 tile  3 sub  0 mask 000f aabbccdd
          3 blk0 port0 pc 00000200 tile  3 sub  0 mask 000c 55660000
   root TOP.core: 3 sub-tile writes; 2 of 256 sub-tiles written
