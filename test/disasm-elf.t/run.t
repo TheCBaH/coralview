@@ -1,4 +1,4 @@
-Two images from the Coral NPU release the devcontainer pins (v0.0.8, examples/), kept here as they ship:
+Two images from the Coral NPU release the devcontainer pins (v0.0.10, examples/), kept here as they ship:
 matrix.elf, whose Zvt matrix words the toolchain writes as .word and
 marks as data, and rvv_fp.elf, with scalar and vector floating point. The listing is the expected
 output of the whole of matrix.elf.

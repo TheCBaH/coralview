@@ -27,6 +27,6 @@ As JSON lines, each job once it is done with, its beats as transactions, then th
   $ coralview dma --platform dma-sub.json --format jsonl dma.vcd | jq -c 'select(.type == "dma.job") | [.span, .pc, [.descriptors[] | [.src.address, .dst.address, .len]], (.beats | length), .observed]'
   [{"start":3,"stop":25},260,[[536887296,65600,4],[536887312,65616,4]],2,{"cycle":27,"pc":268}]
   $ coralview dma --platform dma-sub.json --format jsonl dma.vcd | jq -c 'select(.type != "dma.job")'
-  {"type":"coralview","schema_version":2,"model":"dma","platform":"dma-sub","trace":"dma.vcd"}
+  {"type":"coralview","schema_version":3,"model":"dma","platform":"dma-sub","trace":"dma.vcd"}
   {"type":"dma.stray","cycle":29,"what":"host write 00010060 with no job"}
   {"type":"dma.summary","cycles":32,"jobs":1,"bytes":8,"max_outstanding":1,"stray":1}

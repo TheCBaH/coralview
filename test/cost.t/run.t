@@ -6,18 +6,18 @@ is made in cycle 3, between its dispatch and retirement:
   platform cost-core
   class        region      count  cycles     d->r
   alu          -               1       4     3.00
-  mem          tcm             1       1     3.00
+  mem          mem             1       1     3.00
 
 A window selects the retirements it covers and states itself in the header:
 
   $ coralview cost --platform cost-core.json --format jsonl --between-pc 80000000,80000004 cost.vcd
-  {"type":"coralview","schema_version":2,"model":"cost","platform":"cost-core","trace":"cost.vcd","window":{"first":4,"last":5,"pcs":[]}}
+  {"type":"coralview","schema_version":3,"model":"cost","platform":"cost-core","trace":"cost.vcd","window":{"first":4,"last":5,"pcs":[]}}
   {"type":"cost.row","class":"alu","region":"-","count":1,"cycles":4,"d_to_r":3}
-  {"type":"cost.row","class":"mem","region":"tcm","count":1,"cycles":1,"d_to_r":3}
+  {"type":"cost.row","class":"mem","region":"mem","count":1,"cycles":1,"d_to_r":3}
 
   $ coralview cost --platform cost-core.json --format jsonl --from-cycle 5 cost.vcd
-  {"type":"coralview","schema_version":2,"model":"cost","platform":"cost-core","trace":"cost.vcd","window":{"first":5,"pcs":[]}}
-  {"type":"cost.row","class":"mem","region":"tcm","count":1,"cycles":1,"d_to_r":3}
+  {"type":"coralview","schema_version":3,"model":"cost","platform":"cost-core","trace":"cost.vcd","window":{"first":5,"pcs":[]}}
+  {"type":"cost.row","class":"mem","region":"mem","count":1,"cycles":1,"d_to_r":3}
 
 `--entry` drops what runs before a function, here the addi before the store:
 
@@ -25,7 +25,7 @@ A window selects the retirements it covers and states itself in the header:
   $ coralview cost --platform cost-core.json --elf cost.elf --entry kernel cost.vcd
   platform cost-core
   class        region      count  cycles     d->r
-  mem          tcm             1       1     3.00
+  mem          mem             1       1     3.00
 
 `summary` gives the figures of a window in one record: the instructions and cycles charged, the data
 requests, and (on platforms that have those models) vector operations and dispatch stall reasons:
@@ -36,5 +36,5 @@ requests, and (on platforms that have those models) vector operations and dispat
     instructions 2, cycles charged 5
     data requests: 0 loads, 1 stores
   $ coralview summary --platform cost-core.json --format jsonl --from-cycle 5 cost.vcd
-  {"type":"coralview","schema_version":2,"model":"summary","platform":"cost-core","trace":"cost.vcd","window":{"first":5,"pcs":[]}}
+  {"type":"coralview","schema_version":3,"model":"summary","platform":"cost-core","trace":"cost.vcd","window":{"first":5,"pcs":[]}}
   {"type":"summary.window","first":5,"instructions":1,"cycles":1,"loads":0,"stores":0}

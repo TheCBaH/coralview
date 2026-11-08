@@ -1,5 +1,5 @@
 #!/bin/bash
-# Writes cost.vcd to stdout: the commits signals of platform.t's core.vcd and the LSU's TCM bus and slot PC.
+# Writes cost.vcd to stdout: the commits signals of platform.t's core.vcd and the LSU's TileLink-UL port and slot PC.
 # Cycle N is set at the falling edge #(2N+2); a value holds until changed.
 vars=(
   "1 df io_debug_dispatch_0_instFire" "32 da io_debug_dispatch_0_instAddr" "32 di io_debug_dispatch_0_instInst"
@@ -8,10 +8,9 @@ vars=(
   "5 wa io_debug_regfile_writeData_0_bits_addr" "32 wd io_debug_regfile_writeData_0_bits_data"
 )
 lsu=(
-  "1 tv io_dbus_valid" "1 tr io_dbus_ready" "1 tw io_dbus_write" "32 ta io_dbus_addr"
-  "16 tm io_dbus_wmask" "128 td io_dbus_wdata" "128 tq io_dbus_rdata"
-  "1 ev io_ebus_dbus_valid" "1 er io_ebus_dbus_ready" "1 ew io_ebus_dbus_write" "32 ea io_ebus_dbus_addr"
-  "16 em io_ebus_dbus_wmask" "128 ed io_ebus_dbus_wdata" "128 eq io_ebus_dbus_rdata"
+  "1 av io_tlul_a_valid" "1 ar io_tlul_a_ready" "3 ao io_tlul_a_bits_opcode" "4 az io_tlul_a_bits_size"
+  "6 as io_tlul_a_bits_source" "32 aa io_tlul_a_bits_address" "16 am io_tlul_a_bits_mask" "128 ad io_tlul_a_bits_data"
+  "1 dv io_tlul_d_valid" "6 ds io_tlul_d_bits_source" "128 dd io_tlul_d_bits_data" "1 de io_tlul_d_bits_error"
   "1 fv io_fault_valid" "1 fw io_fault_bits_write" "32 fa io_fault_bits_addr" "32 fe io_fault_bits_epc"
 )
 declare -A width
@@ -52,8 +51,8 @@ cycles=(
   ""
   "df 1 da 80000000 di 02a00513"
   "da 80000004 di 00a5a023"
-  "df 0 wv 1 wa a wd 2a tv 1 tr 1 tw 1 ta 10000 tm 000f td deadbeef ep 80000004"
-  "wv 0 tv 0 tw 0 rv 1 rp 80000000 ri a"
+  "df 0 wv 1 wa a wd 2a av 1 ar 1 ao 1 az 2 as 0 aa 10000 am 000f ad deadbeef ep 80000004"
+  "wv 0 av 0 rv 1 rp 80000000 ri a"
   "rp 80000004 ri 7f"
   "rv 0"
 )

@@ -23,7 +23,7 @@ val header : model:string -> platform:string -> trace:string -> header
 (** Without a window. *)
 
 val header_jsont : header Jsont.t
-(** [{"type":"coralview","schema_version":2,"model":…,"platform":…,"trace":…}], with
+(** [{"type":"coralview","schema_version":3,"model":…,"platform":…,"trace":…}], with
     ["simulator":…] after [trace] when the trace names one, and ["window":{"first":…,"last":…,"pcs":[…]}] after [trace] when the rows are a window's. *)
 
 val write :

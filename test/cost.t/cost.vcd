@@ -13,20 +13,18 @@ $var wire 1 wv io_debug_regfile_writeData_0_valid $end
 $var wire 5 wa io_debug_regfile_writeData_0_bits_addr $end
 $var wire 32 wd io_debug_regfile_writeData_0_bits_data $end
 $scope module lsu $end
-$var wire 1 tv io_dbus_valid $end
-$var wire 1 tr io_dbus_ready $end
-$var wire 1 tw io_dbus_write $end
-$var wire 32 ta io_dbus_addr $end
-$var wire 16 tm io_dbus_wmask $end
-$var wire 128 td io_dbus_wdata $end
-$var wire 128 tq io_dbus_rdata $end
-$var wire 1 ev io_ebus_dbus_valid $end
-$var wire 1 er io_ebus_dbus_ready $end
-$var wire 1 ew io_ebus_dbus_write $end
-$var wire 32 ea io_ebus_dbus_addr $end
-$var wire 16 em io_ebus_dbus_wmask $end
-$var wire 128 ed io_ebus_dbus_wdata $end
-$var wire 128 eq io_ebus_dbus_rdata $end
+$var wire 1 av io_tlul_a_valid $end
+$var wire 1 ar io_tlul_a_ready $end
+$var wire 3 ao io_tlul_a_bits_opcode $end
+$var wire 4 az io_tlul_a_bits_size $end
+$var wire 6 as io_tlul_a_bits_source $end
+$var wire 32 aa io_tlul_a_bits_address $end
+$var wire 16 am io_tlul_a_bits_mask $end
+$var wire 128 ad io_tlul_a_bits_data $end
+$var wire 1 dv io_tlul_d_valid $end
+$var wire 6 ds io_tlul_d_bits_source $end
+$var wire 128 dd io_tlul_d_bits_data $end
+$var wire 1 de io_tlul_d_bits_error $end
 $var wire 1 fv io_fault_valid $end
 $var wire 1 fw io_fault_bits_write $end
 $var wire 32 fa io_fault_bits_addr $end
@@ -51,20 +49,18 @@ b0 rt
 b0 wv
 b0 wa
 b0 wd
-b0 tv
-b0 tr
-b0 tw
-b0 ta
-b0 tm
-b0 td
-b0 tq
-b0 ev
-b0 er
-b0 ew
-b0 ea
-b0 em
-b0 ed
-b0 eq
+b0 av
+b0 ar
+b0 ao
+b0 az
+b0 as
+b0 aa
+b0 am
+b0 ad
+b0 dv
+b0 ds
+b0 dd
+b0 de
 b0 fv
 b0 fw
 b0 fa
@@ -96,20 +92,21 @@ b0 df
 b1 wv
 b01010 wa
 b00000000000000000000000000101010 wd
-b1 tv
-b1 tr
-b1 tw
-b00000000000000010000000000000000 ta
-b0000000000001111 tm
-b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000011011110101011011011111011101111 td
+b1 av
+b1 ar
+b001 ao
+b0010 az
+b000000 as
+b00000000000000010000000000000000 aa
+b0000000000001111 am
+b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000011011110101011011011111011101111 ad
 b10000000000000000000000000000100 ep
 #9
 1ck
 #10
 0ck
 b0 wv
-b0 tv
-b0 tw
+b0 av
 b1 rv
 b10000000000000000000000000000000 rp
 b0001010 ri

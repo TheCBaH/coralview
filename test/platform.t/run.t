@@ -69,7 +69,7 @@ trace's own header names one; a trace that does not is not given a default:
   $ coralview cost --platform test-core.json versioned.vcd | head -1
   platform test-core describes no lsu block
   $ coralview commits --platform test-core.json --format jsonl --limit 0 versioned.vcd | head -1
-  {"type":"coralview","schema_version":2,"model":"commits","platform":"test-core","trace":"versioned.vcd","simulator":"Verilator 5.032"}
+  {"type":"coralview","schema_version":3,"model":"commits","platform":"test-core","trace":"versioned.vcd","simulator":"Verilator 5.032"}
   $ coralview commits --platform test-core.json --limit 0 core.vcd | head -1
   platform test-core
 
@@ -152,7 +152,7 @@ The same retirements as JSON lines, filtered alike; the summary covers
 the whole run:
 
   $ coralview commits --platform test-core.json --format jsonl core.vcd
-  {"type":"coralview","schema_version":2,"model":"commits","platform":"test-core","trace":"core.vcd"}
+  {"type":"coralview","schema_version":3,"model":"commits","platform":"test-core","trace":"core.vcd"}
   {"type":"commits.commit","lane":0,"instance":{"pc":2147483648,"word":44041491,"dispatched":1,"retired":4},"writeback":3,"dest":{"reg":10,"value":42},"store":false,"trap":false,"charged":4,"dispatch_to_retire":3,"dispatch_to_writeback":2}
   {"type":"commits.commit","lane":0,"instance":{"pc":2147483652,"word":19,"dispatched":2,"retired":5},"store":false,"trap":false,"charged":1,"dispatch_to_retire":3}
   {"type":"commits.summary","cycles":8,"before":1,"empty":2,"unmatched_retires":0,"skipped":0,"missing_values":0,"in_flight":0,"pending":[]}
@@ -232,11 +232,11 @@ The retirements as a Kanata log for Konata, each instruction from its dispatch t
 In JSON lines the header says which window the rows are of; a whole-trace header has none:
 
   $ coralview commits --platform test-core.json --format jsonl --to-cycle 4 --pc 80000000 core.vcd | head -n 1
-  {"type":"coralview","schema_version":2,"model":"commits","platform":"test-core","trace":"core.vcd","window":{"first":0,"last":4,"pcs":[2147483648]}}
+  {"type":"coralview","schema_version":3,"model":"commits","platform":"test-core","trace":"core.vcd","window":{"first":0,"last":4,"pcs":[2147483648]}}
   $ coralview commits --platform test-core.json --format jsonl --from-cycle 5 core.vcd | head -n 1
-  {"type":"coralview","schema_version":2,"model":"commits","platform":"test-core","trace":"core.vcd","window":{"first":5,"pcs":[]}}
+  {"type":"coralview","schema_version":3,"model":"commits","platform":"test-core","trace":"core.vcd","window":{"first":5,"pcs":[]}}
   $ coralview commits --platform test-core.json --format jsonl core.vcd | head -n 1
-  {"type":"coralview","schema_version":2,"model":"commits","platform":"test-core","trace":"core.vcd"}
+  {"type":"coralview","schema_version":3,"model":"commits","platform":"test-core","trace":"core.vcd"}
 
 The profile by instruction class, from the trace and from its JSON lines (render takes the
 words from the rows):

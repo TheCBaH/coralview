@@ -10,6 +10,6 @@
     "dispatch_debug": { "scope": [], "lanes": 1 },
     "retirement_debug": { "scope": [], "lanes": 1, "idx_width": 7, "trap": true },
     "regfile_writeback": { "scope": [], "ports": 1 },
-    "lsu": { "scope": ["lsu"], "tcm_ready": true }
+    "lsu": { "scope": ["lsu"], "port": { "prefix": "io_tlul_", "data_bytes": 16, "d_ready": false } }
   }
 }

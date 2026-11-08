@@ -23,11 +23,8 @@ module Config = struct
 end
 
 module Event = struct
-  type bus = Tcm | External
-
   type access = {
     cycle : int;  (** Of the request. *)
-    bus : bus;
     pc : int;
     access : Access.t;  (** [bytes]: the lanes selected. *)
     lanes : int list;
@@ -45,15 +42,11 @@ module Event = struct
 
   type t = Access of access | Fault of fault
 
-  let bus = Jsont.enum ~kind:"bus" [ ("tcm", Tcm); ("external", External) ]
-
   let access =
     Codec.case "memory.access"
       (fun a -> Access a)
-      (Jsont.Object.map (fun cycle bus pc access lanes data ->
-           { cycle; bus; pc; access; lanes; data })
+      (Jsont.Object.map (fun cycle pc access lanes data -> { cycle; pc; access; lanes; data })
       |> Jsont.Object.mem "cycle" Jsont.int ~enc:(fun (a : access) -> a.cycle)
-      |> Jsont.Object.mem "bus" bus ~enc:(fun a -> a.bus)
       |> Jsont.Object.mem "pc" Jsont.int ~enc:(fun (a : access) -> a.pc)
       |> Jsont.Object.mem "access" Access.jsont ~enc:(fun a -> a.access)
       |> Jsont.Object.mem "lanes" Jsont.(list int) ~enc:(fun a -> a.lanes)
@@ -108,9 +101,18 @@ let value (a : Event.access) =
   |> fst
 
 let lanes_of_mask m = List.filter (fun b -> (m lsr b) land 1 = 1) (List.init 16 Fun.id)
-let word_at addr = List.init 4 (fun k -> (addr land 15) + k) |> List.filter (fun b -> b < 16)
+
+(* TileLink-UL masks the lanes of a read as it does a write's. *)
+let lanes (r : Tlul.request) =
+  match lanes_of_mask r.mask with
+  | [] ->
+      let lane = r.address land 15 in
+      List.init (min r.size (16 - lane)) (fun k -> lane + k)
+  | l -> l
 
 type state = {
+  tl : Tlul.state;
+  pcs_of : int IM.t;  (** The PC of each request awaiting its response, by source. *)
   last_request : (int * int) RM.t;  (** By PC and direction: cycle and address. *)
   reads : int;
   writes : int;
@@ -118,13 +120,59 @@ type state = {
   faults : int;
 }
 
-let step ~region s (accesses, fault) =
+let access ~region (t : Tlul.transaction) pc data =
+  let lanes = lanes t.request in
+  {
+    Event.cycle = t.accepted;
+    pc;
+    access =
+      {
+        address = t.request.address;
+        bytes = List.length lanes;
+        write = not (Tlul.is_get t.request);
+        region = Region.find region t.request.address;
+      };
+    lanes;
+    data;
+  }
+
+(* A write is complete at its request; a read, when its response brings the data. *)
+let accesses ~region s pc events =
+  let pcs_of, out =
+    List.fold_left
+      (fun (pcs_of, out) -> function
+        | Tlul.Accepted t ->
+            let pcs_of = IM.add t.request.source pc pcs_of in
+            if Tlul.is_get t.request then (pcs_of, out)
+            else (pcs_of, access ~region t pc t.request.data :: out)
+        | Responded t ->
+            let source = t.request.source in
+            let at = Option.value (IM.find_opt source pcs_of) ~default:pc in
+            let pcs_of = IM.remove source pcs_of in
+            if Tlul.is_get t.request then (pcs_of, access ~region t at t.response :: out)
+            else (pcs_of, out)
+        | Unmatched _ -> (pcs_of, out))
+      (s.pcs_of, []) events
+  in
+  (pcs_of, List.rev out)
+
+let step ~region ~port s cycle (sample, pc, fault) =
+  let tl, events = Tlul.step port s.tl cycle sample in
+  let pcs_of, accesses = accesses ~region s pc events in
+  let last_request =
+    List.fold_left
+      (fun m -> function
+        | Tlul.Accepted t ->
+            RM.add (pc, not (Tlul.is_get t.request)) (t.accepted, t.request.address) m
+        | Responded _ | Unmatched _ -> m)
+      s.last_request events
+  in
+  let s = { s with tl; pcs_of; last_request } in
   let s =
     List.fold_left
       (fun s (a : Event.access) ->
         {
           s with
-          last_request = RM.add (a.pc, a.access.write) (a.cycle, a.access.address) s.last_request;
           reads = (s.reads + if a.access.write then 0 else 1);
           writes = (s.writes + if a.access.write then 1 else 0);
           pcs = IM.add a.pc () s.pcs;
@@ -154,54 +202,11 @@ let build (cfg : Config.t) (c : _ Core.t) =
   let sc = Core.scope c l.lsu_scope in
   let b n = Bind.signal sc n Bind.bool and u n = Bind.signal sc n Bind.uint in
   let pc = Core.signal c l.lsu_scope "slot/io_pc" Bind.uint in
-  let request bus prefix ~fire =
-    let open Sig in
-    let+ fire = fire
-    and+ pc = pc
-    and+ addr = u (prefix ^ "addr")
-    and+ write = b (prefix ^ "write")
-    and+ wmask = u (prefix ^ "wmask")
-    and+ wdata = Bind.signal sc (prefix ^ "wdata") Bind.bits in
-    if fire then Some (bus, pc, addr, write, wmask, wdata) else None
+  let port =
+    Tlul.bind sc
+      { prefix = l.port.tl_prefix; d_ready = l.port.d_ready }
+      ~data_bytes:l.port.tl_data_bytes
   in
-  let tcm =
-    request Event.Tcm "io_dbus_"
-      ~fire:
-        (if l.tcm_ready then Sig.map2 ( && ) (b "io_dbus_valid") (b "io_dbus_ready")
-         else b "io_dbus_valid")
-  in
-  let ext =
-    request Event.External "io_ebus_dbus_"
-      ~fire:(Sig.map2 ( && ) (b "io_ebus_dbus_valid") (b "io_ebus_dbus_ready"))
-  in
-  let rdata = Bind.signal sc "io_dbus_rdata" Bind.bits
-  and erdata = Bind.signal sc "io_ebus_dbus_rdata" Bind.bits in
-  (* A read's data is on the bus in the cycle after its request. *)
-  let complete req ~rdata =
-    let open Sig in
-    let+ prev = pre ~init:None req and+ now = req and+ rdata = rdata and+ cycle = cycle c.clk in
-    let acc (bus, pc, address, write, wmask, data) cycle =
-      let lanes = if write then lanes_of_mask wmask else word_at address in
-      {
-        Event.cycle;
-        bus;
-        pc;
-        access =
-          { address; bytes = List.length lanes; write; region = Region.find cfg.region address };
-        lanes;
-        data;
-      }
-    in
-    let writes = match now with Some ((_, _, _, true, _, _) as r) -> [ acc r cycle ] | _ -> [] in
-    let reads =
-      match prev with
-      | Some (bus, pc, addr, false, wmask, _) ->
-          [ acc (bus, pc, addr, false, wmask, rdata) (cycle - 1) ]
-      | _ -> []
-    in
-    reads @ writes
-  in
-  let all = Sig.map2 ( @ ) (complete tcm ~rdata) (complete ext ~rdata:erdata) in
   let faults =
     let open Sig in
     let+ valid = b "io_fault_valid"
@@ -211,16 +216,30 @@ let build (cfg : Config.t) (c : _ Core.t) =
     and+ cycle = cycle c.clk in
     if valid then Some (cycle, epc, addr, write) else None
   in
+  let input =
+    let open Sig in
+    let+ tl = Tlul.sample port and+ pc = pc and+ f = faults in
+    (tl, pc, f)
+  in
   let out, st =
     Machine.run
       {
         name;
-        init = { last_request = RM.empty; reads = 0; writes = 0; pcs = IM.empty; faults = 0 };
-        step = (fun ~tick:_ s x -> step ~region:cfg.region s x);
+        init =
+          {
+            tl = Tlul.init;
+            pcs_of = IM.empty;
+            last_request = RM.empty;
+            reads = 0;
+            writes = 0;
+            pcs = IM.empty;
+            faults = 0;
+          };
+        step = (fun ~tick s x -> step ~region:cfg.region ~port s tick.index x);
         finish = (fun _ -> []);
         every_tick = true;
       }
-      (Sig.map2 (fun a f -> (a, f)) all faults)
+      input
   in
   let summary _ =
     let s = Sig.peek st in
@@ -252,6 +271,8 @@ module Accumulator = struct
 end
 
 let text (ctx : Text.ctx) events (s : Summary.t) =
+  (* A read is emitted with its response, after later writes: show them in request order. *)
+  let events = List.stable_sort (fun a b -> compare (Event.cycle a) (Event.cycle b)) events in
   let region = Region.suffix ctx.region in
   let shown = ref 0 in
   List.iter
@@ -267,8 +288,7 @@ let text (ctx : Text.ctx) events (s : Summary.t) =
       | Access a ->
           if Text.selected ctx.window ~cycle:a.cycle ~pc:a.pc && !shown < ctx.limit then begin
             incr shown;
-            Printf.printf "%8d %s %s pc %08x addr %08x%s %d bytes %0*x\n" a.cycle
-              (match a.bus with Tcm -> "tcm" | External -> "ext")
+            Printf.printf "%8d %s pc %08x addr %08x%s %d bytes %0*x\n" a.cycle
               (if a.access.write then "W" else "R")
               a.pc a.access.address (region a.access.address) (List.length a.lanes)
               (2 * List.length a.lanes)

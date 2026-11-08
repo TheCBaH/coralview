@@ -23,7 +23,7 @@ A trace of `addi x10, x0, 3` and then three trips of a two-instruction loop (`ad
 As JSON lines, the trips with their start cycle, and the PCs with their totals:
 
   $ coralview loops --platform loop-core.json --format jsonl loop.vcd
-  {"type":"coralview","schema_version":2,"model":"loops","platform":"test-core","trace":"loop.vcd"}
+  {"type":"coralview","schema_version":3,"model":"loops","platform":"test-core","trace":"loop.vcd"}
   {"type":"loops.loop","header":2147483652,"tail":2147483656,"trips":[{"start":11,"instructions":2,"cycles":5},{"start":14,"instructions":2,"cycles":3},{"start":17,"instructions":2,"cycles":3}],"pcs":[{"pc":2147483652,"word":4294247699,"count":3,"cycles":8},{"pc":2147483656,"word":4261748451,"count":3,"cycles":3}]}
 
 With the ELF the header PC gets its function; a window leaves out the trips before it (a trip
@@ -56,7 +56,7 @@ by offset from it:
          4      1       1      3       8      +7  addi x0, x0, 0 | addi x10, x10, -1
          8      -       -      3       3      +3  - | bne x10, x0, -4
   $ coralview compare --platform loop-core.json --elf cmp.elf --entry first --format jsonl core.vcd loop.vcd
-  {"type":"coralview","schema_version":2,"model":"compare","platform":"test-core","trace":"core.vcd,loop.vcd"}
+  {"type":"coralview","schema_version":3,"model":"compare","platform":"test-core","trace":"core.vcd,loop.vcd"}
   {"type":"compare.summary","a":{"type":"summary.window","first":4,"instructions":2,"cycles":5},"b":{"type":"summary.window","first":3,"instructions":7,"cycles":15,"hot_loop":{"header":2147483652,"trips":3,"cycles_per_trip":3}}}
   {"type":"compare.pc","offset":4,"a":{"count":1,"cycles":1,"text":"addi x0, x0, 0"},"b":{"count":3,"cycles":8,"text":"addi x10, x10, -1"},"delta":7}
   {"type":"compare.pc","offset":8,"b":{"count":3,"cycles":3,"text":"bne x10, x0, -4"},"delta":3}

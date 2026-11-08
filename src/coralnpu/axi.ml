@@ -227,6 +227,9 @@ module Summary = struct
     |> Jsont.Object.finish
 end
 
+(* A request of a tracked originator, from its acceptance on channel A to its response on D. *)
+type tracked = { r_addr : int; r_write : bool option; r_pc : int option; r_since : int }
+
 (* The originator's request at the address handshake. *)
 type pin = {
   issued : int;
@@ -252,7 +255,8 @@ type totals = {
   t_incomplete : int;
   t_first : int;
   t_last : int;
-  t_sources : (int * int * int * int * int) SM.t;
+  t_sources : (int * int * int * int * int * int) SM.t;
+      (** By source name: counts and the lowest ID. *)
   t_pcs : unit IM.t;
 }
 
@@ -262,6 +266,8 @@ type state = {
   recent : (int * int option * int) list IM.t;  (** Per source: operations issued lately. *)
   resyncs : int;
   began : ((int * bool option * int option) * int) IM.t;  (** Per source: the request and since. *)
+  tracked : tracked IM.t IM.t;
+      (** Per tracked source: its outstanding requests, by TileLink source. *)
   retirement : int PM.t;  (** By PC and dispatch cycle, of the PCs [queued]. *)
   queued : unit IM.t;  (** The PCs that entered an originator's queue: only they can be pinned. *)
   words : int IM.t;  (** By PC. *)
@@ -294,9 +300,9 @@ let account ~cycles tot (t : Event.transaction) =
       }
   in
   let count f = match t.origin with Some o when f o -> 1 | _ -> 0 in
-  let key = (tx.id, Option.value t.source ~default:"?") in
-  let n, b, pinned, instance, disagree =
-    Option.value (SM.find_opt key tot.t_sources) ~default:(0, 0, 0, 0, 0)
+  let key = match t.source with Some n -> (0, n) | None -> (tx.id, "?") in
+  let n, b, pinned, instance, disagree, id =
+    Option.value (SM.find_opt key tot.t_sources) ~default:(0, 0, 0, 0, 0, tx.id)
   in
   let instance' (o : Origin.t) =
     match o.instance with Some i -> i.dispatched <> None | None -> false
@@ -312,31 +318,53 @@ let account ~cycles tot (t : Event.transaction) =
           b + tx.bytes,
           pinned + count (fun _ -> true),
           instance + count instance',
-          disagree + count (fun (o : Origin.t) -> not o.agrees) )
+          disagree + count (fun (o : Origin.t) -> not o.agrees),
+          min id tx.id )
         tot.t_sources;
     t_pcs =
       (match Event.pc (Transaction t) with Some pc -> IM.add pc () tot.t_pcs | None -> tot.t_pcs);
   }
 
-let origin_of (t : Transaction.t) origins s cycle =
-  match List.assoc_opt t.id origins with
-  | Some (align, true, _, ((addr, w, pc) as req)) ->
-      let issued =
-        match IM.find_opt t.id s.began with Some (r, at) when r = req -> at | _ -> cycle
+(* The source an ID belongs to: the IDs [id_mask] selects are [source_id]. *)
+let source_of sources id =
+  List.find_opt (fun (x : Platform.axi_source) -> id land x.id_mask = x.source_id) sources
+
+let origin_of ~sources (t : Transaction.t) origins s cycle =
+  match source_of sources t.id with
+  | None -> None
+  | Some src -> (
+      let pin ~align ~issued (addr, w, pc) =
+        let agrees =
+          addr land lnot (align - 1) = t.address && Option.fold ~none:true ~some:(( = ) t.write) w
+        in
+        let dispatched, started =
+          match (pc, IM.find_opt src.source_id s.recent) with
+          | Some pc, Some recent -> (
+              match List.find_opt (fun (p, _, at) -> p = pc && at <= issued) recent with
+              | Some (_, d, at) -> (d, Some at)
+              | None -> (None, None))
+          | _ -> (None, None)
+        in
+        Some { issued; pc; dispatched; started; o_addr = addr; o_write = w; agrees }
       in
-      let agrees =
-        addr land lnot (align - 1) = t.address && Option.fold ~none:true ~some:(( = ) t.write) w
-      in
-      let dispatched, started =
-        match (pc, IM.find_opt t.id s.recent) with
-        | Some pc, Some recent -> (
-            match List.find_opt (fun (p, _, at) -> p = pc && at <= issued) recent with
-            | Some (_, d, at) -> (d, Some at)
-            | None -> (None, None))
-        | _ -> (None, None)
-      in
-      Some { issued; pc; dispatched; started; o_addr = addr; o_write = w; agrees }
-  | _ -> None
+      match List.assoc_opt src.source_id origins with
+      | Some (align, _, _, _, Some _) -> (
+          (* The ID's low bits are the request's TileLink source. *)
+          let low = t.id land lnot src.id_mask in
+          let outstanding = Option.value (IM.find_opt src.source_id s.tracked) ~default:IM.empty in
+          match
+            List.find_opt (fun (k, _) -> k land lnot src.id_mask = low) (IM.bindings outstanding)
+          with
+          | Some (_, r) -> pin ~align ~issued:r.r_since (r.r_addr, r.r_write, r.r_pc)
+          | None -> None)
+      | Some (align, true, _, ((_, _, _) as req), None) ->
+          let issued =
+            match IM.find_opt src.source_id s.began with
+            | Some (r, at) when r = req -> at
+            | _ -> cycle
+          in
+          pin ~align ~issued req
+      | _ -> None)
 
 let event ~source ~region s p =
   let instance pin pc =
@@ -430,15 +458,31 @@ let rec release ~source ~region s out =
         (Event.Transaction t :: out)
   | _ -> (s, out)
 
-let step ~source ~region s cycle (sample, origins, queues, commits) =
+let step ~sources ~source ~region s cycle (sample, origins, queues, commits) =
   let s = retire s commits in
   let s = ops_step s cycle queues in
+  (* A tracked request is outstanding from its acceptance to its response, so it is there when its
+     transaction is accepted, some cycles later. *)
+  let s =
+    List.fold_left
+      (fun s (id, (_, valid, ready, ((addr, write, pc) as req), tr)) ->
+        match tr with
+        | Some (source, _) when valid && ready ->
+            let r_since =
+              match IM.find_opt id s.began with Some (r, at) when r = req -> at | _ -> cycle
+            in
+            let r = { r_addr = addr; r_write = write; r_pc = pc; r_since } in
+            let m = Option.value (IM.find_opt id s.tracked) ~default:IM.empty in
+            { s with tracked = IM.add id (IM.add source r m) s.tracked }
+        | _ -> s)
+      s origins
+  in
   let axi, evs = Axi4.step s.axi cycle sample in
   let s, out, accepted, completed =
     List.fold_left
       (fun (s, out, a, d) -> function
         | Axi4.Accepted (txn, x) ->
-            let p = { txn; x; pin = origin_of txn origins s cycle; complete = false } in
+            let p = { txn; x; pin = origin_of ~sources txn origins s cycle; complete = false } in
             ({ s with outbox = IM.add x.serial p s.outbox }, out, a + 1, d)
         | Done (txn, x) ->
             let outbox =
@@ -457,12 +501,20 @@ let step ~source ~region s cycle (sample, origins, queues, commits) =
   (* A request lasts while valid with the same address, direction and PC, until it is ready. *)
   let began =
     List.fold_left
-      (fun began (id, (_, valid, ready, req)) ->
+      (fun began (id, (_, valid, ready, req, _)) ->
         match IM.find_opt id began with
         | _ when (not valid) || ready -> IM.remove id began
         | Some (r, _) when r = req -> began
         | _ -> IM.add id (req, cycle) began)
       s.began origins
+  in
+  let tracked =
+    List.fold_left
+      (fun tracked (id, (_, _, _, _, tr)) ->
+        match tr with
+        | Some (_, Some d) -> IM.update id (Option.map (IM.remove d)) tracked
+        | _ -> tracked)
+      s.tracked origins
   in
   let count = s.live + accepted and seen = s.seen || accepted > 0 in
   let add k n h =
@@ -477,6 +529,7 @@ let step ~source ~region s cycle (sample, origins, queues, commits) =
     {
       s with
       began;
+      tracked;
       live = s.live + accepted - completed;
       seen;
       occupancy;
@@ -528,6 +581,7 @@ let init =
     recent = IM.empty;
     resyncs = 0;
     began = IM.empty;
+    tracked = IM.empty;
     retirement = PM.empty;
     queued = IM.empty;
     words = IM.empty;
@@ -564,8 +618,22 @@ let build (cfg : Config.t) (c : _ Core.t) =
             and+ ready = Bind.signal os o.o_ready Bind.bool
             and+ addr = Bind.signal os o.o_addr Bind.uint
             and+ write = opt o.o_write Bind.bool
+            and+ opcode =
+              match o.track with
+              | Some { t_opcode = Some n; _ } -> Sig.map Option.some (Bind.signal os n Bind.uint)
+              | _ -> Sig.const c.clk None
+            and+ tr =
+              match o.track with
+              | Some t ->
+                  let open Sig in
+                  let+ source = Bind.signal os t.t_source Bind.uint
+                  and+ d_valid = Bind.signal os t.t_response Bind.bool
+                  and+ d_source = Bind.signal os t.t_response_source Bind.uint in
+                  Some (source, if d_valid then Some d_source else None)
+              | None -> Sig.const c.clk None
             and+ pc = opt o.o_pc Bind.uint in
-            (s.source_id, (o.align, valid, ready, (addr, write, pc))))
+            let write = match opcode with Some op -> Some (op <> 4) | None -> write in
+            (s.source_id, (o.align, valid, ready, (addr, write, pc), tr)))
           s.origin)
       a.sources
     |> Sig.all
@@ -597,8 +665,7 @@ let build (cfg : Config.t) (c : _ Core.t) =
   let ar = Axi4.addr sc (wire "read_addr") in
   let aw = Axi4.addr sc (wire "write_addr") in
   let source id =
-    List.find_opt (fun (s : Platform.axi_source) -> s.source_id = id) a.sources
-    |> Option.map (fun (s : Platform.axi_source) -> s.source)
+    source_of a.sources id |> Option.map (fun (s : Platform.axi_source) -> s.source)
   in
   let region = cfg.region in
   let input =
@@ -614,7 +681,7 @@ let build (cfg : Config.t) (c : _ Core.t) =
       {
         name;
         init;
-        step = (fun ~tick s x -> step ~source ~region s tick.index x);
+        step = (fun ~tick s x -> step ~sources:a.sources ~source ~region s tick.index x);
         finish = flush ~source ~region;
         every_tick = true;
       }
@@ -658,9 +725,11 @@ let build (cfg : Config.t) (c : _ Core.t) =
       max_writes;
       sources =
         List.map
-          (fun ((id, source), (transactions, bytes, pinned, instances, disagreeing)) ->
+          (fun ((_, source), (transactions, bytes, pinned, instances, disagreeing, id)) ->
             { Summary.id; source; transactions; bytes; pinned; instances; disagreeing })
-          (SM.bindings tot.t_sources);
+          (SM.bindings tot.t_sources)
+        |> List.sort (fun (a : Summary.source) (b : Summary.source) ->
+            compare (a.id, a.source) (b.id, b.source));
       resyncs = s.resyncs;
       words =
         List.filter_map
@@ -707,9 +776,11 @@ module Accumulator = struct
       first = (if tot.t_reads + tot.t_writes > 0 then Some tot.t_first else None);
       sources =
         List.map
-          (fun ((id, source), (transactions, bytes, pinned, instances, disagreeing)) ->
+          (fun ((_, source), (transactions, bytes, pinned, instances, disagreeing, id)) ->
             { Summary.id; source; transactions; bytes; pinned; instances; disagreeing })
-          (SM.bindings tot.t_sources);
+          (SM.bindings tot.t_sources)
+        |> List.sort (fun (a : Summary.source) (b : Summary.source) ->
+            compare (a.id, a.source) (b.id, b.source));
     }
 
   let snapshot_jsont =

@@ -7,6 +7,6 @@
   "clock": "io_aclk",
   "sample": "after_falling",
   "blocks": {
-    "lsu": { "scope": ["lsu"], "tcm_ready": true }
+    "lsu": { "scope": ["lsu"], "port": { "prefix": "io_tlul_", "data_bytes": 16, "d_ready": false } }
   }
 }

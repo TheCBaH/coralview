@@ -1,11 +1,11 @@
 #!/bin/bash
-# Writes memory.vcd to stdout: a clock and the LSU's TCM and external data buses and fault port, and the PC of its slot, set at
-# each falling edge.
+# Writes memory.vcd to stdout: a clock, the LSU's TileLink-UL port (channel A and D), its fault port, and the PC of
+# its slot, set at each falling edge.
 vars=(
-  "1 tv io_dbus_valid" "1 tr io_dbus_ready" "1 tw io_dbus_write" "32 ta io_dbus_addr"
-  "16 tm io_dbus_wmask" "128 td io_dbus_wdata" "128 tq io_dbus_rdata"
-  "1 ev io_ebus_dbus_valid" "1 er io_ebus_dbus_ready" "1 ew io_ebus_dbus_write" "32 ea io_ebus_dbus_addr"
-  "16 em io_ebus_dbus_wmask" "128 ed io_ebus_dbus_wdata" "128 eq io_ebus_dbus_rdata"
+  "1 av io_tlul_a_valid" "1 ar io_tlul_a_ready" "3 ao io_tlul_a_bits_opcode" "4 az io_tlul_a_bits_size"
+  "6 as io_tlul_a_bits_source" "32 aa io_tlul_a_bits_address" "16 am io_tlul_a_bits_mask"
+  "128 ad io_tlul_a_bits_data"
+  "1 dv io_tlul_d_valid" "6 ds io_tlul_d_bits_source" "128 dd io_tlul_d_bits_data" "1 de io_tlul_d_bits_error"
   "1 fv io_fault_valid" "1 fw io_fault_bits_write" "32 fa io_fault_bits_addr" "32 fe io_fault_bits_epc"
 )
 declare -A width
@@ -42,15 +42,17 @@ for v in "${vars[@]}" "32 ep"; do set -- $v; echo "b0 $2"; done
 echo '$end'
 # cycle: "id hex" ... (values hold until changed); x for unknown
 cycles=(
-  "tv 1 tr 1 tw 1 ta 10004 tm 00f0 td 00000000000000000000deadbeef00000000 ep 100"
-  "tw 0 ta 10008 tm 0 td 0 ep 104"
-  "tv 0 tq 00000000112233440000000000000000"
-  "ev 1 er 1 ew 1 ea 20000000 em 000f ed cafef00d ep 108"
-  "ew 0 ea 20000010 em 0 ed 0 ep 10c"
-  "ev 0 eq 55667788 fv 1 fa 30000000 fe 10c"
-  "fw 1 fa 40 fe 110"
-  "fv 0 fw 0 ev 1 er 1 ea 20000020 ep 114"
-  "ev 0 eq x"
+  "av 1 ar 1 ao 1 az 2 as 0 aa 10004 am 00f0 ad 00000000000000000000deadbeef00000000 ep 100"
+  "ao 4 az 2 as 1 aa 10008 am 0f00 ad 0 ep 104 dv 1 ds 0"
+  "av 0 dv 1 ds 1 dd 00000000112233440000000000000000"
+  "av 1 ao 1 as 2 aa 20000000 am 000f ad cafef00d ep 108 dv 0"
+  "ao 4 as 3 aa 20000010 am 000f ad 0 ep 10c"
+  "av 0 fv 1 fa 30000000 fe 10c dv 1 ds 2"
+  "fw 1 fa 40 fe 110 ds 3 dd 00000000000000000000000055667788"
+  "fv 0 fw 0 av 1 as 4 aa 20000020 ep 114 dv 0"
+  "av 0"
+  "dv 1 ds 4 dd x"
+  "dv 0"
 )
 t=0
 for c in "${cycles[@]}" ""; do

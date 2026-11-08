@@ -13,7 +13,7 @@ type header = {
   window : window option;
 }
 
-let schema_version = 2
+let schema_version = 3
 
 let header ~model ~platform ~trace =
   { schema_version; model; platform; trace; simulator = None; window = None }

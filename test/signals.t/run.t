@@ -26,7 +26,7 @@ Only the changes, in a window; the window's first cycle shows every value:
 With --format jsonl, one record per value between a header and a summary:
 
   $ coralview signals --platform sig.json --changes --format jsonl --to-cycle 2 sig.vcd TOP.sim/core/data
-  {"type":"coralview","schema_version":2,"model":"signals","platform":"sig-core","trace":"sig.vcd"}
+  {"type":"coralview","schema_version":3,"model":"signals","platform":"sig-core","trace":"sig.vcd"}
   {"type":"signals.sample","phase":"after_falling","cycle":0,"time":2,"path":"TOP.sim/core/data","width":8,"value":"0bxxxxxxxx"}
   {"type":"signals.sample","phase":"after_falling","cycle":1,"time":4,"path":"TOP.sim/core/data","width":8,"value":"0b1010xxxx"}
   {"type":"signals.sample","phase":"after_falling","cycle":2,"time":6,"path":"TOP.sim/core/data","width":8,"value":"0xa5"}

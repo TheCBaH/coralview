@@ -2,12 +2,13 @@
 [@@@ai_model "claude-opus-5-5"]
 [@@@ai_provider "Anthropic"]
 
-(** Data accesses of the scalar LSU ([core.score.lsu]): the TCM data bus [io_dbus_*] and the external bus
-    [io_ebus_dbus_*], with the PC of the LSU slot ([core.score.lsu.slot] [io_pc], which drives both) and read data taken
-    from the cycle after the request, as [Lsu.scala] registers the response.
+(** Data accesses of the scalar LSU ([core.score.lsu]): its one TileLink-UL port [io_tlul_*], which
+    reaches the TCMs and the external bus alike, with the PC of the LSU slot ([core.score.lsu.slot]
+    [io_pc]). A write is reported at its request, a read when the response brings the data, with the
+    cycle of the request.
 
-    An access is a request that the bus accepted, with the data sampled where the response would be: it
-    does not say the access succeeded. The LSU's faults ([io_fault_*]) are reported separately, with the
+    An access is a request that the bus accepted: it does not say the access succeeded
+    ([d_bits_error] is not reported). The LSU's faults ([io_fault_*]) are reported separately, with the
     request they most likely belong to. *)
 
 val name : string
@@ -21,16 +22,12 @@ module Config : sig
 end
 
 module Event : sig
-  type bus = Tcm | External
-
   type access = {
     cycle : int;  (** Of the request. *)
-    bus : bus;
     pc : int;
     access : Access.t;  (** [bytes]: the byte lanes selected. *)
-    lanes : int list;
-        (** Byte lanes of the 16-byte line: the write mask, or for reads the word at the address. *)
-    data : Hwfrp.Bits.t;  (** The 128-bit line: write data, or read data one cycle later. *)
+    lanes : int list;  (** Byte lanes of the 16-byte line: the request's mask. *)
+    data : Hwfrp.Bits.t;  (** The 128-bit line: write data, or the response's read data. *)
   }
 
   type fault = {

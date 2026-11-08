@@ -20,10 +20,7 @@ let row_jsont =
   |> Jsont.Object.mem "d_to_r" Jsont.int ~enc:(fun r -> r.d_to_r)
   |> Jsont.Object.finish
 
-let region_name (a : Memory.Event.access) =
-  match a.access.region with
-  | Some r -> r
-  | None -> ( match a.bus with Memory.Event.Tcm -> "tcm" | External -> "ext")
+let region_name (a : Memory.Event.access) = match a.access.region with Some r -> r | None -> "mem"
 
 (* A request belongs to the youngest instance of its PC dispatched at or before it: a store can make
    its request after it retired, but not before it was dispatched. *)

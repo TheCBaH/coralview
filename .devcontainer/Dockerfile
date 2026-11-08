@@ -16,7 +16,7 @@ RUN set -eux;\
     echo DONE
 # Coral NPU simulators from a devcontainer.coralnpu release, checked against the hashes
 # committed in coralnpu.sha256. /opt/coralnpu/<archive> links to the host's architecture.
-ARG CORAL_RELEASE=v0.0.8
+ARG CORAL_RELEASE=v0.0.10
 COPY coralnpu.sha256 /tmp/coralnpu/
 RUN set -eux;\
     arch=$(uname -m);\

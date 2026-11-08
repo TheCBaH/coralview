@@ -15,7 +15,10 @@ type dispatch = {
   rvv_queue : string option;
 }
 
-type lsu = { lsu_scope : string list; tcm_ready : bool }
+type tlul = { tl_prefix : string; tl_data_bytes : int; d_ready : bool }
+
+type lsu = { lsu_scope : string list; port : tlul }
+(** The LSU's TileLink-UL port: its one path to the TCMs and the external bus. *)
 
 type vme = {
   vme_scope : string list;
@@ -36,6 +39,16 @@ type port = {
 
 type ops = { enqueue : port; issue : port }
 
+type tracking = {
+  t_source : string;  (** The request's TileLink-UL source, on channel A. *)
+  t_response : string;  (** Channel D valid. *)
+  t_response_source : string;
+  t_opcode : string option;  (** Channel A opcode: a Get (4) is a read, any other a write. *)
+}
+(** A TileLink-UL request interface whose requests are matched to transactions by source rather than by
+    being visible at the address handshake: the master keeps a request's source in the low bits of its
+    transaction ID, and a request is outstanding from its acceptance on channel A to its response on D. *)
+
 type origin = {
   o_scope : string list;
   o_valid : string;
@@ -44,10 +57,11 @@ type origin = {
   align : int;
   o_write : string option;
   o_pc : string option;
+  track : tracking option;
   ops : ops option;
 }
 
-type axi_source = { source_id : int; source : string; origin : origin option }
+type axi_source = { source_id : int; id_mask : int; source : string; origin : origin option }
 
 type axi = {
   axi_scope : string list;
@@ -55,8 +69,6 @@ type axi = {
   data_bytes : int;
   sources : axi_source list;
 }
-
-type tlul = { tl_prefix : string; tl_data_bytes : int; d_ready : bool }
 
 type dma = {
   dma_scope : string list;
@@ -204,10 +216,20 @@ let dispatch =
   |> Jsont.Object.opt_mem "rvv_queue" Jsont.string ~enc:(fun b -> b.rvv_queue)
   |> finish
 
+let tlul =
+  obj "tlul port" (fun tl_prefix tl_data_bytes d_ready ->
+      if tl_data_bytes <= 0 || tl_data_bytes land (tl_data_bytes - 1) <> 0 then
+        Jsont.Error.msgf Jsont.Meta.none "tlul: data_bytes %d is not a power of two" tl_data_bytes;
+      { tl_prefix; tl_data_bytes; d_ready })
+  |> Jsont.Object.mem "prefix" Jsont.string ~enc:(fun t -> t.tl_prefix)
+  |> Jsont.Object.mem "data_bytes" Jsont.int ~enc:(fun t -> t.tl_data_bytes)
+  |> Jsont.Object.mem "d_ready" Jsont.bool ~enc:(fun t -> t.d_ready)
+  |> finish
+
 let lsu =
-  obj "lsu" (fun lsu_scope tcm_ready -> { lsu_scope; tcm_ready })
+  obj "lsu" (fun lsu_scope port -> { lsu_scope; port })
   |> Jsont.Object.mem "scope" scope ~enc:(fun b -> b.lsu_scope)
-  |> Jsont.Object.mem "tcm_ready" Jsont.bool ~enc:(fun b -> b.tcm_ready)
+  |> Jsont.Object.mem "port" tlul ~enc:(fun b -> b.port)
   |> finish
 
 let vme =
@@ -237,12 +259,21 @@ let ops =
   |> Jsont.Object.mem "issue" port ~enc:(fun o -> o.issue)
   |> finish
 
+let tracking =
+  obj "tracking" (fun t_source t_response t_response_source t_opcode ->
+      { t_source; t_response; t_response_source; t_opcode })
+  |> Jsont.Object.mem "source" Jsont.string ~enc:(fun t -> t.t_source)
+  |> Jsont.Object.mem "d_valid" Jsont.string ~enc:(fun t -> t.t_response)
+  |> Jsont.Object.mem "d_source" Jsont.string ~enc:(fun t -> t.t_response_source)
+  |> Jsont.Object.opt_mem "opcode" Jsont.string ~enc:(fun t -> t.t_opcode)
+  |> finish
+
 let origin =
-  obj "origin" (fun o_scope o_valid o_ready o_addr align o_write o_pc ops ->
+  obj "origin" (fun o_scope o_valid o_ready o_addr align o_write o_pc track ops ->
       if align <= 0 || align land (align - 1) <> 0 then
         Jsont.Error.msgf Jsont.Meta.none "origin: align %d is not a power of two" align;
       if ops <> None && o_pc = None then Jsont.Error.msgf Jsont.Meta.none "origin: ops without a pc";
-      { o_scope; o_valid; o_ready; o_addr; align; o_write; o_pc; ops })
+      { o_scope; o_valid; o_ready; o_addr; align; o_write; o_pc; track; ops })
   |> Jsont.Object.mem "scope" scope ~enc:(fun o -> o.o_scope)
   |> Jsont.Object.mem "valid" Jsont.string ~enc:(fun o -> o.o_valid)
   |> Jsont.Object.mem "ready" Jsont.string ~enc:(fun o -> o.o_ready)
@@ -250,12 +281,16 @@ let origin =
   |> Jsont.Object.mem "align" Jsont.int ~enc:(fun o -> o.align)
   |> Jsont.Object.opt_mem "write" Jsont.string ~enc:(fun o -> o.o_write)
   |> Jsont.Object.opt_mem "pc" Jsont.string ~enc:(fun o -> o.o_pc)
+  |> Jsont.Object.opt_mem "track" tracking ~enc:(fun o -> o.track)
   |> Jsont.Object.opt_mem "ops" ops ~enc:(fun o -> o.ops)
   |> finish
 
 let axi_source =
-  obj "axi source" (fun source_id source origin -> { source_id; source; origin })
+  obj "axi source" (fun source_id id_mask source origin ->
+      { source_id; id_mask = Option.value id_mask ~default:(-1); source; origin })
   |> Jsont.Object.mem "id" Jsont.int ~enc:(fun s -> s.source_id)
+  |> Jsont.Object.opt_mem "id_mask" Jsont.int ~enc:(fun s ->
+      if s.id_mask = -1 then None else Some s.id_mask)
   |> Jsont.Object.mem "name" Jsont.string ~enc:(fun s -> s.source)
   |> Jsont.Object.opt_mem "origin" origin ~enc:(fun s -> s.origin)
   |> finish
@@ -273,16 +308,6 @@ let axi =
   |> Jsont.Object.mem "prefix" Jsont.string ~enc:(fun a -> a.axi_prefix)
   |> Jsont.Object.mem "data_bytes" Jsont.int ~enc:(fun a -> a.data_bytes)
   |> Jsont.Object.mem "sources" Jsont.(list axi_source) ~enc:(fun a -> a.sources)
-  |> finish
-
-let tlul =
-  obj "tlul port" (fun tl_prefix tl_data_bytes d_ready ->
-      if tl_data_bytes <= 0 || tl_data_bytes land (tl_data_bytes - 1) <> 0 then
-        Jsont.Error.msgf Jsont.Meta.none "tlul: data_bytes %d is not a power of two" tl_data_bytes;
-      { tl_prefix; tl_data_bytes; d_ready })
-  |> Jsont.Object.mem "prefix" Jsont.string ~enc:(fun t -> t.tl_prefix)
-  |> Jsont.Object.mem "data_bytes" Jsont.int ~enc:(fun t -> t.tl_data_bytes)
-  |> Jsont.Object.mem "d_ready" Jsont.bool ~enc:(fun t -> t.d_ready)
   |> finish
 
 let dma =

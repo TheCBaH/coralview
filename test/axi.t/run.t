@@ -56,7 +56,7 @@ is pinned to, the unmatched ones as they came, and the summary. The window and t
 events; the summary covers the whole trace:
 
   $ coralview axi --platform axi-core.json --format jsonl --limit 2 axi.vcd
-  {"type":"coralview","schema_version":2,"model":"axi","platform":"axi-core","trace":"axi.vcd"}
+  {"type":"coralview","schema_version":3,"model":"axi","platform":"axi-core","trace":"axi.vcd"}
   {"type":"axi.transaction","transaction":{"id":0,"write":false,"address":536870912,"bytes":16,"beats":1,"requested":2,"accepted":3,"first_data":6,"completed":6,"status":0,"outstanding":1},"source":"lsu","origin":{"issued":1,"request":536870912,"write":false,"agrees":true,"instance":{"pc":256,"word":337155,"dispatched":0,"issued":1,"retired":7}},"burst":1,"beat_bytes":16}
   {"type":"axi.transaction","transaction":{"id":1,"write":false,"address":536875008,"bytes":16,"beats":1,"requested":4,"accepted":4,"first_data":5,"completed":5,"status":0,"outstanding":2},"source":"fetch","origin":{"issued":3,"request":536875012,"agrees":true},"burst":1,"beat_bytes":16}
   {"type":"axi.summary","cycles":21,"reads":3,"read_bytes":32,"writes":2,"write_bytes":8,"unmatched":1,"read_latency":{"n":2,"min":1,"max":3,"sum":4},"write_latency":{"n":2,"min":2,"max":2,"sum":4},"incomplete":1,"first":1,"last":20,"occupancy":[5,11,2],"max_reads":2,"max_writes":1,"sources":[{"id":0,"source":"lsu","transactions":4,"bytes":24,"pinned":4,"instances":4,"disagreeing":1},{"id":1,"source":"fetch","transactions":1,"bytes":16,"pinned":1,"instances":0,"disagreeing":0}],"resyncs":0,"words":[{"pc":256,"word":337155},{"pc":260,"word":11872291},{"pc":264,"word":33891587}]}
@@ -160,3 +160,28 @@ A Markdown report of the analyses run:
   00000100      1       8  38.1%     7.00  lw x10, 0(x10)
   00000104      3       3  14.3%     1.33  sw x11, 16(x10)
   ```
+
+CoralNPU v0.0.10 puts the LSU and fetch on TileLink-UL ports behind a bridge, so the AXI request comes
+some cycles after the master's request. A source selects its AXI IDs by `id_mask` (here the two bits
+above the TileLink source, as the arbiter puts them), and `track` names the request's source on channel
+A and the response's on D: a transaction is pinned to the request outstanding on the source in the low
+bits of its ID, not to the one visible at the handshake. The LSU's direction comes from the A opcode.
+The fixture (gen-tl.sh) has a load, an overlapping fetch, a store, and the debug module's read, which
+has no request to pin to:
+
+  $ coralview axi --platform axi-tl.json axi-tl.vcd
+  platform axi-tl
+     start   accept     done dir  id source addr                 bytes beats B/cycle out  origin
+         1        3        4 R     5 lsu    20000000                16  1x16    4.00   1  pc 00000100 lw x10, 0(x10) (dispatched 0, op 1, retired 6)
+         2        4        5 R    33 fetch  20001000                16  1x16    4.00   1  request 20001000
+         7        9       11 W     6 lsu    20000010                 4  1x16    0.80   1  pc 00000104 sw x11, 16(x10) (dispatched 6, op 7, retired 12)
+        13       13       14 R    18 debug  30000000                16  1x16    8.00   1  unpinned
+  root TOP.core: reads 3 (48 bytes), writes 1 (4 bytes) in 17 cycles, unmatched 0
+    latency, address accepted to done, min/mean/max: reads 1/1.0/1, writes 2/2.0/2 cycles
+    throughput 3.714 bytes/cycle over cycles 1-14, 6.500 while a transaction is outstanding (8 cycles)
+    outstanding at once: max 2 (reads 1, writes 1); cycles by count: 0:4 1:7 2:1
+    source lsu (id 5): transactions 2, bytes 20, pinned to a request 2, to an instruction instance 2
+    source debug (id 18): transactions 1, bytes 16, pinned to a request 0, to an instruction instance 0
+    source fetch (id 33): transactions 1, bytes 16, pinned to a request 1, to an instruction instance 0
+
+A source's `id` in the summary is the lowest ID seen for it.

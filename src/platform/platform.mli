@@ -21,7 +21,14 @@ type dispatch = {
   rvv_queue : string option;  (** The RVV queue capacity input; [None] without RVV. *)
 }
 
-type lsu = { lsu_scope : string list; tcm_ready : bool }
+type tlul = { tl_prefix : string; tl_data_bytes : int; d_ready : bool }
+(** A TileLink-UL port: [tl_prefix ^ "{a,d}_{valid,ready}"] and the channel fields
+    [a_bits_{opcode,size,source,address,mask,data}], [d_bits_{opcode,size,source,data,error}], with a
+    [tl_data_bytes]-wide data bus. Without [d_ready] (a device that does not read it), a response is
+    taken when it is valid. *)
+
+type lsu = { lsu_scope : string list; port : tlul }
+(** The LSU's TileLink-UL port: its one path to the TCMs and the external bus. *)
 
 type vme = {
   vme_scope : string list;
@@ -47,6 +54,16 @@ type ops = { enqueue : port; issue : port }
     the instruction is dispatched to it, in lane order; left at [issue], when the operation starts
     making requests, all with its PC, until the next leaves. *)
 
+type tracking = {
+  t_source : string;  (** The request's TileLink-UL source, on channel A. *)
+  t_response : string;  (** Channel D valid. *)
+  t_response_source : string;
+  t_opcode : string option;  (** Channel A opcode: a Get (4) is a read, any other a write. *)
+}
+(** A TileLink-UL request interface whose requests are matched to transactions by source rather than by
+    being visible at the address handshake: the master keeps a request's source in the low bits of its
+    transaction ID, and a request is outstanding from its acceptance on channel A to its response on D. *)
+
 type origin = {
   o_scope : string list;
   o_valid : string;
@@ -55,10 +72,11 @@ type origin = {
   align : int;
   o_write : string option;
   o_pc : string option;
+  track : tracking option;
   ops : ops option;
 }
 
-type axi_source = { source_id : int; source : string; origin : origin option }
+type axi_source = { source_id : int; id_mask : int; source : string; origin : origin option }
 
 type axi = {
   axi_scope : string list;
@@ -68,18 +86,16 @@ type axi = {
 }
 (** The core's AXI4 master port, through which all external traffic leaves the core: wires
     [axi_prefix ^ "{read,write}_addr_{valid,ready,bits_*}"], [read_data_*], [write_data_*] and
-    [write_resp_*], with a [data_bytes]-wide data bus. [sources] name the masters behind it by AXI ID.
+    [write_resp_*], with a [data_bytes]-wide data bus. [sources] name the masters behind it by AXI ID: the
+    IDs [id_mask] selects (all bits by default) are [source_id].
     A source's [origin] is the request interface the master serves ([o_scope] relative to the root),
     which a transaction is pinned to when its address is accepted: [o_valid] must be high then and
     [o_addr], rounded down to [align] bytes, equal the AXI address. The request began at the start of
     that run of [o_valid] (it ends at [o_valid && o_ready]); [o_write], if given, is its direction and
-    [o_pc] the instruction that made it, whose operation [ops] follows from dispatch to issue. *)
-
-type tlul = { tl_prefix : string; tl_data_bytes : int; d_ready : bool }
-(** A TileLink-UL port: [tl_prefix ^ "{a,d}_{valid,ready}"] and the channel fields
-    [a_bits_{opcode,size,source,address,mask,data}], [d_bits_{opcode,size,source,data,error}], with a
-    [tl_data_bytes]-wide data bus. Without [d_ready] (a device that does not read it), a response is
-    taken when it is valid. *)
+    [o_pc] the instruction that made it, whose operation [ops] follows from dispatch to issue.
+    With [track], the master is behind a bridge and its request comes first: the transaction is pinned
+    to the request outstanding (accepted, not yet answered) on the [t_source] equal to the low bits of
+    its ID, those [id_mask] does not select, whenever it was made. *)
 
 type dma = {
   dma_scope : string list;

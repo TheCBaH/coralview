@@ -19,20 +19,25 @@
       "fcomb": ["io_fscoreboard", "fcomb_1", "fcomb_2", "fcomb_3"],
       "rvv_queue": "io_rvvQueueCapacity"
     },
-    "lsu": { "scope": ["core", "score", "lsu"], "tcm_ready": false },
+    "lsu": { "scope": ["core", "score", "lsu"], "port": { "prefix": "io_tlul_", "data_bytes": 16, "d_ready": false } },
     "axi_master": {
       "scope": [], "prefix": "io_axi_master_", "data_bytes": 16,
       "sources": [
-        { "id": 0, "name": "lsu",
-          "origin": { "scope": ["core", "score", "lsu"], "valid": "io_ebus_dbus_valid", "ready": "io_ebus_dbus_ready",
-                      "addr": "io_ebus_dbus_addr", "align": 1, "write": "io_ebus_dbus_write", "pc": "slot/io_pc",
+        { "id": 0, "id_mask": 48, "name": "lsu",
+          "origin": { "scope": ["core", "score", "lsu"], "valid": "io_tlul_a_valid", "ready": "io_tlul_a_ready",
+                      "addr": "io_tlul_a_bits_address", "align": 1, "pc": "slot/io_pc",
+                      "track": { "source": "io_tlul_a_bits_source", "opcode": "io_tlul_a_bits_opcode",
+                                 "d_valid": "io_tlul_d_valid", "d_source": "io_tlul_d_bits_source" },
                       "ops": {
                         "enqueue": { "scope": ["core", "score", "lsu"], "lanes": 4,
                                      "valid": "io_req_%d_valid", "ready": "io_req_%d_ready", "pc": "io_req_%d_bits_pc" },
                         "issue": { "scope": ["core", "score", "lsu", "slot"], "lanes": 1,
                                    "valid": "io_uop_valid", "ready": "io_uop_ready", "pc": "io_uop_bits_pc" } } } },
-        { "id": 1, "name": "fetch",
-          "origin": { "scope": ["core"], "valid": "io_ibus_valid", "ready": "io_ibus_ready", "addr": "io_ibus_addr", "align": 16 } }
+        { "id": 16, "id_mask": 48, "name": "debug" },
+        { "id": 32, "id_mask": 48, "name": "fetch",
+          "origin": { "scope": ["core"], "valid": "io_tlul_fetch_a_valid", "ready": "io_tlul_fetch_a_ready", "addr": "io_tlul_fetch_a_bits_address", "align": 16,
+                      "track": { "source": "io_tlul_fetch_a_bits_source",
+                                 "d_valid": "io_tlul_fetch_d_valid", "d_source": "io_tlul_fetch_d_bits_source" } } }
       ]
     },
     "traps": {

@@ -28,7 +28,7 @@ platform description.
 ## Where the traces come from
 
 The devcontainer image holds the simulators of devcontainer.coralnpu
-release `v0.0.8` under `/opt/coralnpu`. Each is the Verilator build of one
+release `v0.0.10` under `/opt/coralnpu`. Each is the Verilator build of one
 Coral NPU configuration with the SystemC testbench, plus example ELFs.
 `--trace` writes an FST of the whole hierarchy: every signal of every
 module, not just the ports. The VME core's trace of `matrix.elf` has:
@@ -151,8 +151,8 @@ All paths are relative to the configuration's root, e.g.
 | `regfile_writeback` | `io_debug_regfile_writeData_{0..5}_*` | `valid`, `bits_addr`, `bits_data` | integer register file writes |
 | `float_writeback` | `io_debug_float_writeData_{0,1}_*` | the same | float register file writes |
 | `dispatch` | `core.score.dispatch` | `io_inst_N_{valid,ready,bits_addr,bits_inst}`, the `tryDispatch*` wires, the `comb*`/`fcomb*` scoreboards, `io_scoreboard_regd`, `io_halted`, `io_interlock`, `io_retirement_buffer_{nSpace,empty,trap_pending}`, `io_lsuQueueCapacity`, `io_rvvQueueCapacity` | the inputs and intermediate wires of `Dispatch.canDispatch` in `scalar/Decode.scala` |
-| `lsu` | `core.score.lsu` | `io_dbus_*` (TCM), `io_ebus_dbus_*` (external), `slot.io_pc`, `io_fault_*` | every data access the scalar LSU slot requests, with its PC, and its faults |
-| `axi_master` | top-level `io_axi_master_*`; originators `core.score.lsu` (`io_ebus_dbus_*`, the queue `io_req_N_{valid,ready,bits_pc}`, `slot.io_uop_{valid,ready,bits_pc}`) and `core` (`io_ibus_*`) | the five AXI4 channels (`{read,write}_addr_bits_{addr,id,len,size,burst}`, `read_data_bits_{id,resp,last}`, `write_data_bits_{strb,last}`, `write_resp_bits_{id,resp}`) | every transaction leaving the core for external memory, and the request and instruction it serves |
+| `lsu` | `core.score.lsu` | TileLink-UL `io_tlul_{a,d}_*` (TCMs and external alike; no `d_ready`), `slot.io_pc`, `io_fault_*` | every data access the scalar LSU slot requests, with its PC, and its faults |
+| `axi_master` | top-level `io_axi_master_*`; originators `core.score.lsu` (`io_tlul_{a,d}_*`, the queue `io_req_N_{valid,ready,bits_pc}`, `slot.io_uop_{valid,ready,bits_pc}`) and `core` (`io_tlul_fetch_{a,d}_*`) | the five AXI4 channels (`{read,write}_addr_bits_{addr,id,len,size,burst}`, `read_data_bits_{id,resp,last}`, `write_data_bits_{strb,last}`, `write_resp_bits_{id,resp}`) | every transaction leaving the core for external memory, and the request and instruction it serves |
 | `dma` | the subsystem's `dma` (`bus.DmaEngine`); requester `rvv_core.coreAxi.core.score.lsu` | TileLink-UL `io_tl_host_{a,d}_*` (descriptor fetches, polls, data beats) and `io_tl_device_{a,d}_*` (CSRs; no `d_ready`) | every DMA job, from the CSR write that starts it to the status read that sees it done |
 | `vme` | `core.rvvCore.rvvCoreWrapper.core.backend.vme` | `writeEn`, `peWriteEn`, `peWritePc`, `writeMtIdx`, `writeSubIdx`, `writeData` | writes into the 16 × 16 × 16-byte tile register file, per block (4) and port (4), tagged with the PC of the PE-array instruction |
 | `x_registers`, `f_registers` | `core.score.regfile`, `core.score.fRegfile`, and the top-level `io_debug_*_writeAddr` marks | the registers (`regfile_N`; `fregfile_N_{sign,exponent,mantissa}`), `scoreboard`, `flushed_scoreboard`, `io_pipelineFlush` | the register files' contents and their pending-write bookkeeping |
@@ -315,54 +315,66 @@ Reading it:
 
 ### memory: what the LSU read and wrote
 
-Block: `lsu`. A TCM access is `io_dbus_valid` (the TCM does not
-back-pressure in these builds, `"tcm_ready": false`). An external access
-is `io_ebus_dbus_valid && ready`. The PC is the LSU slot's
-(`core.score.lsu.slot` `io_pc`, which drives both buses; `io_ebus_dbus_pc` is pruned from the trace as of v0.0.8). Read data is on the bus one
-cycle after the request (`dbusResp = RegNext(...)` in `Lsu.scala`), which
-the model joins with `Sig.pre`.
+Block: `lsu`. Since CoralNPU `1fbd7be6` (v0.0.10) every data access leaves
+the LSU on one TileLink-UL port, `io_tlul_{a,d}_*`; a crossbar outside the
+core sends it to a TCM or to the AXI master. A request is accepted on
+channel A (`a_valid && a_ready`); a response comes on D and is matched by
+source (`d_ready` is not in the trace: a response is taken when valid).
+The PC is the LSU slot's (`core.score.lsu.slot` `io_pc`, which holds
+across the request). The TCM answers in the next cycle, the AXI bridge
+some cycles later.
 
 ```
 $ coralview memory --platform vme-core-mini-axi --manifest .../hardware-configurations.json --limit 4 matrix.fst
-     432 tcm W pc 000006d0 addr 00010130 (dtcm) 4 bytes 00000000
-     463 tcm W pc 000000dc addr 00010120 (dtcm) 4 bytes 0badd00d
-     521 tcm W pc 000001b8 addr 00017fe0 (dtcm) 8 bytes 7fffffeefffffff0
-     526 tcm R pc 000001c8 addr 00017fe0 (dtcm) 4 bytes fffffff0
-root VVmeCoreMiniAxi.core.VmeCoreMiniAxi: 52 read and 53 write requests from 94 PCs, 0 faults
+     410 W pc 000006d0 addr 00010130 (dtcm) 4 bytes 00000000
+     412 W pc 000006d0 addr 00010134 (dtcm) 4 bytes 00000000
+     441 W pc 000000dc addr 00010120 (dtcm) 4 bytes 0badd00d
+     451 W pc 00000148 addr 00017ffc (dtcm) 4 bytes 000000f4
+root VVmeCoreMiniAxi.core.VmeCoreMiniAxi: 61 read and 53 write requests from 111 PCs, 0 faults
 ```
 
-Writes show the bytes their mask enables, little-endian. Reads show the
-word at the address. Region names come from the manifest's
-`memory_regions`.
+Both directions show the bytes the request's mask selects,
+little-endian. Region names come from the manifest's `memory_regions`;
+there is no TCM/external column, as one port serves both. Loads from the
+ITCM, which used to go by the instruction bus and so were not seen, are
+listed.
 
-Each row is a **request** the bus accepted, with the data sampled where
-the response would be; it does not say the access succeeded. The LSU's
-faults (`io_fault_{valid,bits_write,bits_addr,bits_epc}`) are separate
-rows, with the last request from the same PC in the same direction. A
-fault with no request was refused before reaching a bus. The window
-options of `commits` apply, by request cycle:
+Each row is a **request** the bus accepted; a read is reported when its
+response brings the data, but at the cycle of its request, and a write
+at its request. The rows of the text output are in request order; the
+JSON lines are in the order they were reported. A row does not say the
+access succeeded (`d_bits_error` is not reported). The LSU's faults
+(`io_fault_{valid,bits_write,bits_addr,bits_epc}`) are separate rows,
+with the last request from the same PC in the same direction. A store to
+the ITCM is a request that the crossbar then faults. The window options
+of `commits` apply, by request cycle:
 
 ```
-$ coralview memory --platform core-mini-axi --from-cycle 600 trap-x0.fst
-     609 ext R pc 00000214 addr 30000004 4 bytes 25fb9019
-     610 fault R pc 00000214 addr 30000004, requested at 609, addr 30000004
-     619 tcm W pc 00000148 addr 00017fd0 4 bytes 00010120
-     621 tcm W pc 0000014c addr 00017fd0 4 bytes 00000000
-root VCoreMiniAxi.core.CoreMiniAxi: 15 read and 29 write requests from 24 PCs, 4 faults
+$ coralview memory --platform core-mini-axi --manifest .../hardware-configurations.json --from-cycle 390 --to-cycle 410 trap_address.fst
+     390 W pc 000001a4 addr 00017fec (dtcm) 4 bytes 00001238
+     392 W pc 000001ac addr 00010138 (dtcm) 4 bytes 00000000
+     394 W pc 000001b0 addr 00017fe8 (dtcm) 4 bytes 00000104
+     396 W pc 000001bc addr 00000100 (itcm) 4 bytes 00000000
+     397 fault W pc 000001bc addr 00000100 (itcm), requested at 396, addr 00000100
+     406 W pc 00000148 addr 00017fd0 (dtcm) 4 bytes 00010120
+     408 W pc 0000014c addr 00017fd4 (dtcm) 4 bytes 00000000
+root VCoreMiniAxi.core.CoreMiniAxi: 43 read and 74 write requests from 90 PCs, 4 faults
+window [390, 410]: 0 read and 6 write requests from 6 PCs, 1 faults
 ```
-
-The read at 609 returned no data: its "value" is whatever the bus held.
-The store faults of the same run (`fault W pc 000001bc addr 00000100, no
-request seen`) never reached a bus.
 
 ### axi: external traffic and where it comes from
 
 Block: `axi_master`. Everything the core reads or writes outside its TCMs
-leaves through one AXI4 master port (`CoreAxi.io_axi_master`). The
-description names the masters behind it by AXI ID: the LSU's external
-bus (`DBus2Axi`, ID 0) carries scalar, vector and tile loads and stores,
-and instruction fetches outside the ITCM (`IBus2Axi`, ID 1) are
-line-aligned reads. There is no DMA in these configurations.
+leaves through one AXI4 master port (`CoreAxi.io_axi_master`), behind a
+TileLink-UL to AXI bridge and an arbiter. The arbiter puts its host in
+the two bits above the request's TileLink source, so an AXI ID is
+`host << 4 | source` and the description names the masters by the IDs
+that its `id_mask` selects: the LSU (IDs 0-7, `id` 0) carries scalar,
+vector and tile loads and stores, the debug module (`id` 16), and
+instruction fetches outside the ITCM (`id` 32) are line-aligned reads.
+There is no DMA in these configurations. The masks assume the three
+hosts of `enableAxiInstructionFetch`, which the shipped configurations
+all set.
 
 A transaction runs from the address handshake to its last read beat or
 its write response. Several can be outstanding. Read data and write
@@ -372,9 +384,14 @@ accepted, and may come first. A response with nothing outstanding is
 reported as unmatched.
 
 Each transaction is pinned to its originator. The master's own request
-(`io_ebus_dbus_*`, `io_ibus_*`) must be valid at the address handshake,
-and its address, rounded to the description's `align`, must be the AXI
-address. Its start is when that request began. For the LSU the
+(`io_tlul_{a,d}_*` of the LSU, `io_tlul_fetch_{a,d}_*` of fetch) is the
+one outstanding on the TileLink source in the low bits of the
+transaction's ID: a request is outstanding from its acceptance on A to
+its response on D, so it is still there when the bridge makes the AXI
+request a few cycles later. Its address, rounded to the description's
+`align`, must be the AXI address, and for the LSU its direction (the A
+opcode: a Get is a read) must be the transaction's. Its start is when
+that request began. For the LSU the
 description also gives its in-order operation queue: an instruction
 enters at dispatch (`io_req_N`) and leaves for the slot
 (`slot.io_uop`), which then makes all of its requests. Following that
@@ -384,17 +401,19 @@ its dispatch and the slot issue. Its retirement then comes from the
 alone cannot pin them.
 
 ```
-$ coralview axi --platform vme-core-mini-axi --manifest .../hardware-configurations.json --pc 270 --limit 3 vme_external_matmul.fst
+$ coralview axi --platform core-mini-axi --manifest .../hardware-configurations.json --limit 3 memory.fst
    start   accept     done dir  id source addr                 bytes beats B/cycle out  origin
-   29892    29893    29894 R     0 lsu    20000a90 (testbench-ram)    16  1x16    5.33   1  pc 00000270 vtle32 x23, 0(x11) (dispatched 29890, op 29891, retired 29916)
-   29896    29897    29898 R     0 lsu    20000aa0 (testbench-ram)    16  1x16    5.33   1  pc 00000270 vtle32 x23, 0(x11) (dispatched 29890, op 29891, retired 29916)
-   29900    29901    29902 R     0 lsu    20000ab0 (testbench-ram)    16  1x16    5.33   1  pc 00000270 vtle32 x23, 0(x11) (dispatched 29890, op 29891, retired 29916)
-root VVmeCoreMiniAxi.core.VmeCoreMiniAxi: reads 1596 (14280 bytes), writes 1220 (7248 bytes) in 52711 cycles, unmatched 0
+    1744     1746     1748 W     6 lsu    20000000 (testbench-ram)     4  1x4     0.80   1  pc 00000278 sw x12, 0(x15) (dispatched 1742, op 1743, retired 1750)
+    1755     1757     1759 W     0 lsu    20000040 (testbench-ram)     4  1x4     0.80   1  pc 00000278 sw x12, 0(x15) (dispatched 1753, op 1754, retired 1761)
+    1766     1768     1770 W     2 lsu    20000080 (testbench-ram)     4  1x4     0.80   1  pc 00000278 sw x12, 0(x15) (dispatched 1764, op 1765, retired 1772)
+root VCoreMiniAxi.core.CoreMiniAxi: reads 257 (1028 bytes), writes 257 (1028 bytes) in 11205 cycles, unmatched 0
   latency, address accepted to done, min/mean/max: reads 1/1.0/1, writes 2/2.0/2 cycles
-  throughput 0.417 bytes/cycle over cycles 757-52398, 3.142 while a transaction is outstanding (6852 cycles)
-  outstanding at once: max 1 (reads 1, writes 1); cycles by count: 0:44789 1:6852
-  source lsu (id 0): transactions 2816, bytes 21528, pinned to a request 2816, to an instruction instance 2816
+  throughput 0.297 bytes/cycle over cycles 1744-8669, 1.600 while a transaction is outstanding (1285 cycles)
+  outstanding at once: max 1 (reads 1, writes 1); cycles by count: 0:5639 1:1285
+  source lsu (id 0): transactions 514, bytes 2056, pinned to a request 514, to an instruction instance 514
 ```
+
+`source`'s `id` is the lowest ID seen for it.
 
 Columns:
 - `start`: when the originator's request began.
@@ -410,11 +429,10 @@ filters of `commits` apply: `--from-cycle`/`--to-cycle` by acceptance and
 `--pc` by originating instruction.
 
 The numbers above describe these builds, not Coral in general. The
-standalone testbench RAM answers in one cycle. `DBus2Axi` holds one
-transaction at a time. Only a fetch from external memory can overlap a
-data access. So the observed maximum of one outstanding transaction comes
-from the bridge, not the model. `test/axi.t` covers overlapping,
-out-of-order IDs, early write data and unmatched responses.
+standalone testbench RAM answers in one cycle, and the observed maximum of
+one outstanding transaction is a property of these programs and the bridge,
+not a limit of the model. `test/axi.t` covers overlapping, out-of-order IDs,
+early write data and unmatched responses.
 
 ### dma: what the DMA engine moved
 
@@ -789,7 +807,7 @@ Every analysis command (`commits`, `stalls`, `memory`, `axi`, `dma`,
   `$version` names one (nothing is assumed otherwise; the JSONL header gets a
   `simulator` member in the same case);
 - `--format jsonl`: JSON Lines, one object per line, each with a `type`:
-  - a header, `{"type":"coralview","schema_version":2,"model":…,"platform":…,"trace":…}`;
+  - a header, `{"type":"coralview","schema_version":3,"model":…,"platform":…,"trace":…}`;
   - the analysis' events, in the order it produces them, as
     `<model>.<record>` (`axi.transaction`, `stalls.span`, …), selected by
     `--from-cycle`, `--to-cycle`, `--pc` and `--limit` as the text rows are;
@@ -878,8 +896,9 @@ For a program that reads the lines without the library:
   the events follow in the order the analysis produced them, then the
   diagnostics, then the summary. A reader should accept diagnostics
   anywhere and a file with no header or summary.
-- `schema_version` is 2. It is there for readers to check; coralview does
-  not enforce it yet. Version 2 renamed `commits.commit` `written` to
+- `schema_version` is 3. It is there for readers to check; coralview does
+  not enforce it yet. Version 3 dropped `memory.access` `bus`: one port serves the
+  TCMs and the external bus. Version 2 renamed `commits.commit` `written` to
   `writeback` and added `dispatch_to_retire` and `dispatch_to_writeback`.
 - Integers are JSON numbers: cycles, addresses and PCs. A `cycle` counts
   the samples of the platform's clock; a `time` is the trace's timestamp.
@@ -914,7 +933,7 @@ diag: code cycle message paths[] severity source time
 dma.job: aborted beats[].read.accepted beats[].read.address beats[].read.beats beats[].read.bytes beats[].read.completed beats[].read.first_data beats[].read.id beats[].read.outstanding beats[].read.requested beats[].read.status beats[].read.write beats[].write.accepted beats[].write.address beats[].write.beats beats[].write.bytes beats[].write.completed beats[].write.first_data beats[].write.id beats[].write.outstanding beats[].write.requested beats[].write.status beats[].write.write descriptors[].at descriptors[].beat descriptors[].dst.address descriptors[].dst.bytes descriptors[].dst.write descriptors[].dst_fixed descriptors[].fetch.start descriptors[].fetch.stop descriptors[].len descriptors[].next descriptors[].poll.address descriptors[].poll.mask descriptors[].poll.value descriptors[].src.address descriptors[].src.bytes descriptors[].src.write descriptors[].src_fixed error first observed.cycle observed.pc pc polls span.start span.stop status_reads
 dma.stray: cycle what
 dma.summary: bytes cycles jobs max_outstanding stray
-memory.access: access.address access.bytes access.write bus cycle data lanes[] pc
+memory.access: access.address access.bytes access.write cycle data lanes[] pc
 memory.fault: address cycle pc request.address request.cycle write
 memory.summary: faults pcs reads writes
 ops.burst: first flops instructions last ops

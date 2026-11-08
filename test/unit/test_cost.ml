@@ -14,10 +14,9 @@ let commit pc word ~dispatched ~retired ~charged : Commits.commit =
     charged;
   }
 
-let access pc cycle address bus region : Memory.Event.access =
+let access pc cycle address region : Memory.Event.access =
   {
     cycle;
-    bus;
     pc;
     access = { Access.address; bytes = 4; write = false; region };
     lanes = [ 0; 1; 2; 3 ];
@@ -42,13 +41,11 @@ let%expect_test "requests join the youngest instance dispatched before them" =
       commit 0x10 1 ~dispatched:10 ~retired:16 ~charged:6;
     ]
   in
-  let accesses =
-    [ access 0x10 3 0x1000 Memory.Event.Tcm (Some "dtcm"); access 0x10 12 0x20000000 External None ]
-  in
+  let accesses = [ access 0x10 3 0x1000 (Some "dtcm"); access 0x10 12 0x20000000 None ] in
   print (Cost.join ~classify ~window:Text.everything commits accesses);
   [%expect
     {|
-    mem ext count 1 cycles 6 d->r 6
+    mem mem count 1 cycles 6 d->r 6
     mem dtcm count 1 cycles 5 d->r 6
     alu - count 1 cycles 1 d->r 1 |}]
 
@@ -60,6 +57,5 @@ let%expect_test "a window keeps the commits retired in it" =
     ]
   in
   let window = { Text.first = 7; last = max_int; pcs = [] } in
-  print
-    (Cost.join ~classify ~window commits [ access 0x10 3 0x1000 Memory.Event.Tcm (Some "dtcm") ]);
+  print (Cost.join ~classify ~window commits [ access 0x10 3 0x1000 (Some "dtcm") ]);
   [%expect {| alu - count 1 cycles 1 d->r 1 |}]
