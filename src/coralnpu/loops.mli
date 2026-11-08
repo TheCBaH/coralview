@@ -22,6 +22,7 @@ type loop = {
   tail : int;  (** The last of the PCs that branch back to it. *)
   trips : trip list;  (** In order. *)
   body : pc_stat list;  (** The PCs retired in the trips, ascending. *)
+  parent : int option;  (** The header of the innermost loop whose range holds this one's. *)
 }
 
 val detect : Commits.commit list -> loop list
@@ -37,7 +38,7 @@ val median : int list -> int
 
 val loop_jsont : loop Jsont.t
 (** [{"type":"loops.loop","header","tail","trips":[{"start","instructions","cycles"}],"pcs":[{"pc","word"?,
-    "count","cycles"}]}]; the statistics are the reader's to compute from the trips. *)
+    "count","cycles"}],"parent"?}]; the statistics are the reader's to compute from the trips. *)
 
 val text : disasm:(int -> string) -> symbol:(int -> (string * int) option) -> loop list -> unit
 (** One block a loop: header, back-edge PC, trips, instructions and cycles a trip (median, range), then

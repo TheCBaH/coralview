@@ -57,9 +57,20 @@ by offset from it:
          8      -       -      3       3      +3  - | bne x10, x0, -4
   $ coralview compare --platform loop-core.json --elf cmp.elf --entry first --format jsonl core.vcd loop.vcd
   {"type":"coralview","schema_version":2,"model":"compare","platform":"test-core","trace":"core.vcd,loop.vcd"}
-  {"type":"compare.summary","a":{"type":"summary.window","first":4,"instructions":2,"cycles":5},"b":{"type":"summary.window","first":3,"instructions":7,"cycles":15}}
+  {"type":"compare.summary","a":{"type":"summary.window","first":4,"instructions":2,"cycles":5},"b":{"type":"summary.window","first":3,"instructions":7,"cycles":15,"hot_loop":{"header":2147483652,"trips":3,"cycles_per_trip":3}}}
   {"type":"compare.pc","offset":4,"a":{"count":1,"cycles":1,"text":"addi x0, x0, 0"},"b":{"count":3,"cycles":8,"text":"addi x10, x10, -1"},"delta":7}
   {"type":"compare.pc","offset":8,"b":{"count":3,"cycles":3,"text":"bne x10, x0, -4"},"delta":3}
+
+`--loops` pairs the loops of the two windows by rank of their cycles, for kernels that do not line up by
+offset (here A has no loop):
+
+  $ coralview compare --platform loop-core.json --elf cmp.elf --entry first --loops core.vcd loop.vcd | sed -n '/^loops/,$p'
+  loops paired by rank of cycles in the loop, header offsets from the window's function:
+        A                                         B                                              B-A
+  rank    offset  trips    ins cyc/trip   cycles    offset  trips    ins cyc/trip   cycles
+     1                                         -         4      3      2        3       11       +11
+  $ coralview compare --platform loop-core.json --elf cmp.elf --entry first --loops --format jsonl core.vcd loop.vcd | tail -n 1
+  {"type":"compare.loop","rank":1,"b":{"header":4,"trips":3,"instructions":2,"cycles_per_trip":3,"cycles":11},"delta":11}
   $ coralview compare --platform loop-core.json --entry first core.vcd loop.vcd
   --entry needs --elf
   [2]

@@ -6,7 +6,14 @@ module IM = Map.Make (Int)
 
 type trip = { start : int; instructions : int; cycles : int }
 type pc_stat = { pc : int; word : int option; count : int; cycles : int }
-type loop = { header : int; tail : int; trips : trip list; body : pc_stat list }
+
+type loop = {
+  header : int;
+  tail : int;
+  trips : trip list;
+  body : pc_stat list;
+  parent : int option;
+}
 
 (* A conditional branch, or a jal that links nowhere (a call links to x1). *)
 let branches (c : Commits.commit) =
@@ -71,9 +78,26 @@ let detect commits =
     List.iter
       (fun h -> match Hashtbl.find_opt last h with Some s -> record h s (n - 1) | None -> ())
       (Hashtbl.find_all tails c.(n - 1).pc);
+  let spans = Hashtbl.fold (fun header (a : acc) l -> (header, a.tail) :: l) loops [] in
+  (* The innermost loop whose range holds this one's. *)
+  let parent header tail =
+    List.fold_left
+      (fun best (h, t) ->
+        if (h, t) <> (header, tail) && h <= header && tail <= t then
+          match best with Some (bh, bt) when bt - bh <= t - h -> best | _ -> Some (h, t)
+        else best)
+      None spans
+    |> Option.map fst
+  in
   Hashtbl.fold
     (fun header a l ->
-      { header; tail = a.tail; trips = List.rev a.trips; body = List.map snd (IM.bindings a.body) }
+      {
+        header;
+        tail = a.tail;
+        trips = List.rev a.trips;
+        body = List.map snd (IM.bindings a.body);
+        parent = parent header a.tail;
+      }
       :: l)
     loops []
   |> List.sort (fun (a : loop) (b : loop) ->
@@ -100,11 +124,13 @@ let pc_jsont =
   |> Jsont.Object.finish
 
 let loop_jsont =
-  Codec.record "loops.loop" (fun header tail trips body : loop -> { header; tail; trips; body })
+  Codec.record "loops.loop" (fun header tail trips body parent : loop ->
+      { header; tail; trips; body; parent })
   |> Jsont.Object.mem "header" Jsont.int ~enc:(fun (l : loop) -> l.header)
   |> Jsont.Object.mem "tail" Jsont.int ~enc:(fun (l : loop) -> l.tail)
   |> Jsont.Object.mem "trips" (Jsont.list trip_jsont) ~enc:(fun (l : loop) -> l.trips)
   |> Jsont.Object.mem "pcs" (Jsont.list pc_jsont) ~enc:(fun (l : loop) -> l.body)
+  |> Codec.opt (fun (l : loop) -> l.parent) "parent" Jsont.int
   |> Jsont.Object.finish
 
 let stats l =
@@ -122,7 +148,8 @@ let text ~disasm ~symbol loops =
   List.iter
     (fun (l : loop) ->
       let n = List.length l.trips in
-      Printf.printf "loop %08x%s, back edge at %08x: %d trips\n" l.header (at l.header) l.tail n;
+      Printf.printf "loop %08x%s, back edge at %08x: %d trips%s\n" l.header (at l.header) l.tail n
+        (match l.parent with Some h -> Printf.sprintf ", inside loop %08x" h | None -> "");
       Printf.printf "  instructions a trip %s\n"
         (stats (List.map (fun (t : trip) -> t.instructions) l.trips));
       Printf.printf "  cycles a trip %s\n" (stats (List.map (fun (t : trip) -> t.cycles) l.trips));

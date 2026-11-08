@@ -1511,7 +1511,7 @@ let commands =
       "Two runs of one kernel side by side: the summaries of their windows and the instructions \
        whose cycles differ most."
       Term.(
-        const (fun p elf around entry top format output a b ->
+        const (fun p elf around entry top loops format output a b ->
             redirect output;
             (match (around, entry) with
             | Some _, Some _ -> fail ~code:2 "--around-symbol and --entry are alternatives"
@@ -1554,7 +1554,8 @@ let commands =
             match format with
             | `Text ->
                 banner p;
-                Compare.text ~top sa sb
+                Compare.text ~top sa sb;
+                if loops then Compare.text_loops ~top sa sb
             | `Jsonl ->
                 print_endline
                   (Codec.to_line Jsonl.header_jsont
@@ -1562,7 +1563,11 @@ let commands =
                 print_endline (Codec.to_line Compare.summary_jsont (sa.summary, sb.summary));
                 List.iter
                   (fun r -> print_endline (Codec.to_line Compare.row_jsont r))
-                  (Compare.rows ~top sa sb))
+                  (Compare.rows ~top sa sb);
+                if loops then
+                  List.iter
+                    (fun r -> print_endline (Codec.to_line Compare.loop_row_jsont r))
+                    (Compare.loop_rows ~top sa sb))
         $ platform
         $ Arg.(
             value
@@ -1585,6 +1590,12 @@ let commands =
         $ Arg.(
             value & opt int 10
             & info [ "top" ] ~docv:"N" ~doc:"Print the $(docv) largest per-instruction differences.")
+        $ Arg.(
+            value & flag
+            & info [ "loops" ]
+                ~doc:
+                  "Also pair the loops of the two windows by rank of their cycles, for kernels \
+                   whose instructions do not line up by offset (up to $(b,--top) pairs).")
         $ format $ output
         $ Arg.(required & pos 0 (some file) None & info [] ~docv:"A" ~doc:"The first trace.")
         $ Arg.(required & pos 1 (some file) None & info [] ~docv:"B" ~doc:"The second trace."));

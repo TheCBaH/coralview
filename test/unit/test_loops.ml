@@ -25,7 +25,8 @@ let run l = List.mapi (fun i (pc, charged, word) -> commit ~word pc ~retired:(10
 let print loops =
   List.iter
     (fun (l : Loops.loop) ->
-      Printf.printf "loop %x tail %x trips %s\n" l.header l.tail
+      Printf.printf "loop %x tail %x%s trips %s\n" l.header l.tail
+        (match l.parent with Some h -> Printf.sprintf " parent %x" h | None -> "")
         (String.concat " "
            (List.map
               (fun (t : Loops.trip) -> Printf.sprintf "%d/%d@%d" t.instructions t.cycles t.start)
@@ -86,7 +87,7 @@ let%expect_test "nested loops each have their trips; the outer contains the inne
       8 count 5 cycles 5
       c count 5 cycles 5
       10 count 2 cycles 2
-    loop 8 tail c trips 2/2@102 2/2@104 2/2@106 2/2@110 2/2@112
+    loop 8 tail c parent 4 trips 2/2@102 2/2@104 2/2@106 2/2@110 2/2@112
       8 count 5 cycles 5
       c count 5 cycles 5 |}]
 

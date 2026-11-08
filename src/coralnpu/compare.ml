@@ -101,3 +101,78 @@ let text ~top a b =
           (match (r.a, r.b) with Some x, Some y when x.text = y.text -> "" | _ -> " | " ^ t r.b))
       rs
   end
+
+type loop_stat = {
+  header : int;
+  trips : int;
+  instructions : int;
+  cycles_per_trip : int;
+  cycles : int;
+}
+
+type loop_row = { rank : int; a : loop_stat option; b : loop_stat option }
+
+let loop_stats (s : side) =
+  let selected =
+    List.filter
+      (fun (c : Commits.commit) -> Text.selected s.window ~cycle:c.retired ~pc:c.pc)
+      s.commits
+  in
+  List.map
+    (fun (l : Loops.loop) ->
+      let per f = Loops.median (List.map f l.trips) in
+      {
+        header = l.header - s.base;
+        trips = List.length l.trips;
+        instructions = per (fun (t : Loops.trip) -> t.instructions);
+        cycles_per_trip = per (fun (t : Loops.trip) -> t.cycles);
+        cycles = List.fold_left (fun n (t : Loops.trip) -> n + t.cycles) 0 l.trips;
+      })
+    (Loops.detect selected)
+
+let loop_rows ~top a b =
+  let la = loop_stats a and lb = loop_stats b in
+  List.init
+    (min top (max (List.length la) (List.length lb)))
+    (fun i -> { rank = i + 1; a = List.nth_opt la i; b = List.nth_opt lb i })
+
+let loop_delta r =
+  let cycles = function Some (x : loop_stat) -> x.cycles | None -> 0 in
+  cycles r.b - cycles r.a
+
+let loop_stat_jsont =
+  Jsont.Object.map ~kind:"loop stat" (fun header trips instructions cycles_per_trip cycles ->
+      { header; trips; instructions; cycles_per_trip; cycles })
+  |> Jsont.Object.mem "header" Jsont.int ~enc:(fun (l : loop_stat) -> l.header)
+  |> Jsont.Object.mem "trips" Jsont.int ~enc:(fun (l : loop_stat) -> l.trips)
+  |> Jsont.Object.mem "instructions" Jsont.int ~enc:(fun (l : loop_stat) -> l.instructions)
+  |> Jsont.Object.mem "cycles_per_trip" Jsont.int ~enc:(fun (l : loop_stat) -> l.cycles_per_trip)
+  |> Jsont.Object.mem "cycles" Jsont.int ~enc:(fun (l : loop_stat) -> l.cycles)
+  |> Jsont.Object.finish
+
+let loop_row_jsont =
+  Codec.record "compare.loop" (fun rank a b _ : loop_row -> { rank; a; b })
+  |> Jsont.Object.mem "rank" Jsont.int ~enc:(fun (r : loop_row) -> r.rank)
+  |> Codec.opt (fun (r : loop_row) -> r.a) "a" loop_stat_jsont
+  |> Codec.opt (fun (r : loop_row) -> r.b) "b" loop_stat_jsont
+  |> Jsont.Object.mem "delta" Jsont.int ~enc:loop_delta
+  |> Jsont.Object.finish
+
+let text_loops ~top a b =
+  let rs = loop_rows ~top a b in
+  if rs <> [] then begin
+    Printf.printf
+      "\nloops paired by rank of cycles in the loop, header offsets from the window's function:\n";
+    let head = Printf.sprintf "%8s %6s %6s %8s %8s" "offset" "trips" "ins" "cyc/trip" "cycles" in
+    Printf.printf "%4s  %-40s  %-40s  %8s\n" "" "A" "B" "B-A";
+    Printf.printf "%4s  %s  %s\n" "rank" head head;
+    let cell = function
+      | Some (l : loop_stat) ->
+          Printf.sprintf "%8x %6d %6d %8d %8d" l.header l.trips l.instructions l.cycles_per_trip
+            l.cycles
+      | None -> Printf.sprintf "%40s" "-"
+    in
+    List.iter
+      (fun r -> Printf.printf "%4d  %s  %s  %+8d\n" r.rank (cell r.a) (cell r.b) (loop_delta r))
+      rs
+  end

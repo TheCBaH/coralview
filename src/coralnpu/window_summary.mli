@@ -4,6 +4,12 @@
 
 (** The figures of one window of a run, from the events of the models, for tests and for [compare]. *)
 
+type hot_loop = {
+  header : int;  (** The loop's header PC. *)
+  trips : int;
+  cycles_per_trip : int;  (** The median over the trips. *)
+}
+
 type t = {
   first : int;  (** The window's first cycle. *)
   last : int option;  (** Absent when unbounded. *)
@@ -16,6 +22,8 @@ type t = {
   stalls : (string * int) list option;
       (** Lane-cycles by dispatch reason, those that happened, in the order of {!Stalls.reasons}; absent
           without the [stalls] model. *)
+  hot_loop : hot_loop option;
+      (** The loop with the most cycles in the window, from {!Loops.detect}; absent when there is none. *)
 }
 
 val make :
@@ -40,6 +48,7 @@ val analyze :
 
 val jsont : t Jsont.t
 (** [{"type":"summary.window","first","last"?,"instructions","cycles","loads"?,"stores"?,
-    "vector_instructions"?,"vector_ops"?,"stalls"?:[{"reason","lane_cycles"}]}]. *)
+    "vector_instructions"?,"vector_ops"?,"stalls"?:[{"reason","lane_cycles"}],
+    "hot_loop"?:{"header","trips","cycles_per_trip"}}]. *)
 
 val text : t -> unit

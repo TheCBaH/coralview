@@ -996,8 +996,9 @@ The statistics are median (lower middle) and range; `cycles by trip` shows trip 
 as a slow first trip. The window is by cycle (`--from-cycle`, `--to-cycle`, `--between-pc`,
 `--around-symbol`, `--entry`); `--pc` is ignored, since it would cut the trips apart. A trip that began
 before the window is not found. `--format jsonl` writes one `loops.loop` per loop, with every trip
-(`start`, `instructions`, `cycles`) and the totals by PC. A loop whose back edge is never taken is not
-found.
+(`start`, `instructions`, `cycles`) and the totals by PC. A loop inside another's range says so
+(`, inside loop PC` in text, `parent` in JSON lines: the header of the innermost enclosing loop). A loop
+whose back edge is never taken is not found.
 
 ## summary: one record a window
 
@@ -1005,7 +1006,7 @@ found.
 reports one window: the instructions retired in it and the cycles charged to them (`commits`), data
 read and write requests (`memory`), vector instructions and operations (`ops`), and the dispatch
 lane-cycles by reason, clipped to the window (`stalls`). What the platform cannot give is left out, not
-zero. `--format jsonl` writes the header and one `summary.window` record, a stable form for tests and
+zero. `--format jsonl` writes the header and one `summary.window` record (with a `hot_loop` — header PC, trips and median cycles a trip of the window's hottest loop — when it has one), a stable form for tests and
 for `compare`; the window options are those of `cost`. It reads the trace once, so a pipe works unless
 a marker window (`--between-pc`, `--around-symbol`, `--entry`) needs a first pass.
 
@@ -1045,7 +1046,9 @@ charged differ most. Each run's window is its own: from the entry of `NA` in the
 or one ELF, serves both. Instructions are matched by their offset from that entry, so generated code
 and a hand-written kernel line up where their layouts do; an offset only one run has counts as zero for
 the other, and the instruction text of both is shown when it differs. Without a symbol the windows are
-the whole runs and offsets are PCs. `--format jsonl` writes a `compare.summary` record (both
+the whole runs and offsets are PCs. `--loops` adds the loops of the two windows, paired by rank of the cycles in them (header
+offset, trips, median instructions and cycles a trip, cycles), for kernels whose instructions do not line up by
+offset, such as an unrolled loop against a one-trip loop; JSON lines add a `compare.loop` record a pair. `--format jsonl` writes a `compare.summary` record (both
 `summary.window` records) and a `compare.pc` record for each difference.
 
 ## Fitting a cycle model from one kernel

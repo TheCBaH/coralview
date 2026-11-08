@@ -76,3 +76,26 @@ let%expect_test "a window counts its commits, ops, and the cycles of the spans i
       vector: 1 instructions, 6 operations
       dispatch lane-cycles: empty 3
     {"type":"summary.window","first":8,"last":10,"instructions":1,"cycles":3,"vector_instructions":1,"vector_ops":6,"stalls":[{"reason":"empty","lane_cycles":3}]} |}]
+
+let%expect_test "the hottest loop of the window, with its median cycles a trip" =
+  let commits =
+    [
+      commit 0x10 ~retired:5 ~charged:4;
+      commit 0x14 ~retired:9 ~charged:3;
+      commit 0x10 ~retired:12 ~charged:2;
+      commit 0x14 ~retired:14 ~charged:1;
+      commit 0x18 ~retired:20 ~charged:10;
+    ]
+  in
+  let s =
+    Window_summary.make ~window:Text.everything ~end_cycle:24 ~commits ~accesses:None ~ops:None
+      ~stalls:None
+  in
+  Window_summary.text s;
+  print_endline (Codec.to_line Window_summary.jsont s);
+  [%expect
+    {|
+    window [0, end]
+      instructions 5, cycles charged 20
+      hottest loop 00000010: 2 trips, 3 cycles a trip
+    {"type":"summary.window","first":0,"instructions":5,"cycles":20,"hot_loop":{"header":16,"trips":2,"cycles_per_trip":3}} |}]

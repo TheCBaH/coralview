@@ -2,6 +2,8 @@
 [@@@ai_model "claude-sonnet-5-5"]
 [@@@ai_provider "Anthropic"]
 
+type hot_loop = { header : int; trips : int; cycles_per_trip : int }
+
 type t = {
   first : int;
   last : int option;
@@ -12,6 +14,7 @@ type t = {
   vector_instructions : int option;
   vector_ops : int option;
   stalls : (string * int) list option;
+  hot_loop : hot_loop option;
 }
 
 let make ~(window : Text.window) ~end_cycle ~commits ~accesses ~ops ~stalls =
@@ -56,6 +59,17 @@ let make ~(window : Text.window) ~end_cycle ~commits ~accesses ~ops ~stalls =
           Stalls.reasons)
       stalls
   in
+  let hot_loop =
+    match Loops.detect commits with
+    | [] -> None
+    | l :: _ ->
+        Some
+          {
+            header = l.header;
+            trips = List.length l.trips;
+            cycles_per_trip = Loops.median (List.map (fun (t : Loops.trip) -> t.cycles) l.trips);
+          }
+  in
   {
     first = window.first;
     last = (if window.last = max_int then None else Some window.last);
@@ -66,6 +80,7 @@ let make ~(window : Text.window) ~end_cycle ~commits ~accesses ~ops ~stalls =
     vector_instructions = Option.map List.length ops;
     vector_ops = Option.map (List.fold_left (fun n (o : Ops.op) -> n + o.ops) 0) ops;
     stalls;
+    hot_loop;
   }
 
 let stall_jsont =
@@ -74,10 +89,42 @@ let stall_jsont =
   |> Jsont.Object.mem "lane_cycles" Jsont.int ~enc:snd
   |> Jsont.Object.finish
 
+let hot_loop_jsont =
+  Jsont.Object.map ~kind:"hot loop" (fun header trips cycles_per_trip : hot_loop ->
+      { header; trips; cycles_per_trip })
+  |> Jsont.Object.mem "header" Jsont.int ~enc:(fun (h : hot_loop) -> h.header)
+  |> Jsont.Object.mem "trips" Jsont.int ~enc:(fun (h : hot_loop) -> h.trips)
+  |> Jsont.Object.mem "cycles_per_trip" Jsont.int ~enc:(fun (h : hot_loop) -> h.cycles_per_trip)
+  |> Jsont.Object.finish
+
 let jsont =
   Codec.record "summary.window"
-    (fun first last instructions cycles loads stores vector_instructions vector_ops stalls : t ->
-      { first; last; instructions; cycles; loads; stores; vector_instructions; vector_ops; stalls })
+    (fun
+      first
+      last
+      instructions
+      cycles
+      loads
+      stores
+      vector_instructions
+      vector_ops
+      stalls
+      hot_loop
+      :
+      t
+    ->
+      {
+        first;
+        last;
+        instructions;
+        cycles;
+        loads;
+        stores;
+        vector_instructions;
+        vector_ops;
+        stalls;
+        hot_loop;
+      })
   |> Jsont.Object.mem "first" Jsont.int ~enc:(fun (s : t) -> s.first)
   |> Codec.opt (fun (s : t) -> s.last) "last" Jsont.int
   |> Jsont.Object.mem "instructions" Jsont.int ~enc:(fun (s : t) -> s.instructions)
@@ -87,6 +134,7 @@ let jsont =
   |> Codec.opt (fun (s : t) -> s.vector_instructions) "vector_instructions" Jsont.int
   |> Codec.opt (fun (s : t) -> s.vector_ops) "vector_ops" Jsont.int
   |> Codec.opt (fun (s : t) -> s.stalls) "stalls" (Jsont.list stall_jsont)
+  |> Codec.opt (fun (s : t) -> s.hot_loop) "hot_loop" hot_loop_jsont
   |> Jsont.Object.finish
 
 let text (s : t) =
@@ -99,11 +147,16 @@ let text (s : t) =
   (match (s.vector_instructions, s.vector_ops) with
   | Some i, Some o -> Printf.printf "  vector: %d instructions, %d operations\n" i o
   | _ -> ());
-  match s.stalls with
+  (match s.stalls with
   | Some l when l <> [] ->
       Printf.printf "  dispatch lane-cycles: %s\n"
         (String.concat ", " (List.map (fun (r, n) -> Printf.sprintf "%s %d" r n) l))
-  | _ -> ()
+  | _ -> ());
+  match s.hot_loop with
+  | Some h ->
+      Printf.printf "  hottest loop %08x: %d trips, %d cycles a trip\n" h.header h.trips
+        h.cycles_per_trip
+  | None -> ()
 
 let analyze (p : Platform.t) ~window ?(region = Region.none) trace =
   let (Core.Any c) = Core.bind p trace ~model:"summary" in

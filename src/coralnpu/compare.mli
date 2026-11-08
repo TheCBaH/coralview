@@ -29,3 +29,24 @@ val summary_jsont : (Window_summary.t * Window_summary.t) Jsont.t
 (** [{"type":"compare.summary","a":{…},"b":{…}}]. *)
 
 val text : top:int -> side -> side -> unit
+
+type loop_stat = {
+  header : int;  (** Offset of the loop's header from the window's function. *)
+  trips : int;
+  instructions : int;  (** Median over the trips. *)
+  cycles_per_trip : int;  (** Median over the trips. *)
+  cycles : int;  (** Over all trips. *)
+}
+
+type loop_row = { rank : int; a : loop_stat option; b : loop_stat option }
+
+val loop_rows : top:int -> side -> side -> loop_row list
+(** The loops of the two windows ({!Loops.detect}), each side ordered by cycles in the loop, paired by
+    that rank, so kernels whose layouts differ (an unrolled loop against a one-trip loop) still line up by
+    their hot loops. At most [top] pairs; a side with fewer loops has [None]. *)
+
+val loop_row_jsont : loop_row Jsont.t
+(** [{"type":"compare.loop","rank","a"?:{"header","trips","instructions","cycles_per_trip","cycles"},"b"?:…,
+    "delta"}], the delta being B's cycles in the loop minus A's. *)
+
+val text_loops : top:int -> side -> side -> unit
