@@ -569,8 +569,8 @@ mechanics.
 
 ## Testing a model
 
-- **Expect tests on hand-written VCDs.** `Trace.of_string` reads a VCD
-  literal. See `hwfrp/test/test_bind.ml` and `test_frp.ml`.
+- **Expect tests on hand-written VCDs.** `Hwfrp_vcd.of_string` reads a VCD
+  literal; `Hwfrp_native.open_string` also takes FST bytes. See `hwfrp/test/test_bind.ml` and `test_frp.ml`.
 - **Cram tests of a whole command.** Use small VCD fixtures and a platform
   description, as in `test/platform.t`.
 - **`check` against real traces.** It binds every model of a platform

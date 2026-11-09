@@ -56,7 +56,9 @@ module Sig : sig
 
   val ( let+ ) : ('a, 'c) t -> ('a -> 'b) -> ('b, 'c) t
   val ( and+ ) : ('a, 'c) t -> ('b, 'c) t -> ('a * 'b, 'c) t
+
   val all : ('a, 'c) t list -> ('a list, 'c) t
+  (** Raises [Invalid_argument] on the empty list, which has no clock: use {!const} with the clock. *)
 
   val pre : init:'a -> ('a, 'c) t -> ('a, 'c) t
   (** The value at the previous sample of the domain; [init] at the first. *)
