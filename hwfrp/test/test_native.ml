@@ -34,3 +34,7 @@ let%test "the format follows the content" =
 
 let%test "a missing file is a Sys_error" =
   match Hwfrp_native.open_file "data/absent.fst" with exception Sys_error _ -> true | _ -> false
+
+let%test "open_file_result turns a missing file into a message" =
+  Result.is_error (Hwfrp_native.open_file_result "data/absent.fst")
+  && Result.is_ok (Hwfrp_native.open_file_result "data/memory.fst")

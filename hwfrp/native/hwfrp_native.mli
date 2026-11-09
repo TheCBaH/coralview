@@ -9,6 +9,9 @@ val open_file : ?select:bool -> string -> Hwfrp.Trace.t
 (** VCD or FST, by content. Raises [Vcd.Parse_error] or [Sys_error]. With [select] (the default), only
     the changes of the signals tracked by the time the events are read are decoded. *)
 
+val open_file_result : ?select:bool -> string -> (Hwfrp.Trace.t, string) result
+(** {!open_file} with its failures, [Vcd.Parse_error], [Sys_error] and an FST [Failure], as the message. *)
+
 val open_string : ?select:bool -> string -> Hwfrp.Trace.t
 (** VCD or FST bytes, by content. *)
 
