@@ -9,6 +9,7 @@
   hwfrp
   hwfrp.vcd
   hwfrp.native
+  hwfrp.sinks
   ovcd
   ovcd.vcd_types
   ovcd.vcd_filter

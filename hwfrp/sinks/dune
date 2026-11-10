@@ -1,0 +1,3 @@
+(library
+ (name hwfrp_sinks)
+ (public_name hwfrp.sinks))
