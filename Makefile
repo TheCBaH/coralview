@@ -32,7 +32,7 @@ fmt-check:
 # hwfrp builds and tests as a package of its own: no Rivet, jsont or Coral. Its core library
 # (hwfrp/src) reads no waveform and uses ovcd's types only; VCD text is hwfrp/vcd, and files, FST
 # and the wall clock are hwfrp/native, the only places that may use ovcd.fst and unix.
-HWFRP_ALLOWED = hwfrp/src=ovcd ovcd.vcd_types ovcd.vcd_filter;hwfrp/vcd=ovcd ovcd.vcd_types;hwfrp/native=ovcd ovcd.fst ovcd.vcd_types unix;hwfrp/test=ovcd ovcd.vcd_types ovcd.vcd_filter qcheck-core ppx_expect
+HWFRP_ALLOWED = hwfrp/src=ovcd ovcd.vcd_types ovcd.vcd_filter;hwfrp/vcd=ovcd ovcd.vcd_types;hwfrp/native=ovcd ovcd.fst ovcd.vcd_types unix;hwfrp/sinks=;hwfrp/test=ovcd ovcd.vcd_types ovcd.vcd_filter qcheck-core ppx_expect
 
 hwfrp-boundary:
 	$(DUNE) build --build-dir $(CURDIR)/_build/hwfrp -p hwfrp @install @hwfrp/runtest
@@ -44,7 +44,7 @@ hwfrp-boundary:
 	  ext && (dir in ok) && match($$0, /\([a-z][a-z0-9_.-]* required/) { \
 	    name = substr($$0, RSTART + 1, RLENGTH - 10); seen[dir] = 1; \
 	    if (index(ok[dir], " " name " ") == 0) { print dir " must not depend on " name; bad = 1 } } \
-	  END { for (d in ok) if (!(d in seen)) { print d ": no dependencies found"; bad = 1 } exit bad }'
+	  END { for (d in ok) if (!(d in seen) && ok[d] != "  ") { print d ": no dependencies found"; bad = 1 } exit bad }'
 
 # Zvt words decode and assemble back to themselves; the same program runs against the opam install.
 isa-check:

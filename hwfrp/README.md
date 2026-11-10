@@ -404,6 +404,21 @@ fails if its libraries use anything beyond ovcd and unix. Bus protocols
 (AXI4, TileLink-UL) are hardware vocabulary and live with the tool that
 models the hardware: coralview's `src/proto`.
 
+### Writing results: `hwfrp.sinks`
+
+The `hwfrp.sinks` library has no dependency and knows nothing of traces. It
+writes what a model produced, deterministically, so an export can be compared
+byte for byte with a rerun:
+
+- `Json.t` and `Json.to_string`: compact, object keys in the order given;
+- `Lines` and `Jsonl`: one record per line, with an optional header record;
+- `Chrome_trace`: processes, named lanes, spans, instants and counters, in
+  the format ui.perfetto.dev loads. Lanes are numbered in the order declared,
+  then by first use; `occupancy` turns intervals into a counter.
+
+The caller supplies the records and the time unit; hwfrp does not hash or
+read files, and there is no JSON reader.
+
 ## Machinery
 
 What happens between the FST file and a subscriber call:
