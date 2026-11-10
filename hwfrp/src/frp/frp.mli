@@ -123,6 +123,16 @@ module Machine : sig
     every_tick : bool;  (** Step even when the input did not change. *)
   }
 
+  val of_fold :
+    ?every_tick:bool ->
+    ?finish:('s -> 'o list) ->
+    name:string ->
+    init:'s ->
+    ('s -> 'i -> 's * 'o list) ->
+    ('s, 'i, 'o) spec
+  (** A machine that is a function of the previous state and the input alone, not of the tick. [every_tick]
+      is false and [finish] emits nothing unless given. *)
+
   val run : ('s, 'i, 'o) spec -> ('i, 'c) Sig.t -> ('o list, 'c) Ev.t * ('s, 'c) Sig.t
 end
 
@@ -190,6 +200,12 @@ module Diag : sig
   (** Records a diagnostic during a sample, from inside a node function. *)
 
   val emit : Net.t -> ('a, 'c) Ev.t -> ('a -> t option) -> unit
+
+  val summarize : Sampler.t -> t list
+  (** One diagnostic per kind, each with the paths of the tracked signals it covers, from a sampler that
+      has run (not recorded in a net): [signal.never-driven] (no value in the whole run),
+      [signal.constant] (one value, never changed; informational) and [signal.unknown-at-end]. A trace
+      that dumps every signal once at the start has all its steady signals in [signal.constant]. *)
 
   val stream : Net.t -> t Seq.t
   (** The recorded diagnostics, oldest first, at most [max_diags] of them. *)

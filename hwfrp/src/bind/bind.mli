@@ -70,6 +70,16 @@ val root :
 (** [overrides] maps a path relative to the root, components joined by ['.'], to the absolute path to bind
     instead. *)
 
+val flat :
+  Frp.Net.t ->
+  Trace.t ->
+  'c Frp.Clock.t ->
+  model:string ->
+  (string * Vcd_types.Reference.t) list ->
+  'c scope
+(** A scope for a flat description: a list of (name, absolute path). {!signal} and {!resolve} take only
+    those names, and a name that is not listed is {!Unbound} as missing, whatever the trace holds. *)
+
 val sub : 'c scope -> string -> 'c scope
 (** One scope component, taken literally. *)
 

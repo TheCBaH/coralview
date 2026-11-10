@@ -387,6 +387,9 @@ module Machine = struct
     every_tick : bool;
   }
 
+  let of_fold ?(every_tick = false) ?(finish = fun _ -> []) ~name ~init step =
+    { name; init; step = (fun ~tick:_ s i -> step s i); finish; every_tick }
+
   let run spec i =
     let st = mk ~name:spec.name ~kind:K_machine i.rc spec.init in
     let out = mk_event ~name:(spec.name ^ ".out") i.rc in
@@ -516,6 +519,28 @@ module Diag = struct
   let emit net e f =
     if e.rc.net != net then invalid_arg "Diag.emit: event of another net";
     Ev.subscribe e (fun x -> match f x with Some d -> record net d | None -> ())
+
+  let summarize sampler =
+    let many = ref [] in
+    let group code severity text pred =
+      let paths =
+        Array.fold_left
+          (fun acc (a : Sampler.activity) -> if pred a then a.signal.path :: acc else acc)
+          [] (Sampler.activity sampler)
+        |> List.rev
+      in
+      if paths <> [] then
+        many :=
+          make ~severity ~paths ~source:"trace" ~code
+            (Printf.sprintf "%s: %d" text (List.length paths))
+          :: !many
+    in
+    group "signal.never-driven" Warning "signals that never took a value" (fun a -> a.changes = 0);
+    group "signal.constant" Info "signals that never changed from their first value" (fun a ->
+        a.changes = 1);
+    group "signal.unknown-at-end" Warning "signals with X or Z bits at the end" (fun a ->
+        a.changes > 0 && a.unknown_at_end);
+    List.rev !many
 
   let stream net = List.to_seq (List.rev net.diags)
   let dropped net = net.dropped

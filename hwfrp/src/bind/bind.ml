@@ -107,8 +107,8 @@ let placeholder (r : requirement) =
   let width = match r.width with Exact n | At_least n | Up_to n -> n | Any_width -> 1 in
   Trace.unbound ~path:r.path ~width
 
-let require net tr (r : requirement) =
-  let st = status tr r.path r.width in
+let require ?force net tr (r : requirement) =
+  let st = match force with Some st -> st | None -> status tr r.path r.width in
   let log = collecting net in
   Option.iter (fun c -> c := (r, st) :: !c) log;
   match st with
@@ -137,10 +137,23 @@ type 'c scope = {
   root : Reference.t;
   rel : string list;
   overrides : (string * Reference.t) list;
+  strict : bool;
 }
 
 let root net trace clk ~model ?(overrides = []) root =
-  { net; trace; clk; model; root; rel = []; overrides }
+  { net; trace; clk; model; root; rel = []; overrides; strict = false }
+
+let flat net trace clk ~model entries =
+  {
+    net;
+    trace;
+    clk;
+    model;
+    root = Reference.of_list [];
+    rel = [];
+    overrides = entries;
+    strict = true;
+  }
 
 let sub sc name = { sc with rel = sc.rel @ [ name ] }
 let path sc = Reference.of_list (Reference.to_list sc.root @ sc.rel)
@@ -191,12 +204,13 @@ let field ~lo ~width =
 
 let resolve ?(purpose = "") sc name width =
   let rel = String.concat "." (sc.rel @ [ name ]) in
-  let path =
-    match List.assoc_opt rel sc.overrides with
-    | Some p -> p
-    | None -> Reference.of_list (Reference.to_list sc.root @ sc.rel @ [ name ])
-  in
-  require sc.net sc.trace { model = sc.model; root = sc.root; path; width; purpose }
+  let req path = { model = sc.model; root = sc.root; path; width; purpose } in
+  match List.assoc_opt rel sc.overrides with
+  | Some p -> require sc.net sc.trace (req p)
+  | None when sc.strict -> require ~force:Missing sc.net sc.trace (req (Reference.of_list [ rel ]))
+  | None ->
+      require sc.net sc.trace
+        (req (Reference.of_list (Reference.to_list sc.root @ sc.rel @ [ name ])))
 
 let decode sc d (s : Trace.signal) l =
   match d.decode l with

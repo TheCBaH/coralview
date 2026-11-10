@@ -13,6 +13,7 @@ type domain = {
 }
 
 type action = Action_tick of int * Timestamp.t | Apply of (int * Value.t) list
+type activity = { signal : Trace.signal; changes : int; unknown_at_end : bool }
 type stats = { events : int; changes_seen : int; changes_tracked : int; timestamps : int }
 
 type t = {
@@ -31,6 +32,8 @@ type t = {
   mutable n_seen : int;
   mutable n_tracked : int;
   mutable n_timestamps : int;
+  signals : Trace.signal array;
+  n_changed : int array;
 }
 
 let unset = Value.Scalar Value.X
@@ -69,6 +72,8 @@ let create trace specs =
     n_seen = 0;
     n_tracked = 0;
     n_timestamps = 0;
+    signals;
+    n_changed = Array.make n 0;
   }
 
 let level : Value.t -> bool option = function
@@ -135,6 +140,7 @@ let apply t batch =
     (fun (s, v) ->
       if t.values.(s) <> v then begin
         t.values.(s) <- v;
+        t.n_changed.(s) <- t.n_changed.(s) + 1;
         t.logic_cache.(s) <- None;
         Array.iter (fun d -> Bitset.add d.pending s) t.domains
       end)
@@ -192,6 +198,16 @@ let logic t s =
       in
       t.logic_cache.(s) <- Some l;
       l
+
+let activity t =
+  Array.mapi
+    (fun i signal ->
+      {
+        signal;
+        changes = t.n_changed.(i);
+        unknown_at_end = Logic.to_known (logic t signal.Trace.slot) = None;
+      })
+    t.signals
 
 let changed t = t.domains.(t.current).changed
 
