@@ -145,3 +145,64 @@ let%expect_test "values" =
         top.core.io_a_bits_x
         warning[bind.unknown-bits] m cycle 1 time 4: field[0+:2] of 000001x1
         top.core.io_a_bits_x |}]
+
+let%expect_test "collecting names every probe that fails" =
+  let tr = Hwfrp_vcd.of_string vcd in
+  let net = Net.create () in
+  Bind.collect net;
+  let (Clock.Any c) = Bind.clock net tr ~model:"m" ~name:"clk" After_falling (at "clk") in
+  let sc = Bind.root net tr c ~model:"m" core in
+  ignore (Bind.signal sc "io_a_bits_x" Bind.uint ~purpose:"x");
+  ignore (Bind.signal sc "io_a_bits_y" Bind.bool ~purpose:"one bit");
+  ignore (Bind.signal sc "nope" Bind.uint ~purpose:"absent");
+  ignore (Bind.signal (Bind.sub sc "deeper") "z" Bind.bool);
+  Printf.printf "%d failures\n" (List.length (Bind.failures net));
+  List.iter (Format.printf "%a@." Bind.pp_report) (Bind.report net);
+  (match Sched.compile net with
+  | Ok _ -> print_endline "compiled"
+  | Error l -> List.iter (function Sched.Unbound_source w -> print_endline w) l);
+  [%expect
+    {|
+    3 failures
+    m at top.core
+      bound   clk 1
+      bound   io_a_bits_x 8: x
+      width   io_a_bits_y 4, expected 1: one bit
+      missing nope: absent
+      missing deeper.z
+    m:   width   io_a_bits_y 4, expected 1: one bit
+    m:   missing nope: absent
+    m:   missing deeper.z |}]
+
+let%expect_test "a net that is not collecting still raises at the first failure" =
+  let tr = Hwfrp_vcd.of_string vcd in
+  let net = Net.create () in
+  let (Clock.Any c) = Bind.clock net tr ~model:"m" ~name:"clk" After_falling (at "clk") in
+  let sc = Bind.root net tr c ~model:"m" core in
+  (try ignore (Bind.signal sc "nope" Bind.uint) with Bind.Unbound _ -> print_endline "raised");
+  Printf.printf "%d failures, poisoned %b\n"
+    (List.length (Bind.failures net))
+    (Net.poisoned net <> []);
+  [%expect {|
+    raised
+    0 failures, poisoned false |}]
+
+let%expect_test "an enable that never goes high is visible in the stats" =
+  let tr = Hwfrp_vcd.of_string vcd in
+  let net = Net.create () in
+  let (Clock.Any c) =
+    Bind.clock net tr ~model:"m" ~name:"clk"
+      ~enable:(Reference.of_list [ "top"; "other"; "x" ])
+      After_falling (at "clk")
+  in
+  ignore (Bind.signal (Bind.root net tr c ~model:"m" core) "io_a_bits_x" Bind.uint);
+  let sched = match Sched.compile net with Ok s -> s | Error _ -> assert false in
+  let st = Sched.run sched (Sampler.create tr (Net.domains net)) in
+  Printf.printf "ticks %d enabled %d\n" st.ticks.(0) st.enabled.(0);
+  Seq.iter (Format.printf "%a@." Diag.pp) (Diag.stream net);
+  [%expect
+    {|
+    ticks 3 enabled 0
+    warning[bind.unknown-bits] m cycle 1 time 4: uint of 000001x1
+    top.core.io_a_bits_x
+    warning[clock.enable-never-high] clk cycle 2 time 6: the enable was low at all 3 clock samples |}]

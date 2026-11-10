@@ -4,7 +4,8 @@
 
 (** Binding model inputs to trace signals by path. Every probed signal must be in the trace with an
     acceptable width: there are no stand-in values, and a probe that does not resolve raises {!Unbound}
-    at once, because the model's description of the hardware is wrong for this trace. The bound
+    at once, because the model's description of the hardware is wrong for this trace. A net that is
+    {!collect}ing instead records every such probe, to report them together. The bound
     requirements are kept with the net, for [check]. *)
 
 type width_rule = Exact of int | At_least of int | Up_to of int | Any_width
@@ -43,6 +44,18 @@ val clock :
   Vcd_types.Reference.t ->
   Frp.Clock.any
 (** A clock domain sampled on a 1-bit signal. Raises {!Unbound}. *)
+
+val collect : Frp.Net.t -> unit
+(** Switches the net to collecting: from now on a probe that does not resolve is recorded instead of
+    raising {!Unbound}, and binding goes on with a stand-in, so one pass names every probe that fails.
+    The net is then {!Frp.Net.poison}ed: it only checks, and {!Frp.Sched.compile} refuses it. Call it
+    before the first bind. *)
+
+val failures : Frp.Net.t -> (requirement * status) list
+(** The probes that did not resolve, in binding order; empty unless {!collect}ed. *)
+
+val report : Frp.Net.t -> report list
+(** Every probe bound or tried since {!collect}, grouped by model and root in first-seen order. *)
 
 type 'c scope
 

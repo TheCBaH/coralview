@@ -190,6 +190,16 @@ equality.
 - `Bind.requirements net` lists what a model bound, and `Bind.check`
   resolves a requirement list against any trace. `coralview check` is built
   on these two.
+- `Bind.collect net`, before the first bind, makes a probe that does not
+  resolve a record instead of an exception: binding goes on with a stand-in,
+  `Bind.failures net` lists every probe that failed and `Bind.report net`
+  every probe tried, grouped by model. The net can no longer be compiled
+  (`Sched.compile` returns `Unbound_source` for each failure), so use it for
+  a check pass, then bind again on a fresh net to run.
+- `Sched.run_stats.enabled` counts the samples where a clock's enable was
+  high, per domain, next to `ticks`. A domain that never ticked, or whose
+  enable was low at every sample, ends the run with a `clock.no-edges` or
+  `clock.enable-never-high` diagnostic.
 
 `Bundle` knows Chisel's flattening of bundles into port names:
 
@@ -528,6 +538,7 @@ mechanics.
 - **Cram tests of a whole command.** Use small VCD fixtures and a platform
   description, as in `test/platform.t`.
 - **`check` against real traces.** It binds every model of a platform
-  without simulating, and fails on the first probe that does not resolve.
+  without simulating. Bind with `Bind.collect` to get every probe that does
+  not resolve, not only the first.
 - **Engine changes.** Run `test_props.ml`; add the new combinator to its
   generator and to the reference interpreter.

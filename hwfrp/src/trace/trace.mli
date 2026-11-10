@@ -41,6 +41,10 @@ val header : t -> Vcd_ast.header
 val resolver : t -> Vcd.Resolver.t
 val lookup : t -> Vcd_types.Reference.t -> Vcd.Resolver.entry option
 
+val unbound : path:Vcd_types.Reference.t -> width:int -> signal
+(** A stand-in for a signal the trace does not have, with an invalid slot. Only a net that is never
+    run may hold one: see [Frp.Net.poison]. *)
+
 val track : t -> Vcd.Resolver.entry -> signal
 (** Idempotent. Raises [Invalid_argument] once the trace is frozen. *)
 

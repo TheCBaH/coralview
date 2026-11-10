@@ -19,6 +19,12 @@ module Net : sig
 
   val add_ext : t -> ext -> unit
   val exts : t -> ext list
+
+  val poison : t -> string -> unit
+  (** Marks the net as not runnable, with the reason: {!Sched.compile} then fails with
+      [Unbound_source]. For nets that only check a binding. *)
+
+  val poisoned : t -> string list
 end
 
 module Clock : sig
@@ -217,14 +223,17 @@ end
 module Sched : sig
   type t
   type node_stats = { evals : int; changes : int }
-  type build_error = Unbound_source of string
+  type build_error = Unbound_source of string  (** A reason given to {!Net.poison}. *)
 
   type strategy =
     | Incremental  (** Evaluates the nodes reached from what changed, in id order, from a heap. *)
     | Sweep  (** Scans every node of the domain for a changed input: the reference for tests. *)
 
   type run_stats = {
-    ticks : int array;  (** Per domain. *)
+    ticks : int array;  (** Per domain: samples of the clock, enabled or not. *)
+    enabled : int array;
+        (** Per domain: samples where the enable was high; equal to [ticks] for a clock without one. A
+            wrong enable shows as [enabled] far from what the model expects. *)
     node_evals : int;
     wall_s : float;  (** Elapsed time of the injected clock; 0 without one. *)
     per_node : (string * node_stats) list;
