@@ -87,9 +87,9 @@ let render processes =
   List.rev !out
 
 let to_string ?(time_unit = "ns") processes =
-  Printf.sprintf "{\"displayTimeUnit\":%s,\"traceEvents\":[\n%s\n]}\n"
-    (Json.to_string (Str time_unit))
-    (String.concat ",\n" (render processes))
+  let events = match render processes with [] -> "" | l -> String.concat ",\n" l ^ "\n" in
+  Printf.sprintf "{\"displayTimeUnit\":%s,\"traceEvents\":[\n%s]}\n"
+    (Json.to_string (Str time_unit)) events
 
 let output oc ?time_unit processes =
   output_string oc (to_string ?time_unit processes);

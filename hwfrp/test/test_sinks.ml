@@ -6,11 +6,11 @@ let%expect_test "json keeps the key order and escapes" =
        (Obj
           [
             ("z", Int 1);
-            ("a", Str "q\"\\\n\t\r\001é");
+            ("a", Str "q\"\\\n\t\r\001\031\127é");
             ("n", Null);
             ("l", List [ Bool true; Bool false; Obj [] ]);
           ]));
-  [%expect {| {"z":1,"a":"q\"\\\n\t\r\u0001é","n":null,"l":[true,false,{}]} |}]
+  [%expect {| {"z":1,"a":"q\"\\\n\t\r\u0001\u001F\u007Fé","n":null,"l":[true,false,{}]} |}]
 
 let%expect_test "jsonl and lines" =
   let recs = List.to_seq [ Json.Obj [ ("ev", Str "a"); ("t", Int 1) ]; Obj [ ("ev", Str "b") ] ] in
@@ -72,3 +72,10 @@ let%expect_test "occupancy" =
   show (Chrome_trace.occupancy ~name:"q" [] ~last:0);
   [%expect {|
     1:1 2:2 3:1 4:0 5:1 8:0 |}]
+
+let%expect_test "no process" =
+  print_string (Chrome_trace.to_string []);
+  [%expect {|
+    {"displayTimeUnit":"ns","traceEvents":[
+    ]}
+    |}]

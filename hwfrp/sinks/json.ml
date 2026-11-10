@@ -19,7 +19,8 @@ let add_string b s =
       | '\n' -> Buffer.add_string b "\\n"
       | '\r' -> Buffer.add_string b "\\r"
       | '\t' -> Buffer.add_string b "\\t"
-      | c when Char.code c < 0x20 -> Buffer.add_string b (Printf.sprintf "\\u%04x" (Char.code c))
+      | c when Char.code c < 0x20 || c = '\127' ->
+          Buffer.add_string b (Printf.sprintf "\\u%04X" (Char.code c))
       | c -> Buffer.add_char b c)
     s;
   Buffer.add_char b '"'

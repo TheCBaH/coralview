@@ -6,6 +6,7 @@
  (libraries
   hwfrp
   hwfrp.native
+  hwfrp.sinks
   ovcd
   ovcd.vcd_types
   ovcd.fst

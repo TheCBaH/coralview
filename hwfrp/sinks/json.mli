@@ -15,5 +15,5 @@ type t =
 
 val to_string : t -> string
 (** No whitespace. In strings, ['"'], ['\\'], newline, return and tab are escaped by name and other
-    control characters as [\u00XX]; the bytes above 0x7f are written as they are, so the output is
+    the other control characters and DEL as [\u00XX] with capital hex digits, as jsont does; the bytes above 0x7f are written as they are, so the output is
     UTF-8 only if the strings are. *)
