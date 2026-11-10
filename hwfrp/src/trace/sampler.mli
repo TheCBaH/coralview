@@ -37,6 +37,15 @@ val logic : t -> Trace.slot -> Logic.t
 val changed : t -> Bitset.t
 (** Slots whose value differs from the previous sample of the domain being ticked. *)
 
+type activity = {
+  signal : Trace.signal;
+  changes : int;  (** Values it took, the first included: 0 if it was never given one. *)
+  unknown_at_end : bool;  (** Some bit is X or Z in the current value. *)
+}
+
+val activity : t -> activity array
+(** For every tracked signal, in slot order, over the samples so far. *)
+
 type stats = { events : int; changes_seen : int; changes_tracked : int; timestamps : int }
 
 val stats : t -> stats

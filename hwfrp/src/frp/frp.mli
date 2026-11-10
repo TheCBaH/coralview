@@ -19,6 +19,12 @@ module Net : sig
 
   val add_ext : t -> ext -> unit
   val exts : t -> ext list
+
+  val poison : t -> string -> unit
+  (** Marks the net as not runnable, with the reason: {!Sched.compile} then fails with
+      [Unbound_source]. For nets that only check a binding. *)
+
+  val poisoned : t -> string list
 end
 
 module Clock : sig
@@ -115,6 +121,16 @@ module Machine : sig
     every_tick : bool;  (** Step even when the input did not change. *)
   }
 
+  val of_fold :
+    ?every_tick:bool ->
+    ?finish:('s -> 'o list) ->
+    name:string ->
+    init:'s ->
+    ('s -> 'i -> 's * 'o list) ->
+    ('s, 'i, 'o) spec
+  (** A machine that is a function of the previous state and the input alone, not of the tick. [every_tick]
+      is false and [finish] emits nothing unless given. *)
+
   val run : ('s, 'i, 'o) spec -> ('i, 'c) Sig.t -> ('o list, 'c) Ev.t * ('s, 'c) Sig.t
 end
 
@@ -183,6 +199,12 @@ module Diag : sig
 
   val emit : Net.t -> ('a, 'c) Ev.t -> ('a -> t option) -> unit
 
+  val summarize : Sampler.t -> t list
+  (** One diagnostic per kind, each with the paths of the tracked signals it covers, from a sampler that
+      has run (not recorded in a net): [signal.never-driven] (no value in the whole run),
+      [signal.constant] (one value, never changed; informational) and [signal.unknown-at-end]. A trace
+      that dumps every signal once at the start has all its steady signals in [signal.constant]. *)
+
   val stream : Net.t -> t Seq.t
   (** The recorded diagnostics, oldest first, at most [max_diags] of them. *)
 
@@ -215,14 +237,17 @@ end
 module Sched : sig
   type t
   type node_stats = { evals : int; changes : int }
-  type build_error = Unbound_source of string
+  type build_error = Unbound_source of string  (** A reason given to {!Net.poison}. *)
 
   type strategy =
     | Incremental  (** Evaluates the nodes reached from what changed, in id order, from a heap. *)
     | Sweep  (** Scans every node of the domain for a changed input: the reference for tests. *)
 
   type run_stats = {
-    ticks : int array;  (** Per domain. *)
+    ticks : int array;  (** Per domain: samples of the clock, enabled or not. *)
+    enabled : int array;
+        (** Per domain: samples where the enable was high; equal to [ticks] for a clock without one. A
+            wrong enable shows as [enabled] far from what the model expects. *)
     node_evals : int;
     wall_s : float;  (** Elapsed time of the injected clock; 0 without one. *)
     per_node : (string * node_stats) list;

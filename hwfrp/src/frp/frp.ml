@@ -67,6 +67,7 @@ and net = {
   mutable ndiags : int;
   mutable dropped : int;
   mutable exts : ext list;
+  mutable poisoned : string list;
 }
 
 type ('a, 'c) signal = 'a node
@@ -144,6 +145,7 @@ module Net = struct
       ndiags = 0;
       dropped = 0;
       exts = [];
+      poisoned = [];
     }
 
   let domains net = Array.of_list (List.rev_map (fun rc -> rc.spec) net.clocks)
@@ -152,6 +154,8 @@ module Net = struct
 
   let add_ext net e = net.exts <- e :: net.exts
   let exts net = net.exts
+  let poison net why = net.poisoned <- why :: net.poisoned
+  let poisoned net = List.rev net.poisoned
 end
 
 module Clock = struct
@@ -383,6 +387,9 @@ module Machine = struct
     every_tick : bool;
   }
 
+  let of_fold ?(every_tick = false) ?(finish = fun _ -> []) ~name ~init step =
+    { name; init; step = (fun ~tick:_ s i -> step s i); finish; every_tick }
+
   let run spec i =
     let st = mk ~name:spec.name ~kind:K_machine i.rc spec.init in
     let out = mk_event ~name:(spec.name ^ ".out") i.rc in
@@ -513,6 +520,28 @@ module Diag = struct
     if e.rc.net != net then invalid_arg "Diag.emit: event of another net";
     Ev.subscribe e (fun x -> match f x with Some d -> record net d | None -> ())
 
+  let summarize sampler =
+    let many = ref [] in
+    let group code severity text pred =
+      let paths =
+        Array.fold_left
+          (fun acc (a : Sampler.activity) -> if pred a then a.signal.path :: acc else acc)
+          [] (Sampler.activity sampler)
+        |> List.rev
+      in
+      if paths <> [] then
+        many :=
+          make ~severity ~paths ~source:"trace" ~code
+            (Printf.sprintf "%s: %d" text (List.length paths))
+          :: !many
+    in
+    group "signal.never-driven" Warning "signals that never took a value" (fun a -> a.changes = 0);
+    group "signal.constant" Info "signals that never changed from their first value" (fun a ->
+        a.changes = 1);
+    group "signal.unknown-at-end" Warning "signals with X or Z bits at the end" (fun a ->
+        a.changes > 0 && a.unknown_at_end);
+    List.rev !many
+
   let stream net = List.to_seq (List.rev net.diags)
   let dropped net = net.dropped
 
@@ -631,6 +660,7 @@ module Sched = struct
 
   type run_stats = {
     ticks : int array;
+    enabled : int array;
     node_evals : int;
     wall_s : float;
     per_node : (string * node_stats) list;
@@ -652,38 +682,43 @@ module Sched = struct
   }
 
   let compile ?(strategy = Incremental) net =
-    net.frozen <- true;
-    let nodes = Array.of_list (List.rev net.nodes) in
-    let clocks = Array.of_list (List.rev net.clocks) in
-    let nd = Array.length clocks in
-    let by_domain = Array.make nd [] in
-    Array.iter (function P n as p -> by_domain.(n.rc.index) <- p :: by_domain.(n.rc.index)) nodes;
-    let sources =
-      Array.map
-        (fun (rc : clock_rec) ->
-          let h = Hashtbl.create 64 in
-          List.iter
-            (fun (slot, p) ->
-              Hashtbl.replace h slot (p :: Option.value (Hashtbl.find_opt h slot) ~default:[]))
-            rc.sources;
-          h)
-        clocks
-    in
-    Ok
-      {
-        net;
-        strategy;
-        clocks;
+    if net.poisoned <> [] then Error (List.map (fun w -> Unbound_source w) (Net.poisoned net))
+    else begin
+      net.frozen <- true;
+      let nodes = Array.of_list (List.rev net.nodes) in
+      let clocks = Array.of_list (List.rev net.clocks) in
+      let nd = Array.length clocks in
+      let by_domain = Array.make nd [] in
+      Array.iter
+        (function P n as p -> by_domain.(n.rc.index) <- p :: by_domain.(n.rc.index))
         nodes;
-        by_domain = Array.map (fun l -> Array.of_list (List.rev l)) by_domain;
-        sources;
-        subs = Array.map (fun (rc : clock_rec) -> Array.of_list (List.rev rc.subs)) clocks;
-        heap = Heap.create ();
-        queued = Bitset.create (Array.length nodes);
-        changed = Bitset.create (Array.length nodes);
-        fired = Array.make nd [];
-        last = Array.make nd None;
-      }
+      let sources =
+        Array.map
+          (fun (rc : clock_rec) ->
+            let h = Hashtbl.create 64 in
+            List.iter
+              (fun (slot, p) ->
+                Hashtbl.replace h slot (p :: Option.value (Hashtbl.find_opt h slot) ~default:[]))
+              rc.sources;
+            h)
+          clocks
+      in
+      Ok
+        {
+          net;
+          strategy;
+          clocks;
+          nodes;
+          by_domain = Array.map (fun l -> Array.of_list (List.rev l)) by_domain;
+          sources;
+          subs = Array.map (fun (rc : clock_rec) -> Array.of_list (List.rev rc.subs)) clocks;
+          heap = Heap.create ();
+          queued = Bitset.create (Array.length nodes);
+          changed = Bitset.create (Array.length nodes);
+          fired = Array.make nd [];
+          last = Array.make nd None;
+        }
+    end
 
   let push t (P n) =
     if not (Bitset.mem t.queued n.id) then begin
@@ -774,6 +809,7 @@ module Sched = struct
     sched : t;
     sampler : Sampler.t;
     ticks : int array;
+    enabled : int array;
     clock : unit -> float;
     t0 : float;
     mutable ended : bool;
@@ -787,6 +823,7 @@ module Sched = struct
       sched = t;
       sampler;
       ticks = Array.make (Array.length t.clocks) 0;
+      enabled = Array.make (Array.length t.clocks) 0;
       clock;
       t0 = clock ();
       ended = false;
@@ -808,7 +845,18 @@ module Sched = struct
       | Tick tick ->
           step r.sched r.sampler tick;
           r.ticks.(tick.domain) <- r.ticks.(tick.domain) + 1;
+          if tick.enabled then r.enabled.(tick.domain) <- r.enabled.(tick.domain) + 1;
           Stepped
+
+  let check_clocks r =
+    Array.iteri
+      (fun d (rc : clock_rec) ->
+        let diag code msg = Diag.record rc.net (Diag.make ~source:rc.cname ~code msg) in
+        if r.ticks.(d) = 0 then diag "clock.no-edges" "the clock domain never ticked"
+        else if rc.spec.enable <> None && r.enabled.(d) = 0 then
+          diag "clock.enable-never-high"
+            (Printf.sprintf "the enable was low at all %d clock samples" r.ticks.(d)))
+      r.sched.clocks
 
   let finish_run r =
     match r.stats with
@@ -823,6 +871,7 @@ module Sched = struct
         in
         drain ();
         finish r.sched;
+        check_clocks r;
         let per_node =
           Array.to_list
             (Array.map
@@ -832,6 +881,7 @@ module Sched = struct
         let s =
           {
             ticks = r.ticks;
+            enabled = r.enabled;
             node_evals = List.fold_left (fun a (_, (s : node_stats)) -> a + s.evals) 0 per_node;
             wall_s = r.clock () -. r.t0;
             per_node;

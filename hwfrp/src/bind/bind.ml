@@ -98,13 +98,28 @@ let status tr path rule =
       else if not (width_ok rule w) then Width_mismatch { expected = rule; actual = w }
       else Bound (Trace.track tr e)
 
-let require net tr (r : requirement) =
-  match status tr r.path r.width with
+type Net.ext += Collecting of (requirement * status) list ref
+
+let collecting net = List.find_map (function Collecting c -> Some c | _ -> None) (Net.exts net)
+let collect net = if collecting net = None then Net.add_ext net (Collecting (ref []))
+
+let placeholder (r : requirement) =
+  let width = match r.width with Exact n | At_least n | Up_to n -> n | Any_width -> 1 in
+  Trace.unbound ~path:r.path ~width
+
+let require ?force net tr (r : requirement) =
+  let st = match force with Some st -> st | None -> status tr r.path r.width in
+  let log = collecting net in
+  Option.iter (fun c -> c := (r, st) :: !c) log;
+  match st with
   | Bound s ->
       let reg = registry net in
       reg := r :: !reg;
       s
-  | s -> raise (Unbound (r, s))
+  | st when log <> None ->
+      Net.poison net (String.trim (Format.asprintf "%s: %a" r.model pp_entry (r, st)));
+      placeholder r
+  | st -> raise (Unbound (r, st))
 
 let parent p = Reference.of_list (List.rev (List.tl (List.rev (Reference.to_list p))))
 
@@ -122,10 +137,23 @@ type 'c scope = {
   root : Reference.t;
   rel : string list;
   overrides : (string * Reference.t) list;
+  strict : bool;
 }
 
 let root net trace clk ~model ?(overrides = []) root =
-  { net; trace; clk; model; root; rel = []; overrides }
+  { net; trace; clk; model; root; rel = []; overrides; strict = false }
+
+let flat net trace clk ~model entries =
+  {
+    net;
+    trace;
+    clk;
+    model;
+    root = Reference.of_list [];
+    rel = [];
+    overrides = entries;
+    strict = true;
+  }
 
 let sub sc name = { sc with rel = sc.rel @ [ name ] }
 let path sc = Reference.of_list (Reference.to_list sc.root @ sc.rel)
@@ -176,12 +204,13 @@ let field ~lo ~width =
 
 let resolve ?(purpose = "") sc name width =
   let rel = String.concat "." (sc.rel @ [ name ]) in
-  let path =
-    match List.assoc_opt rel sc.overrides with
-    | Some p -> p
-    | None -> Reference.of_list (Reference.to_list sc.root @ sc.rel @ [ name ])
-  in
-  require sc.net sc.trace { model = sc.model; root = sc.root; path; width; purpose }
+  let req path = { model = sc.model; root = sc.root; path; width; purpose } in
+  match List.assoc_opt rel sc.overrides with
+  | Some p -> require sc.net sc.trace (req p)
+  | None when sc.strict -> require ~force:Missing sc.net sc.trace (req (Reference.of_list [ rel ]))
+  | None ->
+      require sc.net sc.trace
+        (req (Reference.of_list (Reference.to_list sc.root @ sc.rel @ [ name ])))
 
 let decode sc d (s : Trace.signal) l =
   match d.decode l with
@@ -199,11 +228,11 @@ let signal ?purpose sc name d =
 let clock_of sc = sc.clk
 let net_of sc = sc.net
 
-let check tr reqs =
+let group entries =
   let groups = ref [] in
   List.iter
-    (fun (r : requirement) ->
-      let e = (r, status tr r.path r.width) in
+    (fun ((r : requirement), st) ->
+      let e = (r, st) in
       match
         List.find_opt
           (fun (g : report ref) -> !g.model = r.model && Reference.equal !g.root r.root)
@@ -211,5 +240,10 @@ let check tr reqs =
       with
       | Some g -> g := { !g with entries = e :: !g.entries }
       | None -> groups := ref { model = r.model; root = r.root; entries = [ e ] } :: !groups)
-    reqs;
+    entries;
   List.rev_map (fun g -> { !g with entries = List.rev !g.entries }) !groups
+
+let check tr reqs = group (List.map (fun (r : requirement) -> (r, status tr r.path r.width)) reqs)
+let attempts net = match collecting net with Some c -> List.rev !c | None -> []
+let failures net = List.filter (fun e -> not (ok e)) (attempts net)
+let report net = group (attempts net)

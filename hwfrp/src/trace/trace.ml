@@ -90,6 +90,16 @@ let lookup t r =
   | None -> None
   | Some id -> Vcd.Resolver.find t.resolver id
 
+let unbound ~path ~width =
+  {
+    slot = -1;
+    id = ID.of_string "";
+    path;
+    aliases = Vcd.Ref_set.singleton path;
+    width;
+    var_type = Vcd_ast.Wire;
+  }
+
 let track t entry =
   let id = Vcd.Resolver.entry_id entry in
   match Hashtbl.find_opt t.by_id (ID.to_string id) with

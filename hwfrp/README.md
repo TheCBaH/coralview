@@ -79,6 +79,10 @@ The example is compiled and its output checked by
 6. `Sched.compile` freezes the graph, and `Sched.run` pulls samples from the
    trace until it ends.
 
+To get the events as a value instead of calling a subscriber, create a
+`Port` on the event before `Sched.compile` and read it with `Port.seq`: see
+[Pulling events: Run and Port](#pulling-events-run-and-port).
+
 If `top.io_out_bits_data` were missing, or were 16 bits where `Bind.uint`
 accepts up to 62, the first `Bind` call would raise
 `Bind.Unbound (requirement, status)`. Nothing is substituted.
@@ -146,6 +150,7 @@ domain; crossing domains takes `Clock_cross.resample`.
 | `Ev.gather [s0; s1; …]` | fires with the `Some` values of option signals: the valid lanes of a cycle |
 | `Ev.rising`, `Ev.falling` | edges of a Boolean signal |
 | `Ev.map`, `filter`, `filter_map`, `merge`, `union`, `tag`, `scan`, `flatten` | event algebra |
+| `Machine.of_fold ~name ~init f` | a `spec` for a machine that is a function of the previous state and the input alone, not of the tick |
 | `Machine.run spec s` | a state machine stepped on `s` (or at every sample), emitting a list per step and a final list at the end of the trace |
 | `Clock_cross.resample s clk` | `s`'s last value, read at every sample of another domain |
 | `Ev.subscribe e f` | runs `f` after each sample where `e` fired; the way out of the graph |
@@ -190,6 +195,26 @@ equality.
 - `Bind.requirements net` lists what a model bound, and `Bind.check`
   resolves a requirement list against any trace. `coralview check` is built
   on these two.
+- `Bind.collect net`, before the first bind, makes a probe that does not
+  resolve a record instead of an exception: binding goes on with a stand-in,
+  `Bind.failures net` lists every probe that failed and `Bind.report net`
+  every probe tried, grouped by model. The net can no longer be compiled
+  (`Sched.compile` returns `Unbound_source` for each failure), so use it for
+  a check pass, then bind again on a fresh net to run.
+- `Bind.flat net trace clk ~model [(name, path); ...]` is a scope for a flat
+  description, such as a manifest of pins and registers: `Bind.signal` takes
+  only the listed names, and an unlisted name is `Unbound` however the trace
+  is laid out.
+- `Diag.summarize sampler`, after a run, gives one diagnostic per kind with
+  the paths it covers: signals that never took a value
+  (`signal.never-driven`), that kept their first value
+  (`signal.constant`, informational) and that end with X or Z bits
+  (`signal.unknown-at-end`). A signal that never changes is not an error;
+  that is for the consumer to decide.
+- `Sched.run_stats.enabled` counts the samples where a clock's enable was
+  high, per domain, next to `ticks`. A domain that never ticked, or whose
+  enable was low at every sample, ends the run with a `clock.no-edges` or
+  `clock.enable-never-high` diagnostic.
 
 `Bundle` knows Chisel's flattening of bundles into port names:
 
@@ -200,6 +225,18 @@ equality.
   That one is a browsing aid: models take lane counts from a description.
 
 ### Indexed state
+
+Which of `State`, `Capture` and `Reduce` fits depends on the model.
+`State` suits storage the trace holds as indexed signals or that write events
+update (register files, scoreboards): `mirror` and `replay` give the state at
+every sample, and a snapshot taken at a chosen sample stays valid. A small
+architectural register set whose snapshot is taken at a rule of the model's
+own (say, the sample where the next instruction is accepted, because the core
+writes back late) can use `mirror` and read the store at that sample, or keep
+its own fold with `Machine.of_fold`; `State` does not choose the sample.
+`Capture` plans which signals a producer must record, so it matters when the
+trace is made for the model, not when a fixed trace is read. `Reduce` only
+summarizes sequences.
 
 `State` keeps indexed hardware state (register files, scoreboards, tile
 and vector register files) up to date incrementally. A *store* has two
@@ -352,6 +389,15 @@ let stats tr = Reduce.Stats.of_seq (Seq.map fst (transfers_seq tr))
 ```
 n 3, min 7, max 42, mean 19.00
 ```
+
+A bus that is not ready/valid is not covered by these types. A strobe-qualified
+bus (an 8080-style `SYNC`/`DBIN`/`WR`/`WAIT`/`READY` interface, an async SRAM
+port, a 6502 or Z80) accepts a transfer at a defined cycle after counting
+waits, and has resets and abandoned cycles. That is a state machine over
+sampled pins in the model's own code, about 200 lines for the 8080:
+[`lib/bus.ml`](https://github.com/TheCBaH/hardcaml-radio86/blob/devel/lib/bus.ml)
+in hardcaml-radio86 is a worked example, with its unit tests. It is left out
+of hwfrp until a second bus of that kind shows what is common.
 
 `make hwfrp-boundary` builds and tests the `hwfrp` package alone and
 fails if its libraries use anything beyond ovcd and unix. Bus protocols
@@ -528,6 +574,7 @@ mechanics.
 - **Cram tests of a whole command.** Use small VCD fixtures and a platform
   description, as in `test/platform.t`.
 - **`check` against real traces.** It binds every model of a platform
-  without simulating, and fails on the first probe that does not resolve.
+  without simulating. Bind with `Bind.collect` to get every probe that does
+  not resolve, not only the first.
 - **Engine changes.** Run `test_props.ml`; add the new combinator to its
   generator and to the reference interpreter.
