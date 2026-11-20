@@ -308,7 +308,7 @@ let build () (c : _ Core.t) =
   let summary (st' : Sched.run_stats) =
     let s = snd (close (Sig.peek st)) in
     {
-      Summary.cycles = st'.ticks.(0);
+      Summary.cycles = Core.cycles c st';
       faults = s.faults;
       delivered = s.delivered;
       unmatched = s.unmatched;

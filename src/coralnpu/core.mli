@@ -74,3 +74,6 @@ val present : 'c t -> ('a option, 'c) Hwfrp.Sig.t list -> ('a list, 'c) Hwfrp.Si
 
 val reg_name : int -> string
 (** [x5], [f3], [v8]. *)
+
+val cycles : 'c t -> Hwfrp.Sched.run_stats -> int
+(** The samples of the core clock: its own domain's, whatever the domain's index in the net. *)

@@ -162,7 +162,7 @@ let graph ?at (c : _ Core.t) =
   ( fired,
     fun (st : Sched.run_stats) ->
       {
-        cycles = st.ticks.(0);
+        cycles = Core.cycles c st;
         relations = Regmodel.relations c ~model [ (code, !comparisons); (retired_code, !retired) ];
         failures = Regmodel.failures c ~model ~codes:[ code; retired_code ];
         storage = State.bindings (Sig.peek storage.state);

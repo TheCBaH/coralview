@@ -134,3 +134,5 @@ let reg_name r =
   if r < float_base then Printf.sprintf "x%d" r
   else if r < vector_base then Printf.sprintf "f%d" (r - float_base)
   else Printf.sprintf "v%d" (r - vector_base)
+
+let cycles c (st : Sched.run_stats) = st.ticks.(Clock.index c.clk)

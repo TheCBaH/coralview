@@ -35,6 +35,9 @@ module Clock : sig
 
   val define : Net.t -> name:string -> Trace.domain_spec -> any
   val name : 'c t -> string
+
+  val index : 'c t -> int
+  (** The position of the domain in {!Net.domains} and in the per-domain arrays of {!Sched.run_stats}. *)
 end
 
 type ('a, 'c) signal

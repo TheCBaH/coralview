@@ -427,7 +427,7 @@ let build (cfg : Config.t) (c : _ Core.t) =
         match s.burst with Some b -> (s.bursts + 1, s.busy + length b) | None -> (s.bursts, s.busy)
       in
       {
-        Summary.cycles = stats.ticks.(0);
+        Summary.cycles = Core.cycles c stats;
         instructions = s.instructions;
         undecoded = s.undecoded;
         ops = s.ops;

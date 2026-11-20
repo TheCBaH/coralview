@@ -264,7 +264,7 @@ let graph ?at (c : _ Core.t) =
     fun (st : Sched.run_stats) ->
       let union snaps = List.concat_map State.bindings snaps in
       {
-        cycles = st.ticks.(0);
+        cycles = Core.cycles c st;
         relations = relations ();
         flushes = Option.value (Hashtbl.find_opt counts "flushes") ~default:0;
         failures = Regmodel.failures c ~model ~codes;

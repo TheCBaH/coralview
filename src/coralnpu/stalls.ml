@@ -299,7 +299,7 @@ let make (c : _ Core.t) =
   let summary (st' : Sched.run_stats) =
     let s = Sig.peek st in
     {
-      Summary.cycles = st'.ticks.(0);
+      Summary.cycles = Core.cycles c st';
       counts =
         List.map
           (fun ((lane, reason), cycles) -> { Summary.lane; reason; cycles })
