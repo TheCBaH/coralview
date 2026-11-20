@@ -122,7 +122,8 @@ val requirements : Frp.Net.t -> requirement list
 (** In binding order. *)
 
 val check : Trace.t -> requirement list -> report list
-(** The requirements resolved against a trace, grouped by model and root in first-seen order. *)
+(** The requirements resolved against a trace, grouped by model and root in first-seen order. Nothing is
+    tracked, so the trace may be frozen; a bound signal has an invalid slot. *)
 
 val ok : requirement * status -> bool
 val pp_width_rule : Format.formatter -> width_rule -> unit

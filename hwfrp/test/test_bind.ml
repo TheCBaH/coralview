@@ -298,3 +298,23 @@ let%expect_test "a clock directly under the top scope, one component, and none" 
       bound   clk 1
     unbound:  missing clk
     unbound:  missing |}]
+
+let%expect_test "check tracks nothing" =
+  let tr = Hwfrp_vcd.of_string vcd in
+  let req name = { Bind.model = "m"; root = core; path = at name; width = Exact 1; purpose = "" } in
+  let tracked () = Array.length (Trace.tracked tr) in
+  let show name =
+    List.iter (Format.printf "%a@." Bind.pp_report) (Bind.check tr [ req name ]);
+    Printf.printf "tracked %d\n" (tracked ())
+  in
+  show "io_a_valid";
+  Trace.freeze tr;
+  show "io_lane_0_v";
+  [%expect
+    {|
+    m at top.core
+      bound   io_a_valid 1
+    tracked 0
+    m at top.core
+      bound   io_lane_0_v 1
+    tracked 0 |}]

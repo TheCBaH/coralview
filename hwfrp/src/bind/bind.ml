@@ -89,14 +89,23 @@ let is_vector = function
   | Vcd_ast.Real | Realtime | Real_parameter | Shortreal | Sstring -> false
   | _ -> true
 
-let status tr path rule =
+(* Without [track], a bound signal is a description of the entry, with an invalid slot. *)
+let status ~track tr path rule =
   match Trace.lookup tr path with
   | None -> Missing
   | Some e ->
       let w = Vcd.Resolver.entry_size e and vt = Trace.var_type tr e in
       if not (is_vector vt) then Not_a_vector vt
       else if not (width_ok rule w) then Width_mismatch { expected = rule; actual = w }
-      else Bound (Trace.track tr e)
+      else if track then Bound (Trace.track tr e)
+      else
+        Bound
+          {
+            (Trace.unbound ~path ~width:w) with
+            id = Vcd.Resolver.entry_id e;
+            aliases = Vcd.Resolver.entry_references e;
+            var_type = vt;
+          }
 
 type Net.ext += Collecting of (requirement * status) list ref
 
@@ -108,7 +117,7 @@ let placeholder (r : requirement) =
   Trace.unbound ~path:r.path ~width
 
 let require ?force net tr (r : requirement) =
-  let st = match force with Some st -> st | None -> status tr r.path r.width in
+  let st = match force with Some st -> st | None -> status ~track:true tr r.path r.width in
   let log = collecting net in
   Option.iter (fun c -> c := (r, st) :: !c) log;
   match st with
@@ -244,7 +253,9 @@ let group entries =
     entries;
   List.rev_map (fun g -> { !g with entries = List.rev !g.entries }) !groups
 
-let check tr reqs = group (List.map (fun (r : requirement) -> (r, status tr r.path r.width)) reqs)
+let check tr reqs =
+  group (List.map (fun (r : requirement) -> (r, status ~track:false tr r.path r.width)) reqs)
+
 let attempts net = match collecting net with Some c -> List.rev !c | None -> []
 let failures net = List.filter (fun e -> not (ok e)) (attempts net)
 let report net = group (attempts net)
