@@ -15,20 +15,32 @@ type loop = {
   parent : int option;
 }
 
-(* A conditional branch, or a jal that links nowhere (a call links to x1). *)
+(* A conditional branch, or a jal that links nowhere (a call links to x1). A retirement that took a trap
+   or matched no dispatch is not one: the next retirement is a handler's, not a target. *)
 let branches (c : Commits.commit) =
   match c.word with
-  | None -> true
+  | None -> false
+  | Some _ when c.trap -> false
   | Some w -> (
       match w land 0x7f with 0x63 -> true | 0x6f -> (w lsr 7) land 0x1f = 0 | _ -> false)
+
+let is_mret (c : Commits.commit) = c.word = Some 0x30200073
 
 type acc = { mutable tail : int; mutable trips : trip list; mutable body : pc_stat IM.t }
 
 let detect commits =
   let c = Array.of_list commits in
   let n = Array.length c in
-  let prefix = Array.make (n + 1) 0 in
-  Array.iteri (fun i (x : Commits.commit) -> prefix.(i + 1) <- prefix.(i) + x.charged) c;
+  (* Handler nesting: a trap enters one after its own retirement, an mret leaves one after its own. *)
+  let depth =
+    let d = ref 0 in
+    Array.map
+      (fun x ->
+        let here = !d in
+        if x.Commits.trap then incr d else if is_mret x then d := max 0 (!d - 1);
+        here)
+      c
+  in
   let backward j = j > 0 && c.(j - 1).pc >= c.(j).pc && branches c.(j - 1) in
   (* The back edges, as (header, tail): a loop that is never branched back to is not found. *)
   let edges = Hashtbl.create 16 in
@@ -48,25 +60,29 @@ let detect commits =
           a
     in
     a.tail <- max a.tail c.(e).pc;
-    a.trips <-
-      { start = c.(s).retired; instructions = e - s + 1; cycles = prefix.(e + 1) - prefix.(s) }
-      :: a.trips;
+    (* A handler that ran in the trip, and any loop of its own, is not the trip's. *)
+    let instructions = ref 0 and cycles = ref 0 in
     for k = s to e do
       let x = c.(k) in
-      a.body <-
-        IM.update x.pc
-          (function
-            | None -> Some { pc = x.pc; word = x.word; count = 1; cycles = x.charged }
-            | Some p -> Some { p with count = p.count + 1; cycles = p.cycles + x.charged })
-          a.body
-    done
+      if depth.(k) = depth.(e) then begin
+        incr instructions;
+        cycles := !cycles + x.charged;
+        a.body <-
+          IM.update x.pc
+            (function
+              | None -> Some { pc = x.pc; word = x.word; count = 1; cycles = x.charged }
+              | Some p -> Some { p with count = p.count + 1; cycles = p.cycles + x.charged })
+            a.body
+      end
+    done;
+    a.trips <- { start = c.(s).retired; instructions = !instructions; cycles = !cycles } :: a.trips
   in
   for j = 0 to n - 1 do
     let pc = c.(j).pc in
     if j > 0 then
       if backward j then
         match Hashtbl.find_opt last pc with Some s -> record pc s (j - 1) | None -> ()
-      else if pc = c.(j - 1).pc + 4 then
+      else if pc = c.(j - 1).pc + 4 && not c.(j - 1).trap then
         (* The last trip leaves through the same branch, not taken. *)
         List.iter
           (fun h -> match Hashtbl.find_opt last h with Some s -> record h s (j - 1) | None -> ())
