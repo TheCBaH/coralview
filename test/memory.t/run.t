@@ -59,7 +59,7 @@ is made by gen.sh wide):
 An FST that is damaged after its header and hierarchy reads fine until a pull reaches the damage: the error
 kind and place are printed, and the status is 3, the trace's, not the internal error's:
 
-  $ cp memory.fst damaged.fst
+  $ cp memory.fst damaged.fst && chmod u+w damaged.fst
   $ printf '\377\377\377\377' | dd of=damaged.fst bs=1 seek=504 conv=notrunc 2>/dev/null
   $ coralview memory --platform mem-core.json damaged.fst
   platform mem-core, simulator fstWriter
