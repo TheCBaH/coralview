@@ -21,3 +21,10 @@ A function that never returns runs to the end of the trace:
   platform entry-core
   window [16, end]
     instructions 1, cycles charged 1
+
+The help says the same:
+
+  $ coralview commits --help=plain | tr '\n' ' ' | tr -s ' ' | grep -o -- '--entry=NAME.*not counted'
+  --entry=NAME Print rows from the first retirement of the entry of function NAME of the --elf to the ret that pops its frame (calls inside it nest), or to the end of the trace if there is none: the startup before it is not counted
+  $ coralview compare --help=plain | tr '\n' ' ' | tr -s ' ' | grep -o -- '--entry=NA.\{0,150\}' | sed 's/ --format.*//'
+  --entry=NA[,NB] As --around-symbol, but to the ret that pops the entry's frame (calls inside it nest), or to the end of that trace if there is none.

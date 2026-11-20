@@ -833,7 +833,8 @@ let window =
       & info [ "entry" ] ~docv:"NAME"
           ~doc:
             "Print rows from the first retirement of the entry of function $(i,NAME) of the \
-             $(b,--elf) to the end of the trace: the startup before it is not counted.")
+             $(b,--elf) to the $(b,ret) that pops its frame (calls inside it nest), or to the end \
+             of the trace if there is none: the startup before it is not counted.")
   in
   let nth =
     Arg.(
@@ -1610,7 +1611,9 @@ let commands =
             value
             & opt (some pair_conv) None
             & info [ "entry" ] ~docv:"NA[,NB]"
-                ~doc:"As $(b,--around-symbol), but to the end of each trace.")
+                ~doc:
+                  "As $(b,--around-symbol), but to the $(b,ret) that pops the entry's frame (calls \
+                   inside it nest), or to the end of that trace if there is none.")
         $ Arg.(
             value & opt int 10
             & info [ "top" ] ~docv:"N" ~doc:"Print the $(docv) largest per-instruction differences.")
