@@ -95,10 +95,7 @@ module Summary = struct
 end
 
 let value (a : Event.access) =
-  List.fold_left
-    (fun (v, k) b -> (v lor (Bits.field_int a.data ~lo:(8 * b) ~width:8 lsl (8 * k)), k + 1))
-    (0, 0) a.lanes
-  |> fst
+  Bits.concat (List.rev_map (fun b -> Bits.field a.data ~lo:(8 * b) ~width:8) a.lanes)
 
 let lanes_of_mask m = List.filter (fun b -> (m lsr b) land 1 = 1) (List.init 16 Fun.id)
 
@@ -288,11 +285,10 @@ let text (ctx : Text.ctx) events (s : Summary.t) =
       | Access a ->
           if Text.selected ctx.window ~cycle:a.cycle ~pc:a.pc && !shown < ctx.limit then begin
             incr shown;
-            Printf.printf "%8d %s pc %08x addr %08x%s %d bytes %0*x\n" a.cycle
+            Printf.printf "%8d %s pc %08x addr %08x%s %d bytes %s\n" a.cycle
               (if a.access.write then "W" else "R")
               a.pc a.access.address (region a.access.address) (List.length a.lanes)
-              (2 * List.length a.lanes)
-              (value a)
+              (Bits.to_hex (value a))
           end)
     events;
   Printf.printf "root %s: %d read and %d write requests from %d PCs, %d faults\n" ctx.root s.reads

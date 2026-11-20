@@ -57,8 +57,8 @@ end
 val build :
   Config.t -> 'c Core.t -> (Event.t list, 'c) Hwfrp.Ev.t * (Hwfrp.Sched.run_stats -> Summary.t)
 
-val value : Event.access -> int
-(** The selected bytes, little-endian. *)
+val value : Event.access -> Hwfrp.Bits.t
+(** The selected bytes, the first lane least significant, [8 * bytes] bits wide. *)
 
 val text : Text.ctx -> Event.t list -> Summary.t -> unit
 (** The requests the context selects, up to its limit, and the faults it selects. *)

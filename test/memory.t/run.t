@@ -45,3 +45,13 @@ holds the date it was written, so regenerating changes its bytes, not its conten
 
   $ coralview memory --platform mem-core.json --format jsonl memory.fst | tail -n +2 > fst.jsonl
   $ coralview memory --platform mem-core.json --format jsonl memory.vcd | tail -n +2 | cmp - fst.jsonl
+
+Accesses of 8 and 16 bytes print every byte of their data, a read of 16 bytes the line of its response (wide.vcd
+is made by gen.sh wide):
+
+  $ coralview memory --platform mem-core.json wide.vcd
+  platform mem-core
+         0 W pc 00000200 addr 00010008 8 bytes 8899aabbccddeeff
+         1 W pc 00000204 addr 00010010 16 bytes 0102030405060708090a0b0c0d0e0f10
+         2 R pc 00000208 addr 00010020 16 bytes 8f0e0d0c0b0a09080706050403020100
+  root TOP.core: 1 read and 2 write requests from 3 PCs, 0 faults
