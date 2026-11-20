@@ -156,10 +156,13 @@ let graph ?at (c : _ Core.t) =
                               (function Some pc -> Printf.sprintf "pc %08x" pc | None -> "?")
                               pcs))))
          | _ -> ()));
-  let history = ref [] in
-  Ev.subscribe
-    (Ev.tag (Sig.cycle c.clk) storage.changes)
-    (fun (_, cycle) -> history := (cycle, Sig.peek storage.state) :: !history);
+  let at_snapshot = ref None in
+  Option.iter
+    (fun at ->
+      Ev.subscribe
+        (Ev.tag (Sig.cycle c.clk) storage.changes)
+        (fun (_, cycle) -> if cycle <= at then at_snapshot := Some (cycle, Sig.peek storage.state)))
+    at;
   ( fired,
     fun (st : Sched.run_stats) ->
       let diags = List.of_seq (Diag.stream c.net) in
@@ -176,10 +179,7 @@ let graph ?at (c : _ Core.t) =
             (fun i _ -> i < 20)
             (List.filter (fun (d : Diag.t) -> List.mem d.code [ code; retired_code ]) diags);
         storage = State.bindings (Sig.peek storage.state);
-        storage_at =
-          Option.bind at (fun at ->
-              List.find_opt (fun (cycle, _) -> cycle <= at) !history
-              |> Option.map (fun (cycle, s) -> (cycle, State.bindings s)));
+        storage_at = Option.map (fun (cycle, s) -> (cycle, State.bindings s)) !at_snapshot;
       } )
 
 module Config = struct

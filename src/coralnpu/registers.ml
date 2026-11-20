@@ -237,16 +237,20 @@ let graph ?at (c : _ Core.t) =
       ]
   in
   let files = List.map fst both in
-  (* Snapshots are persistent, so keeping one per change keeps every past state. *)
-  let history = ref [] in
-  List.iter
-    (fun ((storage : _ State.store), _) ->
-      Ev.subscribe
-        (Ev.tag (Sig.cycle c.clk) storage.changes)
-        (fun (_, cycle) ->
-          history :=
-            (cycle, List.map (fun ((s : _ State.store), _) -> Sig.peek s.state) files) :: !history))
-    files;
+  (* Snapshots are persistent, so keeping one is cheap, and one per change would keep every past state. *)
+  let at_snapshot = ref None in
+  Option.iter
+    (fun at ->
+      List.iter
+        (fun ((storage : _ State.store), _) ->
+          Ev.subscribe
+            (Ev.tag (Sig.cycle c.clk) storage.changes)
+            (fun (_, cycle) ->
+              if cycle <= at then
+                at_snapshot :=
+                  Some (cycle, List.map (fun ((s : _ State.store), _) -> Sig.peek s.state) files)))
+        files)
+    at;
   let relations () =
     List.map
       (fun code ->
@@ -292,10 +296,7 @@ let graph ?at (c : _ Core.t) =
                (Seq.filter (fun (d : Diag.t) -> List.mem d.code codes) (Diag.stream c.net)));
         storage = union (List.map (fun ((s : _ State.store), _) -> Sig.peek s.state) files);
         architectural = union (List.map (fun (_, (a : _ State.store)) -> Sig.peek a.state) files);
-        storage_at =
-          Option.bind at (fun at ->
-              List.find_opt (fun (cycle, _) -> cycle <= at) !history
-              |> Option.map (fun (cycle, snaps) -> (cycle, union snaps)));
+        storage_at = Option.map (fun (cycle, snaps) -> (cycle, union snaps)) !at_snapshot;
       } )
 
 module Config = struct

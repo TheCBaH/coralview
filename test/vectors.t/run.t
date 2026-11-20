@@ -60,3 +60,18 @@ As JSON lines, the writes, then the relation failures as diagnostics, and the ex
   $ coralview vectors --platform vector-core.json --format jsonl bad.vcd | jq -c 'select(.type == "diag") | [.code, .cycle, .message]'
   ["vectors.storage",3,"key 64: v0 byte 0 holds ab, last written 11"]
   ["vectors.retired",4,"pc 0000010c retired v1, last written at cycle 3 by pc 00000108"]
+
+--at prints the storage as of the last change at or before that cycle:
+
+  $ coralview vectors --platform vector-core.json --at 1 vectors.vcd | grep -A2 'storage at cycle'
+  storage at cycle 0:
+    v0   0000
+    v1   0000
+  $ coralview vectors --platform vector-core.json --at 2 vectors.vcd | grep -A2 'storage at cycle'
+  storage at cycle 2:
+    v0   00ab
+    v1   0000
+  $ coralview vectors --platform vector-core.json --at 100 vectors.vcd | grep -A2 'storage at cycle'
+  storage at cycle 4:
+    v0   ee11
+    v1   beef
