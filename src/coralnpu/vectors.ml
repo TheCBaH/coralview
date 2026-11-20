@@ -162,7 +162,7 @@ let graph ?at (c : _ Core.t) =
   ( fired,
     fun (st : Sched.run_stats) ->
       {
-        cycles = st.ticks.(0);
+        cycles = Core.cycles c st;
         relations = Regmodel.relations c ~model [ (code, !comparisons); (retired_code, !retired) ];
         failures = Regmodel.failures c ~model ~codes:[ code; retired_code ];
         storage = State.bindings (Sig.peek storage.state);
@@ -223,6 +223,12 @@ let build (cfg : Config.t) (c : _ Core.t) =
 
 let status (s : summary) = Regmodel.status s.relations
 
+module Pcs = Map.Make (struct
+  type t = int option
+
+  let compare = Option.compare Int.compare
+end)
+
 let text (ctx : Text.ctx) events (s : summary) =
   let shown = ref 0 in
   let by_pc =
@@ -235,15 +241,14 @@ let text (ctx : Text.ctx) events (s : summary) =
             (Core.reg_name w.reg) (Bits.to_hex w.strobe) (Bits.to_hex w.data)
         end;
         let c, regs, first, _ =
-          Option.value (List.assoc_opt w.pc m) ~default:(0, [], w.cycle, w.cycle)
+          Option.value (Pcs.find_opt w.pc m) ~default:(0, [], w.cycle, w.cycle)
         in
-        (w.pc, (c + 1, List.sort_uniq Int.compare (w.reg :: regs), first, w.cycle))
-        :: List.remove_assoc w.pc m)
-      [] events
+        Pcs.add w.pc (c + 1, List.sort_uniq Int.compare (w.reg :: regs), first, w.cycle) m)
+      Pcs.empty events
   in
   Printf.printf "root %s: %d cycles, %d vector register writes from %d PCs\n" ctx.root s.cycles
-    (List.length events) (List.length by_pc);
-  List.sort compare by_pc
+    (List.length events) (Pcs.cardinal by_pc);
+  Pcs.bindings by_pc
   |> List.iter (fun (pc, (c, regs, first, last)) ->
       Printf.printf "  %s: %d writes to %s, cycles %d-%d\n"
         (match pc with Some pc -> Printf.sprintf "pc %08x" pc | None -> "-")

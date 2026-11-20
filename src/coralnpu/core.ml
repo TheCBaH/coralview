@@ -66,10 +66,10 @@ let dispatch c =
   let b = block c "dispatch_debug" c.platform.blocks.dispatch_debug in
   let sc = scope c b.dd_scope in
   List.init b.dd_lanes (fun i ->
-      let p = Printf.sprintf "io_debug_dispatch_%d_inst" i in
-      let valid = Bind.signal sc (p ^ "Fire") Bind.bool ~purpose:"dispatch lane fires" in
-      let pc = Bind.signal sc (p ^ "Addr") Bind.uint ~purpose:"dispatched PC" in
-      let word = Bind.signal sc (p ^ "Inst") Bind.uint ~purpose:"dispatched word" in
+      let name = Platform.name_of in
+      let valid = Bind.signal sc (name b.dd_fire i) Bind.bool ~purpose:"dispatch lane fires" in
+      let pc = Bind.signal sc (name b.dd_addr i) Bind.uint ~purpose:"dispatched PC" in
+      let word = Bind.signal sc (name b.dd_inst i) Bind.uint ~purpose:"dispatched word" in
       lane_sig valid
         (let open Sig in
          let+ pc = pc and+ word = word in
@@ -87,20 +87,20 @@ let retire c =
   let b = retirement c in
   let sc = scope c b.rd_scope in
   List.init b.rd_lanes (fun i ->
-      let rb =
-        Bundle.valid sc ~purpose:"retirement lane valid" (Printf.sprintf "io_debug_rb_inst_%d" i)
-      in
-      let pc = Bundle.get rb.v_bits "pc" Bind.uint ~purpose:"retired PC" in
+      let name = Platform.name_of in
+      let valid = Bind.signal sc (name b.rd_valid i) Bind.bool ~purpose:"retirement lane valid" in
+      let pc = Bind.signal sc (name b.rd_pc i) Bind.uint ~purpose:"retired PC" in
       let idx =
-        Bundle.get rb.v_bits "idx"
+        Bind.signal sc (name b.rd_idx i)
           { Bind.uint with dwidth = Exact b.idx_width }
           ~purpose:"retired destination index"
       in
       let trap =
-        if b.trap then Bundle.get rb.v_bits "trap" Bind.bool ~purpose:"retired with a trap"
-        else Sig.const c.clk false
+        match b.rd_trap with
+        | Some t -> Bind.signal sc (name t i) Bind.bool ~purpose:"retired with a trap"
+        | None -> Sig.const c.clk false
       in
-      lane_sig rb.v_valid
+      lane_sig valid
         (let open Sig in
          let+ pc = pc and+ idx = idx and+ trap = trap in
          { r_lane = i; r_pc = pc; r_idx = idx; r_trap = trap }))
@@ -110,11 +110,11 @@ type write = { reg : int; value : int }
 let write_ports c group base (b : Platform.writeback) =
   let sc = scope c b.wb_scope in
   List.init b.ports (fun i ->
-      let p = Printf.sprintf "io_debug_%s_writeData_%d" group i in
-      let w = Bundle.valid sc ~purpose:(group ^ " writeback") p in
-      let addr = Bundle.get w.v_bits "addr" Bind.uint ~purpose:"written register" in
-      let data = Bundle.get w.v_bits "data" Bind.uint ~purpose:"written value" in
-      lane_sig w.v_valid
+      let name = Platform.name_of in
+      let valid = Bind.signal sc (name b.wb_valid i) Bind.bool ~purpose:(group ^ " writeback") in
+      let addr = Bind.signal sc (name b.wb_addr i) Bind.uint ~purpose:"written register" in
+      let data = Bind.signal sc (name b.wb_data i) Bind.uint ~purpose:"written value" in
+      lane_sig valid
         (let open Sig in
          let+ addr = addr and+ data = data in
          { reg = base + addr; value = data }))
@@ -134,3 +134,5 @@ let reg_name r =
   if r < float_base then Printf.sprintf "x%d" r
   else if r < vector_base then Printf.sprintf "f%d" (r - float_base)
   else Printf.sprintf "v%d" (r - vector_base)
+
+let cycles c (st : Sched.run_stats) = st.ticks.(Clock.index c.clk)

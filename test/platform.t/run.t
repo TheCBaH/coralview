@@ -207,11 +207,11 @@ Unknown members in a description are errors:
 
   $ coralview check --platform typo.json core.vcd
   Unexpected member fetch for dispatch_debug object
-  File "typo.json", line 10, characters 57-58:
+  File "typo.json", line 11, characters 137-138:
   File "typo.json": in member dispatch_debug of
-  File "typo.json", lines 9-10, characters 12-58: blocks object
+  File "typo.json", lines 9-11, characters 12-138: blocks object
   File "typo.json": in member blocks of
-  File "typo.json", lines 1-10, characters 0-58: platform object
+  File "typo.json", lines 1-11, characters 0-138: platform object
   [2]
 
 Command-line errors are cmdliner's, with its exit status:
@@ -375,3 +375,38 @@ exist is rejected by the command line before anything is read:
   [2]
   $ coralview commits --platform test-core.json absent.vcd 2>&1 | tail -n 1
   coralview: FILE argument: no 'absent.vcd' file or directory
+
+The names of the debug ports are the description's, not the model's. The same core with its dispatch, retirement
+and writeback wires renamed, in the description and in the trace, gives the same listing:
+
+  $ sed -e 's/io_debug_dispatch_%d_inst/dp%d_/g' -e 's/io_debug_rb_inst_%d_/rb%d_/g' -e 's/io_debug_regfile_writeData_%d_/wr%d_/g' test-core.json > renamed-core.json
+  $ sed -e 's/io_debug_dispatch_0_inst/dp0_/g' -e 's/io_debug_rb_inst_0_/rb0_/g' -e 's/io_debug_regfile_writeData_0_/wr0_/g' core.vcd > renamed.vcd
+  $ coralview commits --platform test-core.json core.vcd > before.txt
+  $ coralview commits --platform renamed-core.json renamed.vcd > after.txt
+  $ diff before.txt after.txt
+  $ coralview check --platform renamed-core.json renamed.vcd | grep -c 'bound   \(dp0_\|rb0_\|wr0_\)'
+  10
+
+A description that does not name one of them is not a description, whichever block it is in:
+
+  $ sed 's/"fire": "[^"]*", //' test-core.json > nofire.json
+  $ coralview check --platform nofire.json core.vcd
+  Missing member fire in dispatch_debug object
+  File "nofire.json", lines 10-11, characters 22-88:
+  File "nofire.json": in member dispatch_debug of
+  File "nofire.json", lines 9-11, characters 12-88: blocks object
+  File "nofire.json": in member blocks of
+  File "nofire.json", lines 1-11, characters 0-88: platform object
+  [2]
+
+A trace name needs a %d when the block has several lanes, and a retirement buffer that reports no trap bit says
+so by leaving it out:
+
+  $ sed -e 's/"lanes": 1,/"lanes": 2,/g' -e 's/io_debug_dispatch_%d_inst/dp_/g' test-core.json > nolane.json
+  $ coralview check --platform nolane.json core.vcd 2>&1 | head -2
+  dispatch_debug: "dp_Fire" has no %d for its 2 lanes
+  File "nolane.json": in member dispatch_debug of
+  $ sed -e '/"idx": /{N;s/,\n *"trap": "[^"]*"//}' test-core.json > notrap.json
+  $ coralview check --platform notrap.json core.vcd | grep -c trap
+  0
+  [1]

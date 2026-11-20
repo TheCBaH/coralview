@@ -100,12 +100,13 @@ let build () (c : _ Core.t) =
   let elt_int x ~w b p = Bits.to_int_exn (elt x ~w b p) in
   let writes =
     let open Sig in
-    let+ en = vec "writeEn" (lanes * bytes) "tile write byte enables"
-    and+ pe_en = vec "peWriteEn" (lanes * bytes) "PE array write byte enables"
-    and+ pcs = vec "peWritePc" (v.blocks * 32) "PC of each block's PE write"
-    and+ mt = vec "writeMtIdx" (lanes * wt) "written tile"
-    and+ sub = vec "writeSubIdx" (lanes * ws) "written sub-tile"
-    and+ data = vec "writeData" (lanes * bytes * 8) "written data"
+    let w = v.vme_writes in
+    let+ en = vec w.we_en (lanes * bytes) "tile write byte enables"
+    and+ pe_en = vec w.we_pe_en (lanes * bytes) "PE array write byte enables"
+    and+ pcs = vec w.we_pe_pc (v.blocks * 32) "PC of each block's PE write"
+    and+ mt = vec w.we_mt_idx (lanes * wt) "written tile"
+    and+ sub = vec w.we_sub_idx (lanes * ws) "written sub-tile"
+    and+ data = vec w.we_data (lanes * bytes * 8) "written data"
     and+ cycle = cycle c.clk in
     List.concat_map
       (fun block ->

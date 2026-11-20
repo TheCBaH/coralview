@@ -7,7 +7,8 @@
   "clock": "io_aclk",
   "sample": "after_falling",
   "blocks": {
-    "dispatch_debug": { "scope": [], "lanes": 1 },
+    "dispatch_debug": { "scope": [], "lanes": 1,
+      "fire": "io_debug_dispatch_%d_instFire", "addr": "io_debug_dispatch_%d_instAddr", "inst": "io_debug_dispatch_%d_instInst" },
     "v_dispatch": {
       "scope": ["backend"],
       "lanes": 2, "valid": "uv", "ready": "ur", "uop": "uop",

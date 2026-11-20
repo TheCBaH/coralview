@@ -1,9 +1,13 @@
 #!/bin/bash
-# Writes registers.vcd (no argument) or bad.vcd (any argument) to stdout: a core with one dispatch and
+# Writes registers.vcd (no argument), bad.vcd (bad) or narrow.vcd (narrow) to stdout: a core with one dispatch and
 # retirement lane, one writeback port, x1-x3 and f0. addi x1 and addi x2 are announced (the marks),
 # written back, stored one sample later and retired; the pipeline flushes in cycle 4. bad.vcd stores 9
-# in x2 where 7 was written back.
-bad=$1
+# in x2 where 7 was written back. narrow.vcd is registers.vcd with scoreboards one bit per register
+# (x0-x3: 4 bits, f0: 1 bit) instead of 32.
+bad= narrow=
+case $1 in bad) bad=1 ;; narrow) narrow=1 ;; esac
+xw=32 fw=32
+if [ -n "$narrow" ]; then xw=4 fw=1; fi
 declare -A width
 top=(
   "1 df io_debug_dispatch_0_instFire" "32 da io_debug_dispatch_0_instAddr" "32 di io_debug_dispatch_0_instInst"
@@ -15,12 +19,12 @@ top=(
   "1 fv io_debug_float_writeAddr_valid" "5 fa io_debug_float_writeAddr_bits"
 )
 regfile=(
-  "32 r1 regfile_1" "32 r2 regfile_2" "32 r3 regfile_3" "32 xs scoreboard" "32 xf flushed_scoreboard"
+  "32 r1 regfile_1" "32 r2 regfile_2" "32 r3 regfile_3" "$xw xs scoreboard" "$xw xf flushed_scoreboard"
   "1 xl io_pipelineFlush"
 )
 fregfile=(
-  "1 s0 fregfile_0_sign" "8 e0 fregfile_0_exponent" "23 m0 fregfile_0_mantissa" "32 fs scoreboard"
-  "32 ff flushed_scoreboard" "1 fl io_pipelineFlush"
+  "1 s0 fregfile_0_sign" "8 e0 fregfile_0_exponent" "23 m0 fregfile_0_mantissa" "$fw fs scoreboard"
+  "$fw ff flushed_scoreboard" "1 fl io_pipelineFlush"
 )
 bin() { # bin WIDTH HEX: the value at full width
   local w=$1 h=$2 b="" i

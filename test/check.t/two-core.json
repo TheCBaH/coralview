@@ -7,9 +7,15 @@
   "clock": "io_aclk",
   "sample": "after_falling",
   "blocks": {
-    "dispatch_debug": { "scope": [], "lanes": 1 },
-    "retirement_debug": { "scope": [], "lanes": 1, "idx_width": 7, "trap": true },
-    "regfile_writeback": { "scope": [], "ports": 1 },
-    "lsu": { "scope": ["lsu"], "port": { "prefix": "io_tlul_", "data_bytes": 16, "d_ready": false } }
+    "dispatch_debug": { "scope": [], "lanes": 1,
+      "fire": "io_debug_dispatch_%d_instFire", "addr": "io_debug_dispatch_%d_instAddr", "inst": "io_debug_dispatch_%d_instInst" },
+    "retirement_debug": { "scope": [], "lanes": 1, "idx_width": 7,
+      "valid": "io_debug_rb_inst_%d_valid", "pc": "io_debug_rb_inst_%d_bits_pc", "idx": "io_debug_rb_inst_%d_bits_idx",
+      "trap": "io_debug_rb_inst_%d_bits_trap" },
+    "regfile_writeback": { "scope": [], "ports": 1,
+      "valid": "io_debug_regfile_writeData_%d_valid", "addr": "io_debug_regfile_writeData_%d_bits_addr", "data": "io_debug_regfile_writeData_%d_bits_data" },
+    "lsu": { "scope": ["lsu"], "port": { "prefix": "io_tlul_", "data_bytes": 16, "d_ready": false },
+      "pc": "slot/io_pc",
+      "fault": { "valid": "io_fault_valid", "write": "io_fault_bits_write", "addr": "io_fault_bits_addr", "epc": "io_fault_bits_epc" } }
   }
 }

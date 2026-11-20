@@ -205,6 +205,7 @@ module Clock = struct
     Any rc
 
   let name rc = rc.cname
+  let index rc = rc.index
 end
 
 module Sig = struct

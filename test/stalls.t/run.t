@@ -58,3 +58,22 @@ The spans as a Chrome trace: a track per lane, a slice per span named by its rea
   [1,"empty",4,1]
   [1,"halted",5,1]
   [2,"empty",3,3]
+
+The dispatch lanes' and the core's wires are the description's: renamed in both, the listing is the same:
+
+  $ coralview stalls --platform stall-core.json --profile 3 stalls.vcd > before.txt
+  $ cat > rename.sed <<'SED'
+  > s/io_inst_%d_/in%d_/g
+  > s/io_inst_\([01]\)_/in\1_/g
+  > s/\bio_halted\b/hlt/g
+  > s/\bio_interlock\b/ilk/g
+  > s/\bio_scoreboard_regd\b/busy/g
+  > s/\bio_retirement_buffer_\(nSpace\|empty\|trap_pending\)\b/rob_\1/g
+  > s/\bio_lsuQueueCapacity\b/lsu_room/g
+  > SED
+  $ sed -f rename.sed stall-core.json > renamed-core.json
+  $ sed -f rename.sed stalls.vcd > renamed.vcd
+  $ coralview stalls --platform renamed-core.json --profile 3 renamed.vcd > after.txt
+  $ diff before.txt after.txt
+  $ grep -c 'hlt\|rob_empty' renamed-core.json
+  2

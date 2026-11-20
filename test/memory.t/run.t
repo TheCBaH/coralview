@@ -109,3 +109,20 @@ too:
          3 unmatched response for source 5
   root TOP.core: 1 read and 0 write requests from 1 PCs, 0 faults, 1 unmatched
   window [2, 4]: 0 read and 0 write requests from 0 PCs, 0 faults, 1 unmatched
+
+The LSU's PC and fault wires are the description's too: renamed in both, the listing is the same:
+
+  $ coralview memory --platform mem-core.json memory.vcd > before.txt
+  $ sed -E -e 's/\bio_pc\b/req_pc/g' -e 's/\bio_fault_(valid|bits_write|bits_addr|bits_epc)\b/flt_\1/g' mem-core.json > renamed-core.json
+  $ sed -E -e 's/\bio_pc\b/req_pc/g' -e 's/\bio_fault_(valid|bits_write|bits_addr|bits_epc)\b/flt_\1/g' memory.vcd > renamed.vcd
+  $ coralview memory --platform renamed-core.json renamed.vcd > after.txt
+  $ diff before.txt after.txt
+  $ grep -c req_pc renamed-core.json
+  1
+
+A description without them is refused, with the place:
+
+  $ sed 's/"pc": "slot\/io_pc",//' mem-core.json > nopc.json
+  $ coralview memory --platform nopc.json memory.vcd 2>&1 | head -2
+  Missing member pc in lsu object
+  File "nopc.json", lines 10-12, characters 11-136:

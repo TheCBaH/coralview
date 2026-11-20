@@ -1306,7 +1306,7 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
 | cycles | %d |
 | models | %s |
 |}
-        p.name path ctx.root stats.ticks.(0) (String.concat ", " models);
+        p.name path ctx.root (Core.cycles c stats) (String.concat ", " models);
       List.iter
         (fun (_, _, section) ->
           Option.iter

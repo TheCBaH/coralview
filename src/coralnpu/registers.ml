@@ -102,8 +102,8 @@ let file ~kind ~count (c : _ Core.t) writes commits (rf : Platform.register_file
       (fun ls -> Bits.to_int_exn (Bits.concat (List.map (fun (l : Logic.t) -> l.bits) ls)))
   in
   let bitmap name purpose =
-    State.mirror_packed sc name ~purpose ~first_key:rf.base ~entries:32 ~width:1 (fun b ->
-        Bits.bit b 0)
+    State.mirror_packed sc name ~purpose ~first_key:rf.base ~entries:rf.scoreboard_entries ~width:1
+      (fun b -> Bits.bit b 0)
   in
   let sb = bitmap rf.scoreboard "write pending"
   and fsb = bitmap rf.flushed_scoreboard "flushed write" in
@@ -264,7 +264,7 @@ let graph ?at (c : _ Core.t) =
     fun (st : Sched.run_stats) ->
       let union snaps = List.concat_map State.bindings snaps in
       {
-        cycles = st.ticks.(0);
+        cycles = Core.cycles c st;
         relations = relations ();
         flushes = Option.value (Hashtbl.find_opt counts "flushes") ~default:0;
         failures = Regmodel.failures c ~model ~codes;

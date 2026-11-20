@@ -223,15 +223,15 @@ let build (cfg : Config.t) (c : _ Core.t) =
   let l = Core.block c "lsu" c.platform.blocks.lsu in
   let sc = Core.scope c l.lsu_scope in
   let b n = Bind.signal sc n Bind.bool and u n = Bind.signal sc n Bind.uint in
-  let pc = Core.signal c l.lsu_scope "slot/io_pc" Bind.uint in
+  let pc = Core.signal c l.lsu_scope l.lsu_pc Bind.uint in
   let data_bytes = l.port.tl_data_bytes in
   let port = Tlul.bind sc { prefix = l.port.tl_prefix; d_ready = l.port.d_ready } ~data_bytes in
   let faults =
     let open Sig in
-    let+ valid = b "io_fault_valid"
-    and+ write = b "io_fault_bits_write"
-    and+ addr = u "io_fault_bits_addr"
-    and+ epc = u "io_fault_bits_epc"
+    let+ valid = b l.fault.f_valid
+    and+ write = b l.fault.f_write
+    and+ addr = u l.fault.f_addr
+    and+ epc = u l.fault.f_epc
     and+ cycle = cycle c.clk in
     if valid then Some (cycle, epc, addr, write) else None
   in

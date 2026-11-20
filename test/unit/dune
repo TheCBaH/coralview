@@ -17,7 +17,12 @@
    ../platform.t/test-core.json
    ../platform.t/core.vcd
    ../stalls.t/stall-core.json
-   ../stalls.t/stalls.vcd))
+   ../stalls.t/stalls.vcd
+   ../ops.t/ops-core.json
+   ../ops.t/ops.vcd
+   ../traps.t/trap-core.json
+   ../traps.t/traps.vcd
+   ../vectors.t/vectors.vcd))
  (preprocess
   (pps ppx_expect))
  (libraries
