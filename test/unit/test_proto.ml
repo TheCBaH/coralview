@@ -182,6 +182,76 @@ let%expect_test "Axi4" =
     unmatched cycle 10 W id -1: write data with no write address
     open     #3 W id 2 400 1B 1 beats of 4, req 7 acc 7 data 9 done - status 0 out 1 |}]
 
+(* The beats of a burst against AxLEN + 1: a read at its last beat, a write when its data burst and its
+   address are both known, whichever came first. *)
+let%expect_test "Axi4 burst lengths" =
+  let cycles =
+    [
+      (0, ar 0 0x100 1);
+      (1, r 0 0 1);
+      (2, ar 1 0x200 0);
+      (3, r 1 0 0);
+      (4, r 1 0 1);
+      (5, aw 0 0x300 2);
+      (6, w 1 0);
+      (7, w 1 1);
+      (8, b 0 0);
+      (9, w 1 0);
+      (10, w 1 0);
+      (11, w 1 1);
+      (12, aw 1 0x400 0);
+      (13, b 1 0);
+      (14, ar 2 0x500 1);
+      (15, r 2 0 0);
+      (16, r 2 0 1);
+      (17, aw 2 0x600 1);
+      (18, w 1 0);
+      (19, w 1 1);
+      (20, b 2 0);
+    ]
+  in
+  setup (vcd axi_wires cycles 22)
+    {
+      build =
+        (fun _ sc ->
+          let events, _ = Axi4.track (Axi4.bind sc (Axi4.chisel "m_") ~data_bytes:4) in
+          Ev.subscribe events
+            (List.iter (function
+              | Axi4.Accepted _ | Done _ | Open_at_end _ -> ()
+              | Unmatched { cycle; write; id; what } ->
+                  Printf.printf "unmatched cycle %d %s id %d: %s\n" cycle
+                    (if write then "W" else "R")
+                    id what)));
+    };
+  [%expect
+    {|
+    unmatched cycle 1 R id 0: read data burst of 1 beats, ARLEN+1 is 2
+    unmatched cycle 4 R id 1: read data burst of 2 beats, ARLEN+1 is 1
+    unmatched cycle 7 W id 0: write data burst of 2 beats, AWLEN+1 is 3
+    unmatched cycle 12 W id 1: write data burst of 3 beats, AWLEN+1 is 1 |}]
+
+(* The response of a write ahead of its last data beat is a protocol violation, and must not break the
+   tracker. *)
+let%expect_test "Axi4 write response before its data" =
+  let cycles = [ (0, aw 0 0x100 1); (1, w 1 0); (2, b 0 0 @ w 1 1) ] in
+  setup (vcd axi_wires cycles 5)
+    {
+      build =
+        (fun _ sc ->
+          let events, _ = Axi4.track (Axi4.bind sc (Axi4.chisel "m_") ~data_bytes:4) in
+          Ev.subscribe events
+            (List.iter (function
+              | Axi4.Accepted _ | Done _ | Open_at_end _ -> ()
+              | Unmatched { cycle; write; id; what } ->
+                  Printf.printf "unmatched cycle %d %s id %d: %s\n" cycle
+                    (if write then "W" else "R")
+                    id what)));
+    };
+  [%expect
+    {|
+    unmatched cycle 2 W id 0: write response before its last data beat
+    unmatched cycle 1 W id -1: write data with no write address |}]
+
 let tl_wires =
   List.map
     (fun (n, w) -> ("t_" ^ n, w))
