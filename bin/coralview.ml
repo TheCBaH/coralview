@@ -572,24 +572,27 @@ let check p names ~format path =
       (Codec.to_line Jsonl.header_jsont (jsonl_header ~model:"check" ~platform:p.name ~trace:path));
   List.iter
     (fun m ->
-      let tr = Hwfrp_native.open_file ~select:!select path in
+      let tr = Hwfrp_native.open_input ~select:!select path in
       guard p (fun () ->
-          let (Core.Any c) = Core.bind p tr ~model:m.name in
+          let (Core.Any c) = Core.bind ~collect:true p tr ~model:m.name in
           m.build c;
           List.iter
             (fun (r : Hwfrp.Bind.report) ->
+              List.iter (fun e -> incr (if Hwfrp.Bind.ok e then bound else failed)) r.entries;
               if jsonl then
                 List.iter
                   (fun e ->
-                    let b = Check.of_entry r.model r.root e in
-                    incr (if Check.ok b then bound else failed);
-                    print_endline (Codec.to_line Check.jsont b))
+                    print_endline (Codec.to_line Check.jsont (Check.of_entry r.model r.root e)))
                   r.entries
               else Format.printf "%a@." Hwfrp.Bind.pp_report r)
-            (Hwfrp.Bind.check tr (Hwfrp.Bind.requirements c.net))))
+            (Hwfrp.Bind.report c.net)))
     selected;
   if jsonl then
-    print_endline (Codec.to_line Check.summary_jsont { bound = !bound; failed = !failed })
+    print_endline (Codec.to_line Check.summary_jsont { bound = !bound; failed = !failed });
+  if !failed > 0 then
+    fail ~code:3
+      (Printf.sprintf "platform %s does not match the trace: %d of %d signals failed" p.name !failed
+         (!bound + !failed))
 
 (* The signals the models need of a catalog trace, to be recorded by a producer and checked by [--plan].
    Several catalogs (say, the FST and VCD builds of one simulator) must agree; the first is the one the

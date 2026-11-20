@@ -19,8 +19,9 @@ type any = Any : 'c t -> any
 
 exception No_block of string * string
 
-let bind (p : Platform.t) tr ~model =
+let bind ?(collect = false) (p : Platform.t) tr ~model =
   let net = Net.create () in
+  if collect then Bind.collect net;
   let (Clock.Any clk) =
     Bind.clock net tr ~model ~purpose:"core clock" ~name:p.clock p.sample
       (Platform.scope p [ p.clock ])

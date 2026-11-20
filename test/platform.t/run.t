@@ -182,8 +182,19 @@ Nor does a valid signal of the wrong width:
 
   $ coralview check --platform test-core.json wide.vcd
   platform test-core
-  platform test-core does not match the trace (model commits):
+  commits at TOP.core
+    bound   io_aclk 1: core clock
+    bound   io_debug_dispatch_0_instFire 1: dispatch lane fires
+    bound   io_debug_dispatch_0_instAddr 32: dispatched PC
+    bound   io_debug_dispatch_0_instInst 32: dispatched word
+    bound   io_debug_regfile_writeData_0_valid 1: regfile writeback
+    bound   io_debug_regfile_writeData_0_bits_addr 5: written register
+    bound   io_debug_regfile_writeData_0_bits_data 32: written value
     width   io_debug_rb_inst_0_valid 2, expected 1: retirement lane valid
+    bound   io_debug_rb_inst_0_bits_pc 32: retired PC
+    bound   io_debug_rb_inst_0_bits_idx 7: retired destination index
+    bound   io_debug_rb_inst_0_bits_trap 1: retired with a trap
+  platform test-core does not match the trace: 1 of 11 signals failed
   [3]
 
 The description has no dispatch block, so there is no stall model:
