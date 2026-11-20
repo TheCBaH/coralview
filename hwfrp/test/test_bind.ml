@@ -267,3 +267,34 @@ let%expect_test "a fold machine ignores the tick" =
   [%expect {|
     out 1
     out -1 |}]
+
+let%expect_test "a clock directly under the top scope, one component, and none" =
+  let tr =
+    Hwfrp_vcd.of_string
+      "$timescale 1ps $end\n\
+       $scope module top $end\n\
+       $var wire 1 ! clk $end\n\
+       $upscope $end\n\
+       $enddefinitions $end\n\
+       #0\n\
+       0!\n\
+       #1\n\
+       1!\n\
+       #2\n\
+       0!\n"
+  in
+  let try_clock path =
+    let net = Net.create () in
+    match Bind.clock net tr ~model:"m" ~name:"clk" After_falling (Reference.of_list path) with
+    | _ -> List.iter (Format.printf "%a@." Bind.pp_report) (Bind.check tr (Bind.requirements net))
+    | exception Bind.Unbound (r, s) -> Format.printf "unbound:%a@." Bind.pp_entry (r, s)
+    | exception e -> Printf.printf "raised %s\n" (Printexc.to_string e)
+  in
+  try_clock [ "top"; "clk" ];
+  try_clock [ "clk" ];
+  try_clock [];
+  [%expect {|
+    m at top
+      bound   clk 1
+    unbound:  missing clk
+    unbound:  missing |}]

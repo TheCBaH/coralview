@@ -121,7 +121,8 @@ let require ?force net tr (r : requirement) =
       placeholder r
   | st -> raise (Unbound (r, st))
 
-let parent p = Reference.of_list (List.rev (List.tl (List.rev (Reference.to_list p))))
+let parent p =
+  match List.rev (Reference.to_list p) with [] -> p | _ :: up -> Reference.of_list (List.rev up)
 
 let clock net tr ~model ?(purpose = "") ~name ?enable rule path =
   let bit path = require net tr { model; root = parent path; path; width = Exact 1; purpose } in
