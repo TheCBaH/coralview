@@ -1471,6 +1471,15 @@ let pair_conv =
         | _ -> Error (`Msg "expected A or A,B")),
       fun ppf (x, y) -> Format.fprintf ppf "%s,%s" x y )
 
+let nonneg =
+  Arg.conv
+    ( (fun s ->
+        match int_of_string_opt s with
+        | Some n when n >= 0 -> Ok n
+        | Some _ -> Error (`Msg (s ^ " is negative; expected N >= 0"))
+        | None -> Error (`Msg (s ^ " is not an integer"))),
+      Format.pp_print_int )
+
 let commands =
   [
     cmd "probe" "Count the signals, timestamps and changes of a trace." Term.(const probe $ file);
@@ -1615,7 +1624,7 @@ let commands =
                   "As $(b,--around-symbol), but to the $(b,ret) that pops the entry's frame (calls \
                    inside it nest), or to the end of that trace if there is none.")
         $ Arg.(
-            value & opt int 10
+            value & opt nonneg 10
             & info [ "top" ] ~docv:"N" ~doc:"Print the $(docv) largest per-instruction differences.")
         $ Arg.(
             value & flag

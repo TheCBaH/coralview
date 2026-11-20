@@ -28,3 +28,12 @@ The help says the same:
   --entry=NAME Print rows from the first retirement of the entry of function NAME of the --elf to the ret that pops its frame (calls inside it nest), or to the end of the trace if there is none: the startup before it is not counted
   $ coralview compare --help=plain | tr '\n' ' ' | tr -s ' ' | grep -o -- '--entry=NA.\{0,150\}' | sed 's/ --format.*//'
   --entry=NA[,NB] As --around-symbol, but to the ret that pops the entry's frame (calls inside it nest), or to the end of that trace if there is none.
+
+A negative --top is refused before either trace is read, whatever else is asked of the comparison:
+
+  $ coralview compare --platform entry-core.json --elf entry.elf --entry kernel --top=-1 --loops entry.vcd entry.vcd > out.txt 2>&1; echo $?
+  124
+  $ tail -n 1 out.txt
+  coralview: option '--top': -1 is negative; expected N >= 0
+  $ grep '^platform' out.txt
+  [1]
