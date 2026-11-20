@@ -23,7 +23,14 @@ val join :
   Commits.commit list ->
   Memory.Event.access list ->
   row list
-(** A request belongs to the youngest instance of its PC dispatched at or before it. Commits are those whose
-    retire cycle and PC are in the window. Rows by cycles, descending. *)
+(** A request belongs to the youngest instance of its PC dispatched at or before it, the later of instances
+    dispatched in the same cycle; an instance with no dispatch counts from its retire cycle. Each request
+    costs a binary search among the instances of its PC. Commits are those whose retire cycle and PC are in
+    the window. Rows by cycles, descending.
+
+    The instances of a PC must come in dispatch order, the order the commits list has when the
+    retirements are matched to dispatches in order ({!Commits}): the search relies on it, and a list that
+    breaks it can give a request to another instance. A request list may be in any order; of an instance's
+    requests, the first in the list gives its region. *)
 
 val text : row list -> unit
