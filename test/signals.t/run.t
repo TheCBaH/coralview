@@ -63,3 +63,28 @@ Cycles and timestamps are not interchangeable:
   $ coralview signals --platform sig.json --to-time 4 sig.vcd TOP.sim/core/count
   --from-time and --to-time select raw timestamps: add --raw
   [2]
+
+A value that is not a bit vector, here a real, does not stop --raw: the signal reads as unknown, and the
+signal is named once on the standard error:
+
+  $ cat > real.vcd <<'VCD'
+  > $timescale 1ps $end
+  > $scope module TOP $end
+  > $var real 64 ! temp $end
+  > $var wire 4 " count $end
+  > $upscope $end
+  > $enddefinitions $end
+  > #0
+  > r1.5 !
+  > b1 "
+  > #1
+  > r2.5 !
+  > b10 "
+  > VCD
+  $ coralview signals --raw real.vcd TOP/temp TOP/count 2> err.txt
+         -          0   64 TOP/temp 0bxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+         -          0    4 TOP/count 0x1
+         -          1   64 TOP/temp 0bxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+         -          1    4 TOP/count 0x2
+  $ cat err.txt
+  TOP/temp: not a bit vector: 1.5; shown as unknown

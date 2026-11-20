@@ -363,3 +363,12 @@ The same sidecar labels the rows of `commits` (names need --elf):
   $ coralview commits --platform test-core.json --annotate only-names.txt core.vcd
   --annotate: first needs --elf
   [2]
+
+An output file that cannot be created is a user error, not an internal one. A trace file that does not
+exist is rejected by the command line before anything is read:
+
+  $ coralview commits --platform test-core.json -o /no/such/dir/out.txt core.vcd
+  /no/such/dir/out.txt: No such file or directory
+  [2]
+  $ coralview commits --platform test-core.json absent.vcd 2>&1 | tail -n 1
+  coralview: FILE argument: no 'absent.vcd' file or directory

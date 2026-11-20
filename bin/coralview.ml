@@ -945,15 +945,31 @@ let output =
 let redirect = function
   | None -> ()
   | Some f ->
-      let fd = Unix.openfile f [ O_WRONLY; O_CREAT; O_TRUNC ] 0o644 in
+      let fd =
+        try Unix.openfile f [ O_WRONLY; O_CREAT; O_TRUNC ] 0o644
+        with Unix.Unix_error (e, _, _) -> fail ~code:2 (f ^ ": " ^ Unix.error_message e)
+      in
       Unix.dup2 fd Unix.stdout;
       Unix.close fd
 
 let exits =
   Cmd.Exit.info 1 ~doc:"a relation failed."
   :: Cmd.Exit.info 2 ~doc:"an invalid description, or a model the platform has no block for."
-  :: Cmd.Exit.info 3 ~doc:"the trace does not match the description: a signal is missing or wrong."
+  :: Cmd.Exit.info 3
+       ~doc:
+         "the trace does not match the description (a signal is missing or wrong), or cannot be \
+          read to its end."
   :: Cmd.Exit.defaults
+
+let error_kind : Vcd.Error.error -> string = function
+  | `Syntax _ -> "syntax"
+  | `Incomplete _ -> "incomplete"
+  | `Fst _ -> "fst"
+  | `Io _ -> "io"
+  | `Not_fst _ -> "not fst"
+  | `Closed _ -> "closed"
+  | `Superseded _ -> "superseded"
+  | `Encoding _ -> "encoding"
 
 let cmd name doc term = Cmd.v (Cmd.info name ~doc ~exits) term
 
@@ -2014,8 +2030,10 @@ let () =
     | code -> code
     | exception Vcd.Error.E e ->
         flush stdout;
-        prerr_endline ("coralview: " ^ Vcd.Error.to_string e);
-        1
+        prerr_endline
+          (Printf.sprintf "coralview: trace read failed (%s): %s" (error_kind e)
+             (Vcd.Error.to_string e));
+        3
     | exception e ->
         flush stdout;
         prerr_endline ("coralview: internal error, uncaught exception:\n" ^ Printexc.to_string e);

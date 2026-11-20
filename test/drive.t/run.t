@@ -43,9 +43,9 @@ A stream cut inside a record is an error of the consumer; the producer finished:
 
   $ coralview signals $args --exec "head -n 17 $t/sig.vcd | head -c -1 >&3" - TOP.sim/core/count
   # sampled after_falling on io_aclk at TOP.sim.core
-  coralview: input does not end with a newline at <channel> line 17 col 2
+  coralview: trace read failed (incomplete): input does not end with a newline at <channel> line 17 col 2
   # producer: complete, exited with status 0
-  [1]
+  [3]
 
 The producer makes the trace, so no other trace is named:
 
