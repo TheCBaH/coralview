@@ -4,7 +4,9 @@ let no_write = 127
 let store = 126
 let d pc word : Core.dispatched = { d_lane = 0; d_pc = pc; d_word = word }
 let w reg value : Core.write = { reg; value }
-let r ?(lane = 0) pc idx : Core.retired = { r_lane = lane; r_pc = pc; r_idx = idx; r_trap = false }
+
+let r ?(lane = 0) ?(trap = false) pc idx : Core.retired =
+  { r_lane = lane; r_pc = pc; r_idx = idx; r_trap = trap }
 
 (* Steps the cycles from 0 and prints each retirement and the summary, and checks that the charges
    of the retired and in-flight instructions, the discarded ones, and the cycles before the first
@@ -145,3 +147,45 @@ let%expect_test "squashed dispatches passed over by the real ones lose their cha
     5: lane 0 pc 10 word 1 disp 4 written - dest - charged 1
     cycles 6 before 0 empty 0 unmatched 0 skipped 2 missing 0 in flight 0
     charged: 1 retired + 0 in flight + 5 discarded |}]
+
+let%expect_test "a trapping retirement squashes the dispatches and the writes behind it" =
+  run
+    [
+      ([ d 0x10 1; d 0x14 2; d 0x18 3 ], [], []);
+      ([], [ w 12 7 ], []);
+      ([], [], [ r ~trap:true 0x10 no_write ]);
+      ([], [], []);
+      ([ d 0x30 4 ], [], []);
+      ([], [ w 12 1 ], []);
+      ([], [], [ r 0x30 12 ]);
+    ];
+  [%expect
+    {|
+    2: lane 0 pc 10 word 1 disp 0 written - dest - charged 3
+    6: lane 0 pc 30 word 4 disp 4 written 5 dest 12=1 charged 3
+    cycles 7 before 0 empty 1 unmatched 0 skipped 2 missing 0 in flight 0
+    charged: 6 retired + 0 in flight + 0 discarded |}]
+
+let%expect_test "a handler at a squashed PC pairs with its own dispatch" =
+  run
+    [
+      ([ d 0x10 1; d 0x14 2 ], [], []);
+      ([], [], [ r ~trap:true 0x10 no_write ]);
+      ([ d 0x14 2 ], [], []);
+      ([], [ w 13 5 ], []);
+      ([], [], [ r 0x14 13 ]);
+    ];
+  [%expect
+    {|
+    1: lane 0 pc 10 word 1 disp 0 written - dest - charged 2
+    4: lane 0 pc 14 word 2 disp 2 written 3 dest 13=5 charged 3
+    cycles 5 before 0 empty 0 unmatched 0 skipped 1 missing 0 in flight 0
+    charged: 5 retired + 0 in flight + 0 discarded |}]
+
+let%expect_test "a write to x0 is not kept for a retirement" =
+  run [ ([ d 0x10 1 ], [ w 0 5 ], []); ([], [], [ r 0x10 0 ]) ];
+  [%expect
+    {|
+    1: lane 0 pc 10 word 1 disp 0 written - dest 0=- charged 2
+    cycles 2 before 0 empty 0 unmatched 0 skipped 0 missing 1 in flight 0
+    charged: 2 retired + 0 in flight + 0 discarded |}]

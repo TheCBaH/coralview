@@ -179,15 +179,23 @@ cycle on the cycle's dispatched, written and retired lanes, keeps:
 
 - **the instructions in flight, in dispatch order.** Dispatch is in
   program order, so a retirement takes the oldest entry with its PC; that
-  entry supplies the word;
+  entry supplies the word. A decode fault retires without a dispatch,
+  which is counted as a retire without dispatch;
 - **a queue of written values per register.** A retirement whose
   destination index is a register takes the oldest value written to it.
-  The scoreboard keeps writes to one register in order;
+  The scoreboard keeps writes to one register in order. Writes to x0 are
+  not kept: the retirement buffer reports no destination for it;
+- **a flush.** A retirement with the trap bit flushes the retirement
+  buffer in the same sample: nothing dispatches in it, no lane retires
+  after the trapping one, and dispatch resumes four cycles later. The
+  instructions dispatched behind the trapping one never retire, and some
+  have already written back (an `addi` in the same dispatch group does,
+  before the flush). Both queues are emptied after the sample's
+  retirements, and the dropped entries count as skipped;
 - **a charge per cycle,** given to the oldest instruction in flight.
-  A retirement that finds an older entry ahead of its own drops it (a
-  skipped dispatch, usually a squashed one), and the cycles charged to the
-  dropped entry go to `discarded` in the summary. Every cycle is charged
-  once, so
+  A retirement that finds an older entry ahead of its own drops it, as
+  does a flush; the cycles charged to a dropped entry go to `discarded`
+  in the summary. Every cycle is charged once, so
 
   ```
   cycles = retired + in flight + discarded + before + empty

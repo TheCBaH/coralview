@@ -176,6 +176,19 @@ let take_flight st pc =
     (Some f, { st with queue; sum })
   else (None, st)
 
+(* A trapping retirement flushes the retirement buffer, so every instruction still queued is younger and
+   never retires, and so is the writer of every value still unconsumed. *)
+let squash st =
+  let discarded = List.fold_left (fun n (f : flight) -> n + f.charged) 0 st.queue in
+  let sum =
+    {
+      st.sum with
+      skipped = st.sum.skipped + List.length st.queue;
+      discarded = st.sum.discarded + discarded;
+    }
+  in
+  { st with queue = []; values = IM.empty; sum }
+
 let step ~no_write ~store st cycle
     ((dispatched : Core.dispatched list), (writes : Core.write list), retired) =
   let st = if dispatched <> [] then { st with started = true } else st in
@@ -192,9 +205,12 @@ let step ~no_write ~store st cycle
       values =
         List.fold_left
           (fun values (w : Core.write) ->
-            IM.update w.reg
-              (fun q -> Some (Option.value q ~default:[] @ [ (w.value, cycle) ]))
-              values)
+            (* The retirement buffer reports no destination for x0. *)
+            if w.reg = 0 then values
+            else
+              IM.update w.reg
+                (fun q -> Some (Option.value q ~default:[] @ [ (w.value, cycle) ]))
+                values)
           st.values writes;
     }
   in
@@ -241,6 +257,7 @@ let step ~no_write ~store st cycle
         (st, Event.Commit c :: out))
       (st, []) retired
   in
+  let st = if List.exists (fun (r : Core.retired) -> r.r_trap) retired then squash st else st in
   (st, List.rev out)
 
 let start =

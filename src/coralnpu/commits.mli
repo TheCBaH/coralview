@@ -54,7 +54,8 @@ type summary = {
   before : int;  (** Cycles before the first dispatch: reset and boot. *)
   empty : int;  (** Later cycles with nothing in flight: the front end is not delivering. *)
   unmatched_retires : int;  (** Retired with no dispatch in flight for its PC. *)
-  skipped : int;  (** Dispatched but passed over by a younger retirement. *)
+  skipped : int;
+      (** Dispatched but dropped without retiring: passed over by a younger retirement, or behind a trapping one. *)
   discarded : int;  (** Cycles that were charged to those instructions. *)
   missing_values : int;  (** Destination with no writeback to consume. *)
   in_flight : int;  (** Dispatched, not retired by the end. *)
