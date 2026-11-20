@@ -6,10 +6,7 @@ let open_file ?select path =
   Hwfrp.Trace.of_parse ?select ~format:(Vcd_fst.detect_file path) (fun select ->
       Vcd_fst.open_file ?select path)
 
-let open_file_result ?select path =
-  match open_file ?select path with
-  | tr -> Ok tr
-  | exception (Vcd.Parse_error msg | Sys_error msg | Failure msg) -> Error msg
+let open_file_result ?select path = Vcd.Error.catch (fun () -> open_file ?select path)
 
 let open_string ?select s =
   Hwfrp.Trace.of_parse ?select ~format:(Vcd_fst.detect_string s) (fun select ->

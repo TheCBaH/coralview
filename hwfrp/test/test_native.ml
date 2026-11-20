@@ -32,9 +32,14 @@ let%test "the format follows the content" =
   && Trace.format (Hwfrp_native.open_file "data/memory.fst") = `Fst
   && Trace.format (Hwfrp_vcd.of_string (read "data/memory.vcd")) = `Vcd
 
-let%test "a missing file is a Sys_error" =
-  match Hwfrp_native.open_file "data/absent.fst" with exception Sys_error _ -> true | _ -> false
+let missing = "data/absent.fst"
 
-let%test "open_file_result turns a missing file into a message" =
-  Result.is_error (Hwfrp_native.open_file_result "data/absent.fst")
+let%test "a missing file is a Vcd.Error.E, not a Sys_error" =
+  match Hwfrp_native.open_file missing with exception Vcd.Error.E (`Io _) -> true | _ -> false
+
+let%test "open_file_result returns a missing file as an Io error" =
+  (match Hwfrp_native.open_file_result missing with Error (`Io _) -> true | _ -> false)
   && Result.is_ok (Hwfrp_native.open_file_result "data/memory.fst")
+
+let%test "a damaged file is a Vcd.Error.E" =
+  match Hwfrp_native.open_string "$var" with exception Vcd.Error.E _ -> true | _ -> false

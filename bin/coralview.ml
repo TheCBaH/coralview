@@ -597,7 +597,12 @@ let check p names ~format path =
 let plan_command (p : Platform.t) names signal_paths catalogs dir producer ~format =
   if catalogs = [] then fail ~code:2 "plan needs --catalog";
   let models = if names = [] && signal_paths <> [] then [] else select_models p names in
-  let catalog file = try Hwfrp_native.open_file file with Sys_error e -> fail ~code:2 e in
+  let catalog file =
+    match Hwfrp_native.open_file_result file with
+    | Ok tr -> tr
+    | Error (`Io _ as e) -> fail ~code:2 (Vcd.Error.to_string e)
+    | Error e -> raise (Vcd.Error.E e)
+  in
   let plans =
     List.concat_map
       (fun file ->
@@ -2004,9 +2009,9 @@ let () =
             commands)
      with
     | code -> code
-    | exception Vcd.Parse_error msg ->
+    | exception Vcd.Error.E e ->
         flush stdout;
-        prerr_endline ("coralview: " ^ msg);
+        prerr_endline ("coralview: " ^ Vcd.Error.to_string e);
         1
     | exception e ->
         flush stdout;
