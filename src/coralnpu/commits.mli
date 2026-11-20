@@ -5,7 +5,8 @@
 (** Retired instructions with their word, destination value and timing, from the debug ports alone: the word
     comes from the dispatch lane (the mini core's retirement buffer reports 0), the value from the register
     file writeback that the retirement's destination index consumes, and every cycle is charged to the oldest
-    instruction in flight, so that the charges of a run add up to its cycles. *)
+    instruction in flight, so that the charges of a run, those of the dispatches dropped unretired
+    included, add up to its cycles. *)
 
 val name : string
 val doc : string
@@ -54,6 +55,7 @@ type summary = {
   empty : int;  (** Later cycles with nothing in flight: the front end is not delivering. *)
   unmatched_retires : int;  (** Retired with no dispatch in flight for its PC. *)
   skipped : int;  (** Dispatched but passed over by a younger retirement. *)
+  discarded : int;  (** Cycles that were charged to those instructions. *)
   missing_values : int;  (** Destination with no writeback to consume. *)
   in_flight : int;  (** Dispatched, not retired by the end. *)
   pending : (int * int * int) list;
@@ -83,6 +85,9 @@ val step :
 
 val finish : state -> summary
 (** The summary of the cycles stepped, with what is still in flight. *)
+
+val flights : state -> flight list
+(** Dispatched and not retired, oldest first. *)
 
 val build :
   Config.t -> 'c Core.t -> (Event.t list, 'c) Hwfrp.Ev.t * (Hwfrp.Sched.run_stats -> summary)

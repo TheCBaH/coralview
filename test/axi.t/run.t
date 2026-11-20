@@ -153,7 +153,7 @@ A Markdown report of the analyses run:
   
   ```text
      cycle L pc       word     instruction                      dest             d>r d>w chg
-  root TOP.core: 21 cycles, 0 before the first dispatch, 5 later with nothing in flight; 1 retires without dispatch, 0 dispatches skipped, 0 values missing, 1 in flight at the end
+  root TOP.core: 21 cycles, 0 before the first dispatch, 5 later with nothing in flight; 1 retires without dispatch, 0 dispatches skipped with 0 cycles charged, 0 values missing, 1 in flight at the end
   in flight at the end, oldest first:
     dispatched       16 pc 00000108 02052503 lw x10, 32(x10)
         pc  count  cycles  share     d->r  instruction

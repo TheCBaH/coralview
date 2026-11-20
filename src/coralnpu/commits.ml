@@ -106,6 +106,7 @@ type summary = {
   empty : int;
   unmatched_retires : int;
   skipped : int;
+  discarded : int;
   missing_values : int;
   in_flight : int;
   pending : (int * int * int) list;
@@ -123,13 +124,25 @@ module Summary = struct
 
   let jsont =
     Codec.record "commits.summary"
-      (fun cycles before empty unmatched_retires skipped missing_values in_flight pending ->
-        { cycles; before; empty; unmatched_retires; skipped; missing_values; in_flight; pending })
+      (fun
+        cycles before empty unmatched_retires skipped discarded missing_values in_flight pending ->
+        {
+          cycles;
+          before;
+          empty;
+          unmatched_retires;
+          skipped;
+          discarded;
+          missing_values;
+          in_flight;
+          pending;
+        })
     |> Jsont.Object.mem "cycles" Jsont.int ~enc:(fun s -> s.cycles)
     |> Jsont.Object.mem "before" Jsont.int ~enc:(fun s -> s.before)
     |> Jsont.Object.mem "empty" Jsont.int ~enc:(fun s -> s.empty)
     |> Jsont.Object.mem "unmatched_retires" Jsont.int ~enc:(fun s -> s.unmatched_retires)
     |> Jsont.Object.mem "skipped" Jsont.int ~enc:(fun s -> s.skipped)
+    |> Jsont.Object.mem "discarded" Jsont.int ~enc:(fun s -> s.discarded)
     |> Jsont.Object.mem "missing_values" Jsont.int ~enc:(fun s -> s.missing_values)
     |> Jsont.Object.mem "in_flight" Jsont.int ~enc:(fun s -> s.in_flight)
     |> Jsont.Object.mem "pending" (Jsont.list pending) ~enc:(fun s -> s.pending)
@@ -148,16 +161,19 @@ let take_value st reg =
   | Some (v :: rest) -> (Some v, { st with values = IM.add reg rest st.values })
   | _ -> (None, st)
 
-(* Oldest first; the instructions passed over are dropped. *)
+(* Oldest first; the instructions passed over are dropped, with the cycles charged to them. *)
 let take_flight st pc =
   if List.exists (fun (f : flight) -> f.pc = pc) st.queue then
-    let rec pop skipped = function
-      | (f : flight) :: rest when f.pc = pc -> (f, skipped, rest)
-      | _ :: rest -> pop (skipped + 1) rest
+    let rec pop skipped discarded = function
+      | (f : flight) :: rest when f.pc = pc -> (f, skipped, discarded, rest)
+      | (g : flight) :: rest -> pop (skipped + 1) (discarded + g.charged) rest
       | [] -> assert false
     in
-    let f, skipped, queue = pop 0 st.queue in
-    (Some f, { st with queue; sum = { st.sum with skipped = st.sum.skipped + skipped } })
+    let f, skipped, discarded, queue = pop 0 0 st.queue in
+    let sum =
+      { st.sum with skipped = st.sum.skipped + skipped; discarded = st.sum.discarded + discarded }
+    in
+    (Some f, { st with queue; sum })
   else (None, st)
 
 let step ~no_write ~store st cycle
@@ -235,12 +251,15 @@ let start =
       empty = 0;
       unmatched_retires = 0;
       skipped = 0;
+      discarded = 0;
       missing_values = 0;
       in_flight = 0;
       pending = [];
     }
   in
   { queue = []; values = IM.empty; sum; started = false }
+
+let flights st = st.queue
 
 let finish st =
   {
@@ -265,7 +284,7 @@ let make (c : _ Core.t) =
         name;
         init = start;
         step = (fun ~tick st i -> step ~no_write ~store st tick.index i);
-        finish = (fun st -> List.map (fun f -> Event.In_flight f) st.queue);
+        finish = (fun st -> List.map (fun f -> Event.In_flight f) (flights st));
         every_tick = true;
       }
       input
@@ -350,7 +369,8 @@ let legend =
     "dest    the register written and its value (store for a store, ? for a value not seen)";
     "d>r     cycles from dispatch to retire (JSONL: dispatch_to_retire), - without a dispatch";
     "d>w     cycles from dispatch to writeback (JSONL: dispatch_to_writeback), - without a write";
-    "chg     cycles charged to the instruction (JSONL: charged); they sum to the run's cycles";
+    "chg     cycles charged to the instruction (JSONL: charged); with the skipped dispatches' and \
+     the idle cycles they sum to the run's cycles";
   ]
 
 let text (ctx : Text.ctx) events (s : Summary.t) =
@@ -384,8 +404,10 @@ let text (ctx : Text.ctx) events (s : Summary.t) =
     commits;
   Printf.printf
     "root %s: %d cycles, %d before the first dispatch, %d later with nothing in flight; %d retires \
-     without dispatch, %d dispatches skipped, %d values missing, %d in flight at the end\n"
-    ctx.root s.cycles s.before s.empty s.unmatched_retires s.skipped s.missing_values s.in_flight;
+     without dispatch, %d dispatches skipped with %d cycles charged, %d values missing, %d in \
+     flight at the end\n"
+    ctx.root s.cycles s.before s.empty s.unmatched_retires s.skipped s.discarded s.missing_values
+    s.in_flight;
   if Text.windowed ctx.window then begin
     let w = in_window ctx commits in
     Printf.printf "%s: %d commits, %d cycles charged\n" (Text.describe ctx.window) (List.length w)

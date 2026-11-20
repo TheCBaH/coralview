@@ -20,11 +20,13 @@ dispatches three times and retires three times:
          3 0 00000100 0000006f jal x0, 0                                           3   -   4
          4 0 00000100 0000006f jal x0, 0                                           3   -   1
          5 0 00000100 0000006f jal x0, 0                                           3   -   1
-  root TOP.core: 7 cycles, 0 before the first dispatch, 1 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
+  root TOP.core: 7 cycles, 0 before the first dispatch, 1 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped with 0 cycles charged, 0 values missing, 0 in flight at the end
+  $ coralview commits --platform commits-core.json --format jsonl same.vcd | sh conserved.sh
+  7 cycles = 6 retired + 0 in flight + 0 discarded + 0 before + 1 empty
 
 Dispatches that no retirement matches are dropped when a younger one retires. Here 0x100 and 0x104
 dispatch and never retire (squashed, say), then 0x108 dispatches and retires. The two dropped entries
-keep the cycles they were charged:
+are charged six cycles between them, which the summary carries as discarded:
 
   $ bash gen.sh > drop.vcd <<'END'
   > d 100 00100513
@@ -38,7 +40,9 @@ keep the cycles they were charged:
   platform commits-core
      cycle L pc       word     instruction                      dest             d>r d>w chg
          5 0 00000108 00000013 addi x0, x0, 0                                      3   -   0
-  root TOP.core: 7 cycles, 0 before the first dispatch, 1 later with nothing in flight; 0 retires without dispatch, 2 dispatches skipped, 0 values missing, 0 in flight at the end
+  root TOP.core: 7 cycles, 0 before the first dispatch, 1 later with nothing in flight; 0 retires without dispatch, 2 dispatches skipped with 6 cycles charged, 0 values missing, 0 in flight at the end
+  $ coralview commits --platform commits-core.json --format jsonl drop.vcd | sh conserved.sh
+  7 cycles = 0 retired + 0 in flight + 6 discarded + 0 before + 1 empty
 
 A squashed dispatch of a PC that dispatches again pairs with the retirement of the second:
 
@@ -57,10 +61,33 @@ A squashed dispatch of a PC that dispatches again pairs with the retirement of t
      cycle L pc       word     instruction                      dest             d>r d>w chg
          6 0 00000100 00100513 addi x10, x0, 1                                     6   -   7
          7 0 00000104 00200593 addi x11, x0, 2                                     6   -   1
-  root TOP.core: 9 cycles, 0 before the first dispatch, 0 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 2 in flight at the end
+  root TOP.core: 9 cycles, 0 before the first dispatch, 0 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped with 0 cycles charged, 0 values missing, 2 in flight at the end
   in flight at the end, oldest first:
     dispatched        4 pc 00000100 00100513 addi x10, x0, 1
     dispatched        5 pc 00000104 00200593 addi x11, x0, 2
+  $ coralview commits --platform commits-core.json --format jsonl squash.vcd | sh conserved.sh
+  9 cycles = 8 retired + 1 in flight + 0 discarded + 0 before + 0 empty
+
+Squashed dispatches passed over by the retirements of the real ones, here of the same PC and of
+another, are discarded the same way:
+
+  $ bash gen.sh > passed.vcd <<'END'
+  > d 100 00100513
+  > d 104 00200593
+  > 
+  > d 108 00000013
+  > d 100 00100513
+  > r 108 7f
+  > r 100 7f
+  > END
+  $ coralview commits --platform commits-core.json passed.vcd
+  platform commits-core
+     cycle L pc       word     instruction                      dest             d>r d>w chg
+         5 0 00000108 00000013 addi x0, x0, 0                                      2   -   0
+         6 0 00000100 00100513 addi x10, x0, 1                                     2   -   1
+  root TOP.core: 8 cycles, 0 before the first dispatch, 1 later with nothing in flight; 0 retires without dispatch, 2 dispatches skipped with 6 cycles charged, 0 values missing, 0 in flight at the end
+  $ coralview commits --platform commits-core.json --format jsonl passed.vcd | sh conserved.sh
+  8 cycles = 1 retired + 0 in flight + 6 discarded + 0 before + 1 empty
 
 A retirement with no dispatch for its PC leaves the queue as it is:
 
@@ -76,7 +103,9 @@ A retirement with no dispatch for its PC leaves the queue as it is:
          1 0 00000300 ???????? ?                                                   -   -   0
          2 0 00000100 00000013 addi x0, x0, 0                                      2   -   3
          3 0 00000100 ???????? ?                                                   -   -   0
-  root TOP.core: 5 cycles, 0 before the first dispatch, 2 later with nothing in flight; 2 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
+  root TOP.core: 5 cycles, 0 before the first dispatch, 2 later with nothing in flight; 2 retires without dispatch, 0 dispatches skipped with 0 cycles charged, 0 values missing, 0 in flight at the end
+  $ coralview commits --platform commits-core.json --format jsonl unmatched.vcd | sh conserved.sh
+  5 cycles = 3 retired + 0 in flight + 0 discarded + 0 before + 2 empty
 
 A write nobody retires on leaves every later value of its register one retirement late:
 
@@ -97,4 +126,6 @@ A write nobody retires on leaves every later value of its register one retiremen
          5 0 00000100 00100513 addi x10, x0, 1                  x10=00000001       5   3   6
          7 0 00000104 00150513 addi x10, x10, 1                 x10=00000002       6   3   2
          8 0 00000108 00150513 addi x10, x10, 1                 x10=00000003       6   4   1
-  root TOP.core: 10 cycles, 0 before the first dispatch, 1 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
+  root TOP.core: 10 cycles, 0 before the first dispatch, 1 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped with 0 cycles charged, 0 values missing, 0 in flight at the end
+  $ coralview commits --platform commits-core.json --format jsonl surplus.vcd | sh conserved.sh
+  10 cycles = 9 retired + 0 in flight + 0 discarded + 0 before + 1 empty

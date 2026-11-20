@@ -39,7 +39,7 @@ then they retire in cycles 4 and 5, the second without a destination:
      cycle L pc       word     instruction                      dest             d>r d>w chg
          4 0 80000000 02a00513 addi x10, x0, 42                 x10=0000002a       3   2   4
          5 0 80000004 00000013 addi x0, x0, 0                                      3   -   1
-  root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
+  root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped with 0 cycles charged, 0 values missing, 0 in flight at the end
         pc  count  cycles  share     d->r  instruction
   80000000      1       4  50.0%     3.00  addi x10, x0, 42
   80000004      1       1  12.5%     3.00  addi x0, x0, 0
@@ -57,7 +57,7 @@ names the JSONL members the cycle columns are written as:
     dest    the register written and its value (store for a store, ? for a value not seen)
     d>r     cycles from dispatch to retire (JSONL: dispatch_to_retire), - without a dispatch
     d>w     cycles from dispatch to writeback (JSONL: dispatch_to_writeback), - without a write
-    chg     cycles charged to the instruction (JSONL: charged); they sum to the run's cycles
+    chg     cycles charged to the instruction (JSONL: charged); with the skipped dispatches' and the idle cycles they sum to the run's cycles
      cycle L pc       word     instruction                      dest             d>r d>w chg
 
 Every text report starts with the platform, and with the simulator when the
@@ -80,13 +80,13 @@ run:
   platform test-core
      cycle L pc       word     instruction                      dest             d>r d>w chg
          5 0 80000004 00000013 addi x0, x0, 0                                      3   -   1
-  root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
+  root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped with 0 cycles charged, 0 values missing, 0 in flight at the end
   window [0, end] pc 80000004: 1 commits, 1 cycles charged
   $ coralview commits --platform test-core.json --to-cycle 4 core.vcd
   platform test-core
      cycle L pc       word     instruction                      dest             d>r d>w chg
          4 0 80000000 02a00513 addi x10, x0, 42                 x10=0000002a       3   2   4
-  root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
+  root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped with 0 cycles charged, 0 values missing, 0 in flight at the end
   window [0, 4]: 1 commits, 4 cycles charged
 
 A window also gives the totals of its own rows: the commits and cycles charged
@@ -97,7 +97,7 @@ none of this is printed:
   platform test-core
      cycle L pc       word     instruction                      dest             d>r d>w chg
          4 0 80000000 02a00513 addi x10, x0, 42                 x10=0000002a       3   2   4
-  root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
+  root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped with 0 cycles charged, 0 values missing, 0 in flight at the end
   window [0, 4]: 1 commits, 4 cycles charged
         pc  count  cycles  share     d->r  instruction
   80000000      1       4 100.0%     3.00  addi x10, x0, 42
@@ -105,7 +105,7 @@ none of this is printed:
   platform test-core
      cycle L pc       word     instruction                      dest             d>r d>w chg
          5 0 80000004 00000013 addi x0, x0, 0                                      3   -   1
-  root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
+  root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped with 0 cycles charged, 0 values missing, 0 in flight at the end
   window [0, end] pc 80000004: 1 commits, 1 cycles charged
         pc  count  cycles  share     d->r  instruction
   80000004      1       1 100.0%     3.00  addi x0, x0, 0
@@ -120,7 +120,7 @@ the second PC has to retire after the first:
      cycle L pc       word     instruction                      dest             d>r d>w chg
          4 0 80000000 02a00513 addi x10, x0, 42                 x10=0000002a       3   2   4
          5 0 80000004 00000013 addi x0, x0, 0                                      3   -   1
-  root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
+  root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped with 0 cycles charged, 0 values missing, 0 in flight at the end
   window [4, 5]: 2 commits, 5 cycles charged
   $ coralview commits --platform test-core.json --between-pc 80000004,80000004 core.vcd
   --between-pc: pc 80000004 never retires from cycle 5
@@ -155,7 +155,7 @@ the whole run:
   {"type":"coralview","schema_version":3,"model":"commits","platform":"test-core","trace":"core.vcd"}
   {"type":"commits.commit","lane":0,"instance":{"pc":2147483648,"word":44041491,"dispatched":1,"retired":4},"writeback":3,"dest":{"reg":10,"value":42},"store":false,"trap":false,"charged":4,"dispatch_to_retire":3,"dispatch_to_writeback":2}
   {"type":"commits.commit","lane":0,"instance":{"pc":2147483652,"word":19,"dispatched":2,"retired":5},"store":false,"trap":false,"charged":1,"dispatch_to_retire":3}
-  {"type":"commits.summary","cycles":8,"before":1,"empty":2,"unmatched_retires":0,"skipped":0,"missing_values":0,"in_flight":0,"pending":[]}
+  {"type":"commits.summary","cycles":8,"before":1,"empty":2,"unmatched_retires":0,"skipped":0,"discarded":0,"missing_values":0,"in_flight":0,"pending":[]}
   $ coralview commits --platform test-core.json --format jsonl --pc 80000004 core.vcd | jq -c 'select(.type == "commits.commit") | .instance'
   {"pc":2147483652,"word":19,"dispatched":2,"retired":5}
 
@@ -269,7 +269,7 @@ The ELF here has two functions of one instruction each:
      cycle L pc       word     instruction                      dest             d>r d>w chg
          4 0 80000000 <first> 02a00513 addi x10, x0, 42                 x10=0000002a       3   2   4
          5 0 80000004 <second> 00000013 addi x0, x0, 0                                      3   -   1
-  root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
+  root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped with 0 cycles charged, 0 values missing, 0 in flight at the end
   $ coralview commits --platform test-core.json --elf core.elf --profile 3 --profile-by function core.vcd | tail -n 3
   function                  count  cycles  share     d->r
   first                         1       4  50.0%     3.00
@@ -304,7 +304,7 @@ trace if it never does), so a startup before the kernel is not in the rows or th
   platform test-core
      cycle L pc       word     instruction                      dest             d>r d>w chg
          5 0 80000004 <second> 00000013 addi x0, x0, 0                                      3   -   1
-  root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 0 values missing, 0 in flight at the end
+  root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped with 0 cycles charged, 0 values missing, 0 in flight at the end
   window [5, end]: 1 commits, 1 cycles charged
   $ coralview commits --platform test-core.json --elf core.elf --entry nope core.vcd
   --entry: no function nope in the ELF
