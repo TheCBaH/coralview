@@ -26,8 +26,8 @@ module Event : sig
     cycle : int;  (** Of the request. *)
     pc : int;
     access : Access.t;  (** [bytes]: the byte lanes selected. *)
-    lanes : int list;  (** Byte lanes of the 16-byte line: the request's mask. *)
-    data : Hwfrp.Bits.t;  (** The 128-bit line: write data, or the response's read data. *)
+    lanes : int list;  (** Byte lanes of the data bus: the request's mask. *)
+    data : Hwfrp.Bits.t;  (** The data bus: write data, or the response's read data. *)
   }
 
   type fault = {

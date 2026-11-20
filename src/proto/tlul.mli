@@ -27,8 +27,8 @@ type transaction = {
 val is_get : request -> bool
 
 val value : data_bytes:int -> request -> Hwfrp.Bits.t -> int
-(** The [request.size] bytes at the request's address in a data bus of [data_bytes], little-endian;
-    at most 8. *)
+(** The [request.size] bytes at the request's address in a data bus of [data_bytes], little-endian,
+    clipped to the bus; an access of 8 bytes keeps its low 62 bits. *)
 
 type event =
   | Accepted of transaction

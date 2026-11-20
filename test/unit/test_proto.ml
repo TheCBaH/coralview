@@ -285,3 +285,21 @@ let%expect_test "Tlul" =
     5 responded Get src 1 14 req 4 acc 4 resp 5 data 0 error
     6 unmatched source 3
     max outstanding 2 |}]
+
+(* An access of 8 bytes does not fit an int: the value keeps its low 62 bits. *)
+let%expect_test "Tlul.value of an 8-byte access" =
+  let request size address =
+    { Tlul.opcode = 4; size; source = 0; address; mask = 0; data = Bits.zero 64 }
+  in
+  let data = Bits.of_int64 ~width:64 0x1122334455667788L in
+  List.iter
+    (fun (data_bytes, size, address) ->
+      Printf.printf "%d bytes at %x on a %d-byte bus: %x\n" size address data_bytes
+        (Tlul.value ~data_bytes (request size address) data))
+    [ (8, 8, 0x10); (8, 4, 0x14); (8, 2, 0x16); (8, 8, 0x14) ];
+  [%expect
+    {|
+    8 bytes at 10 on a 8-byte bus: 1122334455667788
+    4 bytes at 14 on a 8-byte bus: 11223344
+    2 bytes at 16 on a 8-byte bus: 1122
+    8 bytes at 14 on a 8-byte bus: 11223344 |}]

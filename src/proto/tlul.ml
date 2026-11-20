@@ -20,7 +20,7 @@ let is_get r = r.opcode = 4
 
 let value ~data_bytes r data =
   let lane = r.address land (data_bytes - 1) in
-  Bits.field_int data ~lo:(8 * lane) ~width:(8 * min 8 (min r.size (data_bytes - lane)))
+  Bits.field_int data ~lo:(8 * lane) ~width:(min 62 (8 * min r.size (data_bytes - lane)))
 
 type event = Accepted of transaction | Responded of transaction | Unmatched of int
 type sample = (bool * bool * request) * (int * Bits.t * bool) option

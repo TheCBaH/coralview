@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "name": "mem8",
+  "configurations": [
+    { "name": "mem8-core", "top_level": "Core", "trace_root": ["TOP", "core"] }
+  ],
+  "clock": "io_aclk",
+  "sample": "after_falling",
+  "blocks": {
+    "lsu": { "scope": ["lsu"], "port": { "prefix": "io_tlul_", "data_bytes": 8, "d_ready": false } }
+  }
+}

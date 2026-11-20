@@ -70,3 +70,17 @@ A byte of the first frame that is not a logic value (badframe.fst has a 'Q' for 
 patching memory.fst's frame) is read as a value, not raised as an error, so the trace gives the same results:
 
   $ coralview memory --platform mem-core.json --format jsonl badframe.fst | tail -n +2 | cmp - fst.jsonl
+
+The lanes follow the description's data bus, here 8 bytes (narrow.vcd is made by gen.sh narrow): a write of
+the upper four bytes, and a read with no mask, whose lanes come from its address and size:
+
+  $ coralview memory --platform mem8-core.json narrow.vcd
+  platform mem8-core
+         0 W pc 00000300 addr 00010008 8 bytes 8899aabbccddeeff
+         1 W pc 00000304 addr 00010014 4 bytes cafef00d
+         2 R pc 00000308 addr 00010028 4 bytes 55667788
+  root TOP.core: 1 read and 2 write requests from 3 PCs, 0 faults
+  $ coralview memory --platform mem8-core.json --format jsonl narrow.vcd | grep '"lanes"' | sed 's/"access.*"lanes"/"lanes"/'
+  {"type":"memory.access","cycle":0,"pc":768,"lanes":[0,1,2,3,4,5,6,7],"data":"8899aabbccddeeff"}
+  {"type":"memory.access","cycle":1,"pc":772,"lanes":[4,5,6,7],"data":"cafef00d00000000"}
+  {"type":"memory.access","cycle":2,"pc":776,"lanes":[0,1,2,3],"data":"1122334455667788"}

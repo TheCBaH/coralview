@@ -97,14 +97,15 @@ end
 let value (a : Event.access) =
   Bits.concat (List.rev_map (fun b -> Bits.field a.data ~lo:(8 * b) ~width:8) a.lanes)
 
-let lanes_of_mask m = List.filter (fun b -> (m lsr b) land 1 = 1) (List.init 16 Fun.id)
+let lanes_of_mask ~data_bytes m =
+  List.filter (fun b -> (m lsr b) land 1 = 1) (List.init data_bytes Fun.id)
 
 (* TileLink-UL masks the lanes of a read as it does a write's. *)
-let lanes (r : Tlul.request) =
-  match lanes_of_mask r.mask with
+let lanes ~data_bytes (r : Tlul.request) =
+  match lanes_of_mask ~data_bytes r.mask with
   | [] ->
-      let lane = r.address land 15 in
-      List.init (min r.size (16 - lane)) (fun k -> lane + k)
+      let lane = r.address land (data_bytes - 1) in
+      List.init (min r.size (data_bytes - lane)) (fun k -> lane + k)
   | l -> l
 
 type state = {
@@ -117,8 +118,8 @@ type state = {
   faults : int;
 }
 
-let access ~region (t : Tlul.transaction) pc data =
-  let lanes = lanes t.request in
+let access ~region ~data_bytes (t : Tlul.transaction) pc data =
+  let lanes = lanes ~data_bytes t.request in
   {
     Event.cycle = t.accepted;
     pc;
@@ -134,28 +135,28 @@ let access ~region (t : Tlul.transaction) pc data =
   }
 
 (* A write is complete at its request; a read, when its response brings the data. *)
-let accesses ~region s pc events =
+let accesses ~region ~data_bytes s pc events =
   let pcs_of, out =
     List.fold_left
       (fun (pcs_of, out) -> function
         | Tlul.Accepted t ->
             let pcs_of = IM.add t.request.source pc pcs_of in
             if Tlul.is_get t.request then (pcs_of, out)
-            else (pcs_of, access ~region t pc t.request.data :: out)
+            else (pcs_of, access ~region ~data_bytes t pc t.request.data :: out)
         | Responded t ->
             let source = t.request.source in
             let at = Option.value (IM.find_opt source pcs_of) ~default:pc in
             let pcs_of = IM.remove source pcs_of in
-            if Tlul.is_get t.request then (pcs_of, access ~region t at t.response :: out)
+            if Tlul.is_get t.request then (pcs_of, access ~region ~data_bytes t at t.response :: out)
             else (pcs_of, out)
         | Unmatched _ -> (pcs_of, out))
       (s.pcs_of, []) events
   in
   (pcs_of, List.rev out)
 
-let step ~region ~port s cycle (sample, pc, fault) =
+let step ~region ~data_bytes ~port s cycle (sample, pc, fault) =
   let tl, events = Tlul.step port s.tl cycle sample in
-  let pcs_of, accesses = accesses ~region s pc events in
+  let pcs_of, accesses = accesses ~region ~data_bytes s pc events in
   let last_request =
     List.fold_left
       (fun m -> function
@@ -199,11 +200,8 @@ let build (cfg : Config.t) (c : _ Core.t) =
   let sc = Core.scope c l.lsu_scope in
   let b n = Bind.signal sc n Bind.bool and u n = Bind.signal sc n Bind.uint in
   let pc = Core.signal c l.lsu_scope "slot/io_pc" Bind.uint in
-  let port =
-    Tlul.bind sc
-      { prefix = l.port.tl_prefix; d_ready = l.port.d_ready }
-      ~data_bytes:l.port.tl_data_bytes
-  in
+  let data_bytes = l.port.tl_data_bytes in
+  let port = Tlul.bind sc { prefix = l.port.tl_prefix; d_ready = l.port.d_ready } ~data_bytes in
   let faults =
     let open Sig in
     let+ valid = b "io_fault_valid"
@@ -232,7 +230,7 @@ let build (cfg : Config.t) (c : _ Core.t) =
             pcs = IM.empty;
             faults = 0;
           };
-        step = (fun ~tick s x -> step ~region:cfg.region ~port s tick.index x);
+        step = (fun ~tick s x -> step ~region:cfg.region ~data_bytes ~port s tick.index x);
         finish = (fun _ -> []);
         every_tick = true;
       }

@@ -1,6 +1,6 @@
 #!/bin/bash
-# Writes memory.vcd to stdout, or wide.vcd with the argument "wide": a clock, the LSU's TileLink-UL port (channel A and D),
-# its fault port, and the PC of its slot, set at each falling edge.
+# Writes memory.vcd to stdout, wide.vcd with the argument "wide", or narrow.vcd with "narrow": a clock, the LSU's
+# TileLink-UL port (channel A and D), its fault port, and the PC of its slot, set at each falling edge.
 variant=$1
 vars=(
   "1 av io_tlul_a_valid" "1 ar io_tlul_a_ready" "3 ao io_tlul_a_bits_opcode" "4 az io_tlul_a_bits_size"
@@ -9,6 +9,11 @@ vars=(
   "1 dv io_tlul_d_valid" "6 ds io_tlul_d_bits_source" "128 dd io_tlul_d_bits_data" "1 de io_tlul_d_bits_error"
   "1 fv io_fault_valid" "1 fw io_fault_bits_write" "32 fa io_fault_bits_addr" "32 fe io_fault_bits_epc"
 )
+if [ "$variant" = narrow ]; then # an 8-byte data bus
+  vars=("${vars[@]/128 ad/64 ad}")
+  vars=("${vars[@]/128 dd/64 dd}")
+  vars=("${vars[@]/16 am/8 am}")
+fi
 declare -A width
 bin() { # bin WIDTH HEX: the value at full width
   local w=$1 h=$2 b="" i
@@ -61,6 +66,15 @@ if [ "$variant" = wide ]; then # 8- and 16-byte accesses
     "az 4 as 1 aa 10010 am ffff ad 0102030405060708090a0b0c0d0e0f10 ep 204 dv 1 ds 0"
     "ao 4 as 2 aa 10020 ep 208 dv 1 ds 1"
     "av 0 dv 1 ds 2 dd 8f0e0d0c0b0a09080706050403020100"
+    "dv 0"
+  )
+fi
+if [ "$variant" = narrow ]; then # 8-byte accesses, a write at the upper lanes, a read with no mask
+  cycles=(
+    "av 1 ar 1 ao 1 az 3 as 0 aa 10008 am ff ad 8899aabbccddeeff ep 300"
+    "az 2 as 1 aa 10014 am f0 ad cafef00d00000000 ep 304"
+    "ao 4 as 2 aa 10028 am 0 ad 0 ep 308"
+    "av 0 dv 1 ds 2 dd 1122334455667788"
     "dv 0"
   )
 fi
