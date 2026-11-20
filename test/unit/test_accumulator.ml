@@ -61,7 +61,7 @@ let%expect_test "tap is lazy, single-use, and a snapshot neither advances nor ch
       show "all pulled"
   | Nil -> ());
   Printf.printf "first snapshot unchanged: %b\n"
-    (first = Memory.Summary.{ reads = 0; writes = 0; pcs = 0; faults = 0 });
+    (first = Memory.Summary.{ reads = 0; writes = 0; pcs = 0; faults = 0; unmatched = 0 });
   (match Seq.iter ignore tapped with
   | () -> print_endline "second traversal allowed"
   | exception Seq.Forced_twice -> print_endline "second traversal: Forced_twice");

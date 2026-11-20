@@ -90,3 +90,22 @@ names (proto.vcd is made by gen.sh proto):
 
   $ coralview memory --platform mem-core.json --format jsonl proto.vcd | grep tlul.reopened
   {"type":"diag","severity":"warning","source":"memory","code":"tlul.reopened","cycle":1,"time":4,"paths":["TOP.core.lsu.io_tlul_a_bits_source"],"message":"source 1 requested again while its read of 00010008, accepted at cycle 0, is outstanding"}
+
+A response for a source with nothing outstanding is counted and listed, where it came, and is a diagnostic
+too:
+
+  $ coralview memory --platform mem-core.json proto.vcd
+  platform mem-core
+         1 R pc 00000404 addr 0001000c 4 bytes 11223344
+         3 unmatched response for source 5
+  root TOP.core: 1 read and 0 write requests from 1 PCs, 0 faults, 1 unmatched
+  $ coralview memory --platform mem-core.json --format jsonl proto.vcd | tail -n +2 | grep -v tlul.reopened
+  {"type":"memory.access","cycle":1,"pc":1028,"access":{"address":65548,"bytes":4,"write":false},"lanes":[8,9,10,11],"data":"00000000112233440000000000000000"}
+  {"type":"memory.unmatched","cycle":3,"source":5}
+  {"type":"diag","severity":"warning","source":"memory","code":"tlul.unmatched","cycle":3,"time":8,"paths":["TOP.core.lsu.io_tlul_d_bits_source"],"message":"response for source 5 with nothing outstanding"}
+  {"type":"memory.summary","reads":1,"writes":0,"pcs":1,"faults":0,"unmatched":1}
+  $ coralview memory --platform mem-core.json --from-cycle 2 --to-cycle 4 proto.vcd
+  platform mem-core
+         3 unmatched response for source 5
+  root TOP.core: 1 read and 0 write requests from 1 PCs, 0 faults, 1 unmatched
+  window [2, 4]: 0 read and 0 write requests from 0 PCs, 0 faults, 1 unmatched

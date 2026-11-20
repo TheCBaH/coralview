@@ -41,7 +41,14 @@ module Event : sig
             the fault. *)
   }
 
-  type t = Access of access | Fault of fault  (** An LSU fault ([io_fault_*]). *)
+  type unmatched = { cycle : int; source : int }
+
+  type t =
+    | Access of access
+    | Fault of fault  (** An LSU fault ([io_fault_*]). *)
+    | Unmatched of unmatched
+        (** A response for a [source] with no request outstanding: it belongs to no access. It has no PC,
+            so a window that selects PCs does not select it. *)
 
   val jsont : t Jsont.t
   val cycle : t -> int
@@ -49,7 +56,13 @@ module Event : sig
 end
 
 module Summary : sig
-  type t = { reads : int; writes : int; pcs : int;  (** Distinct, of the requests. *) faults : int }
+  type t = {
+    reads : int;
+    writes : int;
+    pcs : int;  (** Distinct, of the requests. *)
+    faults : int;
+    unmatched : int;  (** Responses with no request outstanding; left out of the JSON when 0. *)
+  }
 
   val jsont : t Jsont.t
 end
@@ -61,7 +74,7 @@ val value : Event.access -> Hwfrp.Bits.t
 (** The selected bytes, the first lane least significant, [8 * bytes] bits wide. *)
 
 val text : Text.ctx -> Event.t list -> Summary.t -> unit
-(** The requests the context selects, up to its limit, and the faults it selects. *)
+(** The requests the context selects, up to its limit, and the faults and unmatched responses it selects. *)
 
 (** The totals of the events: the {!Summary}, in full. *)
 module Accumulator : Accumulator.ACCUMULATOR with type event = Event.t and type snapshot = Summary.t

@@ -40,7 +40,8 @@ module Event = struct
     request : (int * int) option;
   }
 
-  type t = Access of access | Fault of fault
+  type unmatched = { cycle : int; source : int }
+  type t = Access of access | Fault of fault | Unmatched of unmatched
 
   let access =
     Codec.case "memory.access"
@@ -72,25 +73,38 @@ module Event = struct
       |> Codec.opt (fun f -> f.request) "request" request
       |> Jsont.Object.finish)
 
+  let unmatched =
+    Codec.case "memory.unmatched"
+      (fun u -> Unmatched u)
+      (Jsont.Object.map (fun cycle source -> { cycle; source })
+      |> Jsont.Object.mem "cycle" Jsont.int ~enc:(fun (u : unmatched) -> u.cycle)
+      |> Jsont.Object.mem "source" Jsont.int ~enc:(fun u -> u.source)
+      |> Jsont.Object.finish)
+
   let jsont =
     Codec.cases "memory.event"
       (function
-        | Access a -> Jsont.Object.Case.value access a | Fault f -> Jsont.Object.Case.value fault f)
-      Jsont.Object.Case.[ make access; make fault ]
+        | Access a -> Jsont.Object.Case.value access a
+        | Fault f -> Jsont.Object.Case.value fault f
+        | Unmatched u -> Jsont.Object.Case.value unmatched u)
+      Jsont.Object.Case.[ make access; make fault; make unmatched ]
 
-  let cycle = function Access a -> a.cycle | Fault f -> f.cycle
-  let pc = function Access a -> Some a.pc | Fault f -> Some f.pc
+  let cycle = function Access a -> a.cycle | Fault f -> f.cycle | Unmatched u -> u.cycle
+  let pc = function Access a -> Some a.pc | Fault f -> Some f.pc | Unmatched _ -> None
 end
 
 module Summary = struct
-  type t = { reads : int; writes : int; pcs : int; faults : int }
+  type t = { reads : int; writes : int; pcs : int; faults : int; unmatched : int }
 
   let jsont =
-    Codec.record "memory.summary" (fun reads writes pcs faults -> { reads; writes; pcs; faults })
+    Codec.record "memory.summary" (fun reads writes pcs faults unmatched ->
+        { reads; writes; pcs; faults; unmatched })
     |> Jsont.Object.mem "reads" Jsont.int ~enc:(fun s -> s.reads)
     |> Jsont.Object.mem "writes" Jsont.int ~enc:(fun s -> s.writes)
     |> Jsont.Object.mem "pcs" Jsont.int ~enc:(fun s -> s.pcs)
     |> Jsont.Object.mem "faults" Jsont.int ~enc:(fun s -> s.faults)
+    |> Jsont.Object.mem "unmatched" Jsont.int ~dec_absent:0 ~enc_omit:(( = ) 0) ~enc:(fun s ->
+        s.unmatched)
     |> Jsont.Object.finish
 end
 
@@ -116,6 +130,7 @@ type state = {
   writes : int;
   pcs : unit IM.t;
   faults : int;
+  unmatched : int;
 }
 
 let access ~region ~data_bytes (t : Tlul.transaction) pc data =
@@ -178,7 +193,15 @@ let step ?(report = ignore) ~region ~data_bytes ~port s cycle (sample, pc, fault
         })
       s accesses
   in
-  let out = List.map (fun a -> Event.Access a) accesses in
+  let unmatched =
+    List.filter_map
+      (function Tlul.Unmatched source -> Some { Event.cycle; source } | _ -> None)
+      events
+  in
+  let s = { s with unmatched = s.unmatched + List.length unmatched } in
+  let out =
+    List.map (fun a -> Event.Access a) accesses @ List.map (fun u -> Event.Unmatched u) unmatched
+  in
   match fault with
   | None -> (s, out)
   | Some (cycle, pc, address, write) ->
@@ -230,6 +253,7 @@ let build (cfg : Config.t) (c : _ Core.t) =
             writes = 0;
             pcs = IM.empty;
             faults = 0;
+            unmatched = 0;
           };
         step =
           (fun ~tick s x ->
@@ -242,7 +266,13 @@ let build (cfg : Config.t) (c : _ Core.t) =
   in
   let summary _ =
     let s = Sig.peek st in
-    { Summary.reads = s.reads; writes = s.writes; pcs = IM.cardinal s.pcs; faults = s.faults }
+    {
+      Summary.reads = s.reads;
+      writes = s.writes;
+      pcs = IM.cardinal s.pcs;
+      faults = s.faults;
+      unmatched = s.unmatched;
+    }
   in
   (out, summary)
 
@@ -255,18 +285,26 @@ module Accumulator = struct
     mutable writes : int;
     mutable pcs : unit IM.t;
     mutable faults : int;
+    mutable unmatched : int;
   }
 
-  let create () = { reads = 0; writes = 0; pcs = IM.empty; faults = 0 }
+  let create () = { reads = 0; writes = 0; pcs = IM.empty; faults = 0; unmatched = 0 }
 
   let add t = function
     | Event.Access a ->
         if a.access.write then t.writes <- t.writes + 1 else t.reads <- t.reads + 1;
         t.pcs <- IM.add a.pc () t.pcs
     | Event.Fault _ -> t.faults <- t.faults + 1
+    | Event.Unmatched _ -> t.unmatched <- t.unmatched + 1
 
   let snapshot t =
-    { Summary.reads = t.reads; writes = t.writes; pcs = IM.cardinal t.pcs; faults = t.faults }
+    {
+      Summary.reads = t.reads;
+      writes = t.writes;
+      pcs = IM.cardinal t.pcs;
+      faults = t.faults;
+      unmatched = t.unmatched;
+    }
 end
 
 let text (ctx : Text.ctx) events (s : Summary.t) =
@@ -284,6 +322,9 @@ let text (ctx : Text.ctx) events (s : Summary.t) =
               (match f.request with
               | Some (cycle, addr) -> Printf.sprintf "requested at %d, addr %08x" cycle addr
               | None -> "no request seen")
+      | Unmatched u ->
+          if Text.selected { ctx.window with pcs = [] } ~cycle:u.cycle ~pc:(-1) then
+            Printf.printf "%8d unmatched response for source %d\n" u.cycle u.source
       | Access a ->
           if Text.selected ctx.window ~cycle:a.cycle ~pc:a.pc && !shown < ctx.limit then begin
             incr shown;
@@ -293,18 +334,22 @@ let text (ctx : Text.ctx) events (s : Summary.t) =
               (Bits.to_hex (value a))
           end)
     events;
-  Printf.printf "root %s: %d read and %d write requests from %d PCs, %d faults\n" ctx.root s.reads
-    s.writes s.pcs s.faults;
+  let unmatched n = if n = 0 then "" else Printf.sprintf ", %d unmatched" n in
+  Printf.printf "root %s: %d read and %d write requests from %d PCs, %d faults%s\n" ctx.root s.reads
+    s.writes s.pcs s.faults (unmatched s.unmatched);
   if Text.windowed ctx.window then begin
     let acc = Accumulator.create () in
     List.iter
       (fun e ->
-        let cycle, pc =
-          match e with Event.Access a -> (a.cycle, a.pc) | Fault f -> (f.cycle, f.pc)
+        let window, cycle, pc =
+          match e with
+          | Event.Access a -> (ctx.window, a.cycle, a.pc)
+          | Fault f -> (ctx.window, f.cycle, f.pc)
+          | Unmatched u -> ({ ctx.window with pcs = [] }, u.cycle, -1)
         in
-        if Text.selected ctx.window ~cycle ~pc then Accumulator.add acc e)
+        if Text.selected window ~cycle ~pc then Accumulator.add acc e)
       events;
     let w = Accumulator.snapshot acc in
-    Printf.printf "%s: %d read and %d write requests from %d PCs, %d faults\n"
-      (Text.describe ctx.window) w.reads w.writes w.pcs w.faults
+    Printf.printf "%s: %d read and %d write requests from %d PCs, %d faults%s\n"
+      (Text.describe ctx.window) w.reads w.writes w.pcs w.faults (unmatched w.unmatched)
   end

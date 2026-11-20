@@ -4,6 +4,7 @@ The JSONL schema in doc/coralnpu.md is what the analyses write on the test fixtu
   $ coralview commits --platform $t/platform.t/test-core.json --format jsonl $t/platform.t/core.vcd > commits.jsonl
   $ coralview stalls --platform $t/stalls.t/stall-core.json --format jsonl $t/stalls.t/stalls.vcd > stalls.jsonl
   $ coralview memory --platform $t/memory.t/mem-core.json --format jsonl $t/memory.t/memory.vcd > memory.jsonl
+  $ coralview memory --platform $t/memory.t/mem-core.json --format jsonl $t/memory.t/proto.vcd > memory-proto.jsonl
   $ coralview axi --platform $t/axi.t/axi-core.json --format jsonl $t/axi.t/axi.vcd > axi.jsonl
   $ coralview dma --platform $t/dma.t/dma-sub.json --format jsonl $t/dma.t/dma.vcd > dma.jsonl
   $ coralview tiles --platform $t/tiles.t/tile-core.json --format jsonl $t/tiles.t/tiles.vcd > tiles.jsonl

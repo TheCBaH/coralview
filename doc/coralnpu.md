@@ -955,7 +955,8 @@ dma.stray: cycle what
 dma.summary: bytes cycles jobs max_outstanding stray
 memory.access: access.address access.bytes access.write cycle data lanes[] pc
 memory.fault: address cycle pc request.address request.cycle write
-memory.summary: faults pcs reads writes
+memory.summary: faults pcs reads unmatched writes
+memory.unmatched: cycle source
 ops.burst: first flops instructions last ops
 ops.op: cycle elements float kind lmul mnemonic ops pc sew unit vl vstart
 ops.summary: bursts busy cycles flops instructions ops peak.last peak.ops peak.window undecoded units[].elements units[].instructions units[].ops units[].unit

@@ -175,7 +175,7 @@ let analyze (p : Platform.t) ~window ?(region = Region.none) trace =
         Analysis.subscribe
           (module Memory)
           { region } c
-          (function Memory.Event.Access a -> l := a :: !l | Fault _ -> ())
+          (function Memory.Event.Access a -> l := a :: !l | Fault _ | Unmatched _ -> ())
       in
       Some l
     else None
