@@ -23,6 +23,8 @@ let everything = { sections = []; functions = []; range = None }
 
 type label = { l_address : int; l_name : string; l_func : bool; l_section : int }
 
+module IM = Map.Make (Int)
+
 let elf_error pp e = Format.asprintf "%a" (Err.Error.pp_kind pp) e
 let has flags f = Int64.logand flags f <> 0L
 
@@ -88,13 +90,24 @@ let read_symbols elf =
                     }
                     :: !labels)
             symbols;
-          let labels =
-            List.sort_uniq
-              (fun a b ->
-                compare (a.l_address, not a.l_func, a.l_name) (b.l_address, not b.l_func, b.l_name))
-              !labels
+          (* Sections apart, then sorted and deduplicated: two sections may hold the same label. *)
+          let by_section =
+            List.fold_left
+              (fun m l -> IM.update l.l_section (fun x -> Some (l :: Option.value x ~default:[])) m)
+              IM.empty !labels
           in
-          Ok (Some (Array.of_list labels)))
+          Ok
+            (Some
+               (IM.map
+                  (fun ls ->
+                    Array.of_list
+                      (List.sort_uniq
+                         (fun a b ->
+                           compare
+                             (a.l_address, not a.l_func, a.l_name)
+                             (b.l_address, not b.l_func, b.l_name))
+                         ls))
+                  by_section)))
 
 (* The last element of a sorted array with [key x <= v]. *)
 let floor_index key a v =
@@ -105,36 +118,35 @@ let floor_index key a v =
   done;
   !lo - 1
 
+let of_section labels section = Option.value (IM.find_opt section labels) ~default:[||]
+
 let name_at labels section v =
+  let labels = of_section labels section in
   let i = floor_index (fun l -> l.l_address) labels v in
   (* Several labels at one address: the first (a function) names it. *)
   let rec first i =
     if i > 0 && labels.(i - 1).l_address = labels.(i).l_address then first (i - 1) else i
   in
-  if i < 0 then None
-  else
-    let l = labels.(first i) in
-    if l.l_section = section then Some l else None
+  if i < 0 then None else Some labels.(first i)
 
 (* The nearest FUNC symbol at or before [v] in the section. *)
 let func_at labels section v =
+  let labels = of_section labels section in
   let rec back i =
-    if i < 0 then None
-    else if labels.(i).l_section <> section then None
-    else if labels.(i).l_func then Some labels.(i).l_name
-    else back (i - 1)
+    if i < 0 then None else if labels.(i).l_func then Some labels.(i).l_name else back (i - 1)
   in
   back (floor_index (fun l -> l.l_address) labels v)
 
 (* Every label at an address of a section, in the array's order. *)
 let labels_at labels section address =
+  let labels = of_section labels section in
   let i = floor_index (fun l -> l.l_address) labels address in
   let rec first i = if i > 0 && labels.(i - 1).l_address = address then first (i - 1) else i in
   if i < 0 || labels.(i).l_address <> address then []
   else
     let rec collect j acc =
       if j < Array.length labels && labels.(j).l_address = address then
-        collect (j + 1) (if labels.(j).l_section = section then labels.(j) :: acc else acc)
+        collect (j + 1) (labels.(j) :: acc)
       else List.rev acc
     in
     collect (first i) []
@@ -154,7 +166,7 @@ let listing decoder scope data =
   let* elf = Result.map_error (elf_error Elf.Decode.pp_error) (Elf.Decode.of_string data) in
   let* () = check_header elf in
   let* syms = read_symbols elf in
-  let labels = Option.value syms ~default:[||] in
+  let labels = Option.value syms ~default:IM.empty in
   let exec =
     Array.to_list elf.sections
     |> List.filter (fun (s : Elf.Decode.section) ->
@@ -206,19 +218,22 @@ let listing decoder scope data =
           Int64.to_int s.shdr.sh_addr + Int64.to_int s.shdr.sh_size ))
       exec
   in
-  let target_text address word =
+  (* The target's section is the branch's own when that holds it; else the one that does, if only one. *)
+  let target_text section address word =
     match branch_target address word with
     | None -> None
     | Some t -> (
-        match List.find_opt (fun (_, lo, hi) -> t >= lo && t < hi) section_ends with
-        | None -> None
-        | Some (sec, _, _) ->
+        let holds (_, lo, hi) = t >= lo && t < hi in
+        let own = List.filter (fun ((i, _, _) as s) -> i = section && holds s) section_ends in
+        match if own <> [] then own else List.filter holds section_ends with
+        | [ (sec, _, _) ] ->
             Option.map
               (fun l ->
                 let off = t - l.l_address in
                 if off = 0 then Printf.sprintf "<%s>" l.l_name
                 else Printf.sprintf "<%s+0x%x>" l.l_name off)
-              (name_at labels sec t))
+              (name_at labels sec t)
+        | _ -> None)
   in
   let out = ref [] in
   let rec run = function
@@ -252,7 +267,9 @@ let listing decoder scope data =
                        | Ok ins -> (Rd.disasm decoder word, Some ins)
                        | Error _ -> (Rd.disasm decoder word, None)
                    in
-                   let target = if instruction = None then None else target_text address word in
+                   let target =
+                     if instruction = None then None else target_text s.index address word
+                   in
                    let symbol = Option.map (fun l -> l.l_name) (name_at labels s.index address) in
                    let func = func_at labels s.index address in
                    out :=

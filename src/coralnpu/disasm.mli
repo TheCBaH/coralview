@@ -13,7 +13,9 @@ type line = {
   symbol : string option;  (** The last label at or before the address in its section. *)
   func : string option;  (** The last [FUNC] symbol at or before the address in its section. *)
   target : string option;
-      (** [<name>] or [<name+0xN>] for the destination of a [jal] or a branch inside an executable section. *)
+      (** [<name>] or [<name+0xN>] for the destination of a [jal] or a branch inside an executable section: the
+          branch's own when that holds it, else the only one that does; none when several overlap it. Names
+          come from the symbols of that section. *)
   vconfig : string option;  (** From {!with_vconfig}. *)
   annotation : string option;  (** From {!with_annotations}. *)
 }
