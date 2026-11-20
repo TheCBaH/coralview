@@ -679,9 +679,11 @@ module Sched = struct
     changed : Bitset.t;  (** [Sweep]: the nodes changed in the current sample *)
     fired : (unit -> unit) list array;
     last : Trace.tick option array;
+    mutable started : bool;
   }
 
   let compile ?(strategy = Incremental) net =
+    if net.frozen then invalid_arg "Sched.compile: the net is already compiled";
     if net.poisoned <> [] then Error (List.map (fun w -> Unbound_source w) (Net.poisoned net))
     else begin
       net.frozen <- true;
@@ -717,6 +719,7 @@ module Sched = struct
           changed = Bitset.create (Array.length nodes);
           fired = Array.make nd [];
           last = Array.make nd None;
+          started = false;
         }
     end
 
@@ -818,6 +821,8 @@ module Sched = struct
   }
 
   let start ?(clock = fun () -> 0.) t sampler =
+    if t.started then invalid_arg "Run.start: the scheduler has already run";
+    t.started <- true;
     t.net.sampler <- Some sampler;
     {
       sched = t;

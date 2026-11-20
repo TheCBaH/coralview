@@ -256,10 +256,12 @@ module Sched : sig
   }
 
   val compile : ?strategy:strategy -> Net.t -> (t, build_error list) result
-  (** Freezes the net: no node can be added afterwards. *)
+  (** Freezes the net: no node can be added afterwards. Raises [Invalid_argument] on a net that is already
+      compiled: the nodes and subscribers keep the state of a run. *)
 
   val run : ?clock:(unit -> float) -> t -> Sampler.t -> run_stats
-  (** The sampler must have been created with {!Net.domains}. *)
+  (** The sampler must have been created with {!Net.domains}. A scheduler runs once: raises
+      [Invalid_argument] when it has been started, here or by {!Run.start}. *)
 
   val dump_dot : t -> out_channel -> unit
 end
@@ -271,7 +273,8 @@ module Run : sig
   type t
 
   val start : ?clock:(unit -> float) -> Sched.t -> Sampler.t -> t
-  (** [clock] reads the time for [wall_s] of the statistics (seconds); the library has none of its own. *)
+  (** [clock] reads the time for [wall_s] of the statistics (seconds); the library has none of its own.
+      Raises [Invalid_argument] when the scheduler has already been started. *)
 
   type step =
     | Stepped  (** One sample was evaluated. *)

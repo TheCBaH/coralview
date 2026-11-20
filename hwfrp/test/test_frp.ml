@@ -182,3 +182,39 @@ let%expect_test "diagnostics carry the cycle" =
   [%expect {|
     warning[unused.rose] test cycle 1 time 4: unused went high
     top.unused |}]
+
+let%expect_test "a net compiles once and a scheduler runs once" =
+  let tracked () =
+    let tr = Hwfrp_vcd.of_string vcd in
+    ignore (Trace.track_path tr "top.clk");
+    ignore (Trace.track_path tr "top.data");
+    tr
+  in
+  let tr = tracked () in
+  let net = Net.create () in
+  let clk = Option.get (Trace.track_path tr "top.clk") in
+  let (Clock.Any c) =
+    Clock.define net ~name:"clk" { clock = clk.slot; rule = After_falling; enable = None }
+  in
+  let data = Option.get (Trace.track_path tr "top.data") in
+  let n = ref 0 in
+  Ev.subscribe (Sig.changes (Source.logic c data ~init:"" Logic.to_string)) (fun _ -> incr n);
+  let outcome f =
+    match f () with _ -> "ok" | exception Invalid_argument m -> "Invalid_argument: " ^ m
+  in
+  let sched = Result.get_ok (Sched.compile net) in
+  Printf.printf "second compile: %s\n" (outcome (fun () -> Sched.compile net));
+  let run () =
+    let r = outcome (fun () -> Sched.run sched (Sampler.create (tracked ()) (Net.domains net))) in
+    Printf.printf "run: %s, %d changes in all\n" r !n
+  in
+  run ();
+  run ();
+  Printf.printf "start: %s\n"
+    (outcome (fun () -> Run.start sched (Sampler.create (tracked ()) (Net.domains net))));
+  [%expect
+    {|
+    second compile: Invalid_argument: Sched.compile: the net is already compiled
+    run: ok, 2 changes in all
+    run: Invalid_argument: Run.start: the scheduler has already run, 2 changes in all
+    start: Invalid_argument: Run.start: the scheduler has already run |}]
