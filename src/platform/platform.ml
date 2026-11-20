@@ -86,6 +86,7 @@ type register_file = {
   base : int;
   first : int;
   count : int;
+  scoreboard_entries : int;
   fields : field list;
   scoreboard : string;
   flushed_scoreboard : string;
@@ -338,12 +339,39 @@ let marks =
 
 let register_file =
   obj "register file"
-    (fun rf_scope base first count fields scoreboard flushed_scoreboard flush marks ->
-      { rf_scope; base; first; count; fields; scoreboard; flushed_scoreboard; flush; marks })
+    (fun
+      rf_scope
+      base
+      first
+      count
+      scoreboard_entries
+      fields
+      scoreboard
+      flushed_scoreboard
+      flush
+      marks
+    ->
+      if scoreboard_entries < first + count then
+        Jsont.Error.msgf Jsont.Meta.none
+          "register file: %d scoreboard entries for registers up to %d" scoreboard_entries
+          (first + count - 1);
+      {
+        rf_scope;
+        base;
+        first;
+        count;
+        scoreboard_entries;
+        fields;
+        scoreboard;
+        flushed_scoreboard;
+        flush;
+        marks;
+      })
   |> Jsont.Object.mem "scope" scope ~enc:(fun r -> r.rf_scope)
   |> Jsont.Object.mem "base" Jsont.int ~enc:(fun r -> r.base)
   |> Jsont.Object.mem "first" Jsont.int ~enc:(fun r -> r.first)
   |> Jsont.Object.mem "count" Jsont.int ~enc:(fun r -> r.count)
+  |> Jsont.Object.mem "scoreboard_entries" Jsont.int ~enc:(fun r -> r.scoreboard_entries)
   |> Jsont.Object.mem "fields" Jsont.(list field) ~enc:(fun r -> r.fields)
   |> Jsont.Object.mem "scoreboard" Jsont.string ~enc:(fun r -> r.scoreboard)
   |> Jsont.Object.mem "flushed_scoreboard" Jsont.string ~enc:(fun r -> r.flushed_scoreboard)

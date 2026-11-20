@@ -51,7 +51,7 @@
     },
     "x_registers": {
       "scope": ["core", "score", "regfile"],
-      "base": 0, "first": 1, "count": 31,
+      "base": 0, "first": 1, "count": 31, "scoreboard_entries": 32,
       "fields": [{ "name": "regfile_%d", "width": 32 }],
       "scoreboard": "scoreboard", "flushed_scoreboard": "flushed_scoreboard", "flush": "io_pipelineFlush",
       "marks": {
@@ -61,7 +61,7 @@
     },
     "f_registers": {
       "scope": ["core", "score", "fRegfile"],
-      "base": 32, "first": 0, "count": 32,
+      "base": 32, "first": 0, "count": 32, "scoreboard_entries": 32,
       "fields": [
         { "name": "fregfile_%d_sign", "width": 1 },
         { "name": "fregfile_%d_exponent", "width": 8 },

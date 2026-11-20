@@ -56,3 +56,31 @@ bad.vcd stores 9 in x2 where 7 was written back and retired:
   $ coralview registers --platform reg-core.json --at 100 registers.vcd | grep -A1 'storage at cycle'
   storage at cycle 3:
     x1   0000002a  x2   00000007  x3   00000000  f0   00000000
+
+The scoreboards are as wide as the description says, not 32 bits: the same run on a core whose
+scoreboards have one bit per register (x0-x3, f0), described as such:
+
+  $ sed -e '/"first": 1,/s/"scoreboard_entries": 32/"scoreboard_entries": 4/' -e '/"first": 0,/s/"scoreboard_entries": 32/"scoreboard_entries": 1/' reg-core.json > narrow-core.json
+  $ coralview registers --platform narrow-core.json narrow.vcd
+  platform reg-core
+  root TOP.core: 7 cycles
+  registers.storage                 2 comparisons, 0 failures
+  registers.scoreboard             10 comparisons, 0 failures
+  registers.flushed                10 comparisons, 0 failures
+  registers.architectural           2 comparisons, 0 failures
+  1 pipeline flushes
+  storage at the end:
+    x1   0000002a  x2   00000007  x3   00000000  f0   00000000
+
+A description that says 32 does not match that trace, and one with fewer entries than registers is not a
+description:
+
+  $ coralview registers --platform reg-core.json narrow.vcd
+  platform reg-core does not match the trace (model registers):
+    width   scoreboard 4, expected 32: write pending
+  [3]
+  $ sed '/"first": 1,/s/"scoreboard_entries": 32/"scoreboard_entries": 3/' reg-core.json > small-core.json
+  $ coralview registers --platform small-core.json registers.vcd 2>&1 | head -3
+  register file: 3 scoreboard entries for registers up to 3
+  File "small-core.json": in member x_registers of
+  File "small-core.json", lines 9-22, characters 12-6: blocks object

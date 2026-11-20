@@ -12,7 +12,7 @@
     "regfile_writeback": { "scope": [], "ports": 1 },
     "x_registers": {
       "scope": ["score", "regfile"],
-      "base": 0, "first": 1, "count": 3,
+      "base": 0, "first": 1, "count": 3, "scoreboard_entries": 32,
       "fields": [{ "name": "regfile_%d", "width": 32 }],
       "scoreboard": "scoreboard", "flushed_scoreboard": "flushed_scoreboard", "flush": "io_pipelineFlush",
       "marks": {
@@ -22,7 +22,7 @@
     },
     "f_registers": {
       "scope": ["score", "fRegfile"],
-      "base": 32, "first": 0, "count": 1,
+      "base": 32, "first": 0, "count": 1, "scoreboard_entries": 32,
       "fields": [
         { "name": "fregfile_%d_sign", "width": 1 },
         { "name": "fregfile_%d_exponent", "width": 8 },

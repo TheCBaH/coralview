@@ -116,6 +116,7 @@ type register_file = {
   base : int;
   first : int;
   count : int;
+  scoreboard_entries : int;
   fields : field list;
   scoreboard : string;
   flushed_scoreboard : string;
@@ -124,7 +125,7 @@ type register_file = {
 }
 (** A register file: [count] registers from [first], each the concatenation (most significant first) of
     [fields], whose names have [%d] for the register number; unified keys are [base + number]. The
-    [scoreboard] has a bit per register, [flushed_scoreboard] the bits a pipeline [flush] set aside. [marks] are the dispatch-time ports that announce a write,
+    [scoreboard] has a bit per register number, [scoreboard_entries] of them from 0, [flushed_scoreboard] the bits a pipeline [flush] set aside. [marks] are the dispatch-time ports that announce a write,
     named with [%d] for the port. *)
 
 type vector_registers = {
