@@ -56,6 +56,21 @@ is made by gen.sh wide):
          2 R pc 00000208 addr 00010020 16 bytes 8f0e0d0c0b0a09080706050403020100
   root TOP.core: 1 read and 2 write requests from 3 PCs, 0 faults
 
+An FST that is damaged after its header and hierarchy reads fine until a pull reaches the damage: the error
+kind and place are printed, and the status is 3, the trace's, not the internal error's:
+
+  $ cp memory.fst damaged.fst && chmod u+w damaged.fst
+  $ printf '\377\377\377\377' | dd of=damaged.fst bs=1 seek=504 conv=notrunc 2>/dev/null
+  $ coralview memory --platform mem-core.json damaged.fst
+  platform mem-core, simulator fstWriter
+  coralview: trace read failed (fst): damaged.fst: fst: decompression failed: value changes: zlib: Corrupted data stream (offset 499)
+  [3]
+
+A byte of the first frame that is not a logic value (badframe.fst has a 'Q' for io_tlul_a_valid, made by
+patching memory.fst's frame) is read as a value, not raised as an error, so the trace gives the same results:
+
+  $ coralview memory --platform mem-core.json --format jsonl badframe.fst | tail -n +2 | cmp - fst.jsonl
+
 The lanes follow the description's data bus, here 8 bytes (narrow.vcd is made by gen.sh narrow): a write of
 the upper four bytes, and a read with no mask, whose lanes come from its address and size:
 

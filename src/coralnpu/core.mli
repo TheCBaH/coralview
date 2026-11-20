@@ -23,7 +23,8 @@ type any = Any : 'c t -> any
 exception No_block of string * string
 (** The platform describes no block of that name, which the model needs. *)
 
-val bind : Platform.t -> Hwfrp.Trace.t -> model:string -> any
+val bind : ?collect:bool -> Platform.t -> Hwfrp.Trace.t -> model:string -> any
+(** With [collect], a signal the trace lacks is recorded, not raised: see {!Hwfrp.Bind.collect}. *)
 
 val block : 'c t -> string -> 'a option -> 'a
 (** [block c name (Some b)] is [b]; [None] raises {!No_block}. *)

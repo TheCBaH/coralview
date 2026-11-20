@@ -572,24 +572,27 @@ let check p names ~format path =
       (Codec.to_line Jsonl.header_jsont (jsonl_header ~model:"check" ~platform:p.name ~trace:path));
   List.iter
     (fun m ->
-      let tr = Hwfrp_native.open_file ~select:!select path in
+      let tr = Hwfrp_native.open_input ~select:!select path in
       guard p (fun () ->
-          let (Core.Any c) = Core.bind p tr ~model:m.name in
+          let (Core.Any c) = Core.bind ~collect:true p tr ~model:m.name in
           m.build c;
           List.iter
             (fun (r : Hwfrp.Bind.report) ->
+              List.iter (fun e -> incr (if Hwfrp.Bind.ok e then bound else failed)) r.entries;
               if jsonl then
                 List.iter
                   (fun e ->
-                    let b = Check.of_entry r.model r.root e in
-                    incr (if Check.ok b then bound else failed);
-                    print_endline (Codec.to_line Check.jsont b))
+                    print_endline (Codec.to_line Check.jsont (Check.of_entry r.model r.root e)))
                   r.entries
               else Format.printf "%a@." Hwfrp.Bind.pp_report r)
-            (Hwfrp.Bind.check tr (Hwfrp.Bind.requirements c.net))))
+            (Hwfrp.Bind.report c.net)))
     selected;
   if jsonl then
-    print_endline (Codec.to_line Check.summary_jsont { bound = !bound; failed = !failed })
+    print_endline (Codec.to_line Check.summary_jsont { bound = !bound; failed = !failed });
+  if !failed > 0 then
+    fail ~code:3
+      (Printf.sprintf "platform %s does not match the trace: %d of %d signals failed" p.name !failed
+         (!bound + !failed))
 
 (* The signals the models need of a catalog trace, to be recorded by a producer and checked by [--plan].
    Several catalogs (say, the FST and VCD builds of one simulator) must agree; the first is the one the
@@ -830,7 +833,8 @@ let window =
       & info [ "entry" ] ~docv:"NAME"
           ~doc:
             "Print rows from the first retirement of the entry of function $(i,NAME) of the \
-             $(b,--elf) to the end of the trace: the startup before it is not counted.")
+             $(b,--elf) to the $(b,ret) that pops its frame (calls inside it nest), or to the end \
+             of the trace if there is none: the startup before it is not counted.")
   in
   let nth =
     Arg.(
@@ -942,15 +946,31 @@ let output =
 let redirect = function
   | None -> ()
   | Some f ->
-      let fd = Unix.openfile f [ O_WRONLY; O_CREAT; O_TRUNC ] 0o644 in
+      let fd =
+        try Unix.openfile f [ O_WRONLY; O_CREAT; O_TRUNC ] 0o644
+        with Unix.Unix_error (e, _, _) -> fail ~code:2 (f ^ ": " ^ Unix.error_message e)
+      in
       Unix.dup2 fd Unix.stdout;
       Unix.close fd
 
 let exits =
   Cmd.Exit.info 1 ~doc:"a relation failed."
   :: Cmd.Exit.info 2 ~doc:"an invalid description, or a model the platform has no block for."
-  :: Cmd.Exit.info 3 ~doc:"the trace does not match the description: a signal is missing or wrong."
+  :: Cmd.Exit.info 3
+       ~doc:
+         "the trace does not match the description (a signal is missing or wrong), or cannot be \
+          read to its end."
   :: Cmd.Exit.defaults
+
+let error_kind : Vcd.Error.error -> string = function
+  | `Syntax _ -> "syntax"
+  | `Incomplete _ -> "incomplete"
+  | `Fst _ -> "fst"
+  | `Io _ -> "io"
+  | `Not_fst _ -> "not fst"
+  | `Closed _ -> "closed"
+  | `Superseded _ -> "superseded"
+  | `Encoding _ -> "encoding"
 
 let cmd name doc term = Cmd.v (Cmd.info name ~doc ~exits) term
 
@@ -1451,6 +1471,15 @@ let pair_conv =
         | _ -> Error (`Msg "expected A or A,B")),
       fun ppf (x, y) -> Format.fprintf ppf "%s,%s" x y )
 
+let nonneg =
+  Arg.conv
+    ( (fun s ->
+        match int_of_string_opt s with
+        | Some n when n >= 0 -> Ok n
+        | Some _ -> Error (`Msg (s ^ " is negative; expected N >= 0"))
+        | None -> Error (`Msg (s ^ " is not an integer"))),
+      Format.pp_print_int )
+
 let commands =
   [
     cmd "probe" "Count the signals, timestamps and changes of a trace." Term.(const probe $ file);
@@ -1591,9 +1620,11 @@ let commands =
             value
             & opt (some pair_conv) None
             & info [ "entry" ] ~docv:"NA[,NB]"
-                ~doc:"As $(b,--around-symbol), but to the end of each trace.")
+                ~doc:
+                  "As $(b,--around-symbol), but to the $(b,ret) that pops the entry's frame (calls \
+                   inside it nest), or to the end of that trace if there is none.")
         $ Arg.(
-            value & opt int 10
+            value & opt nonneg 10
             & info [ "top" ] ~docv:"N" ~doc:"Print the $(docv) largest per-instruction differences.")
         $ Arg.(
             value & flag
@@ -2011,8 +2042,10 @@ let () =
     | code -> code
     | exception Vcd.Error.E e ->
         flush stdout;
-        prerr_endline ("coralview: " ^ Vcd.Error.to_string e);
-        1
+        prerr_endline
+          (Printf.sprintf "coralview: trace read failed (%s): %s" (error_kind e)
+             (Vcd.Error.to_string e));
+        3
     | exception e ->
         flush stdout;
         prerr_endline ("coralview: internal error, uncaught exception:\n" ^ Printexc.to_string e);

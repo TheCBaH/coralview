@@ -49,7 +49,8 @@ val raw :
   (record -> unit) ->
   unit
 (** Each value change recorded at a timestamp from [from] to [until]; with [changes], only those that
-    differ from the signal's previous value. Raises {!Missing}. *)
+    differ from the signal's previous value. A value that is not a bit vector of the signal's width reads as
+    unknown, and its signal is named once on the standard error. Raises {!Missing}. *)
 
 val to_string : Hwfrp.Logic.t -> string
 (** [0x] and hex digits when every bit is known; otherwise [0b] and the bits, with [x] for unknown bits

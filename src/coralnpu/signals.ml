@@ -133,7 +133,7 @@ let raw tr paths ~from ~until ~changes f =
         | None -> raise (Missing path))
       paths
   in
-  let last = Hashtbl.create 16 in
+  let last = Hashtbl.create 16 and undecodable = Hashtbl.create 4 in
   let time = ref 0L in
   try
     Seq.iter
@@ -144,18 +144,23 @@ let raw tr paths ~from ~until ~changes f =
         | Change (id, v) ->
             List.iter
               (fun (path, (s : Trace.signal)) ->
-                if Vcd_types.ID.equal s.id id then
-                  match Logic.of_value ~width:s.width v with
-                  | Error e -> failwith (Format.asprintf "%s: %a" path Logic.pp_decode_error e)
-                  | Ok value ->
-                      let same =
-                        match Hashtbl.find_opt last path with
-                        | Some b -> same b value
-                        | None -> false
-                      in
-                      Hashtbl.replace last path value;
-                      if Int64.compare !time from >= 0 && not (changes && same) then
-                        f { cycle = None; time = !time; path; width = s.width; value })
+                if Vcd_types.ID.equal s.id id then (
+                  let value =
+                    match Logic.of_value ~width:s.width v with
+                    | Ok value -> value
+                    | Error e ->
+                        if not (Hashtbl.mem undecodable path) then begin
+                          Hashtbl.replace undecodable path ();
+                          Format.eprintf "%s: %a; shown as unknown@." path Logic.pp_decode_error e
+                        end;
+                        Logic.unknown s.width
+                  in
+                  let same =
+                    match Hashtbl.find_opt last path with Some b -> same b value | None -> false
+                  in
+                  Hashtbl.replace last path value;
+                  if Int64.compare !time from >= 0 && not (changes && same) then
+                    f { cycle = None; time = !time; path; width = s.width; value }))
               wanted
         | _ -> ())
       (Trace.events tr)
