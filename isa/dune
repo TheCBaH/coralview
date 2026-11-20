@@ -11,7 +11,7 @@
  (public_name coral-isa)
  (modules :standard \ check)
  (libraries
-  rivet.driver
+  rivet.text_pipeline
   rivet.image
   rivet.riscv_family
   rivet.riscv_family_encode
