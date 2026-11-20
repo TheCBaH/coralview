@@ -50,7 +50,7 @@ let%expect_test
   let ops =
     [
       op 0x10 4 ~sew:32 ~lmul:"4" ~vl:16;
-      (* The second instance runs under a shorter vl, and a squashed dispatch at 15 is nobody's. *)
+      (* The second instance runs under a shorter vl. *)
       op 0x10 22 ~sew:32 ~lmul:"4" ~vl:7;
       op 0x20 32 ~sew:32 ~lmul:"1/2" ~lmul_orig:"1" ~vl:4;
     ]
@@ -68,3 +68,38 @@ let%expect_test
     30@44: -
     10@5: -
     |}]
+
+let%expect_test "a commit without a dispatch gets no note and bounds nobody's window" =
+  let commits =
+    [
+      commit 0x10 ~dispatched:2 ~retired:9;
+      { (commit 0x10 ~dispatched:0 ~retired:20) with dispatched = None };
+      commit 0x10 ~dispatched:30 ~retired:35;
+    ]
+  in
+  let ops =
+    [
+      op 0x10 4 ~sew:32 ~lmul:"4" ~vl:16;
+      op 0x10 22 ~sew:32 ~lmul:"4" ~vl:8;
+      op 0x10 32 ~sew:32 ~lmul:"4" ~vl:7;
+    ]
+  in
+  let note = Vector_notes.notes ~static commits ops in
+  List.iter
+    (fun cycle ->
+      Printf.printf "10@%d: %s\n" cycle (Option.value (note ~pc:0x10 ~cycle) ~default:"-"))
+    [ 9; 20; 35 ];
+  [%expect {|
+    10@9: e32,m4 vl 16
+    10@20: -
+    10@35: e32,m4 vl 7
+    |}]
+
+let%expect_test "a hot PC is joined in one pass over its commits and ops" =
+  let n = 200_000 in
+  let commits = List.init n (fun k -> commit 0x10 ~dispatched:(4 * k) ~retired:((4 * k) + 3)) in
+  let ops = List.init n (fun k -> op 0x10 ((4 * k) + 1) ~sew:32 ~lmul:"4" ~vl:(k mod 17)) in
+  let t = Vector_notes.join commits ops in
+  let vl k = (Hashtbl.find t (0x10, (4 * k) + 3)).vl in
+  Printf.printf "%d joined; vl %d, %d, %d\n" (Hashtbl.length t) (vl 0) (vl 1000) (vl (n - 1));
+  [%expect {| 200000 joined; vl 0, 14, 11 |}]

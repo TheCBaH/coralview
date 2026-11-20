@@ -31,7 +31,11 @@ val detect : Commits.commit list -> loop list
     header up to and including the branch. A loop is found by a taken backward branch; its last trip, which
     leaves through the same branch not taken, or ends the run, is counted too. A loop left through another exit adds no
     trip for that run. Nested loops each have their own trips; an
-    outer trip contains the inner ones. Loops by total cycles, descending. *)
+    outer trip contains the inner ones. Loops by total cycles, descending.
+
+    A retirement that trapped, or that matched no dispatch, is not a branch: the one after it is a handler's.
+    The retirements after a trap, up to the [mret] that returns from it, are a handler's: a trip that a trap
+    interrupts counts neither their instructions nor their cycles, and a loop in the handler has its own trips. *)
 
 val median : int list -> int
 (** The lower middle of the sorted list; 0 when empty. *)

@@ -25,13 +25,14 @@ let span parse s =
       | Some a, Some b when a < b -> Some (a, b)
       | _ -> None)
 
+(* Eight hex digits are an address unless the ELF has a function of that name. *)
 let location ~functions loc =
   match
     absolute (match String.index_opt loc '-' with Some i -> String.sub loc 0 i | None -> loc)
   with
-  | Some _ -> (
+  | Some _ when not (is_hex8 loc && functions loc <> []) -> (
       match span absolute loc with Some r -> Ok [ r ] | None -> Error ("bad address range " ^ loc))
-  | None -> (
+  | _ -> (
       let name, offsets =
         match String.rindex_opt loc '+' with
         | Some i -> (String.sub loc 0 i, Some (String.sub loc (i + 1) (String.length loc - i - 1)))
@@ -47,6 +48,14 @@ let location ~functions loc =
               | None -> Error ("bad offsets " ^ o)
               | Some (lo, hi) -> Ok (List.map (fun (a, _) -> (a + lo, a + hi)) fs))))
 
+let blank line =
+  let rec go i =
+    if i >= String.length line then None
+    else if line.[i] = ' ' || line.[i] = '\t' then Some i
+    else go (i + 1)
+  in
+  go 0
+
 let parse ~functions text =
   let rec go n acc = function
     | [] -> Ok (List.rev acc)
@@ -54,7 +63,7 @@ let parse ~functions text =
         let line = String.trim line in
         if line = "" || line.[0] = '#' then go (n + 1) acc rest
         else
-          match String.index_from_opt line 0 ' ' with
+          match blank line with
           | None -> Error (Printf.sprintf "line %d: expected LOCATION LABEL" n)
           | Some i -> (
               let loc = String.sub line 0 i

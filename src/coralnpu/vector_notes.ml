@@ -15,11 +15,13 @@ let vtype (o : Ops.op) =
   Printf.sprintf "e%d,%s" o.sew lmul
 
 let join commits ops =
-  (* Commits by PC, in program order. *)
+  (* Commits by PC, in program order; one without a dispatch bounds no window and gets no note. *)
   let by_pc =
     List.fold_left
       (fun m (c : Commits.commit) ->
-        IM.update c.pc (fun l -> Some (c :: Option.value l ~default:[])) m)
+        match c.dispatched with
+        | None -> m
+        | Some d -> IM.update c.pc (fun l -> Some ((d, c.retired) :: Option.value l ~default:[])) m)
       IM.empty commits
     |> IM.map List.rev
   in
@@ -30,26 +32,26 @@ let join commits ops =
         | None -> m
         | Some pc -> IM.update pc (fun l -> Some (o :: Option.value l ~default:[])) m)
       IM.empty ops
-    |> IM.map (List.sort (fun (a : Ops.op) b -> compare a.cycle b.cycle))
+    |> IM.map (fun l ->
+        List.stable_sort (fun (a : Ops.op) b -> compare a.cycle b.cycle) (List.rev l))
   in
   let t = Hashtbl.create 64 in
+  (* One merge walk: the window of an instance is [its dispatch, the next dispatch of the PC). *)
   IM.iter
     (fun pc ops ->
-      let rec go cs = function
+      let rec go commits ops =
+        match commits with
         | [] -> ()
-        | (c : Commits.commit) :: rest ->
-            let from = Option.value c.dispatched ~default:min_int in
-            let until =
-              match rest with
-              | (n : Commits.commit) :: _ -> Option.value n.dispatched ~default:max_int
-              | [] -> max_int
-            in
-            (match List.find_opt (fun (o : Ops.op) -> o.cycle >= from && o.cycle < until) ops with
-            | Some o -> Hashtbl.replace t (pc, c.retired) o
-            | None -> ());
-            go cs rest
+        | (from, retired) :: rest ->
+            let until = match rest with (n, _) :: _ -> n | [] -> max_int in
+            let rec skip = function (o : Ops.op) :: tl when o.cycle < from -> skip tl | l -> l in
+            let ops = skip ops in
+            (match ops with
+            | (o : Ops.op) :: _ when o.cycle < until -> Hashtbl.replace t (pc, retired) o
+            | _ -> ());
+            go rest ops
       in
-      go () (Option.value (IM.find_opt pc by_pc) ~default:[]))
+      go (Option.value (IM.find_opt pc by_pc) ~default:[]) ops)
     ops_by_pc;
   t
 

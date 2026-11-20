@@ -78,12 +78,13 @@ let%expect_test "a window counts its commits, ops, and the cycles of the spans i
     {"type":"summary.window","first":8,"last":10,"instructions":1,"cycles":3,"vector_instructions":1,"vector_ops":6,"stalls":[{"reason":"empty","lane_cycles":3}]} |}]
 
 let%expect_test "the hottest loop of the window, with its median cycles a trip" =
+  let bne (c : Commits.commit) = { c with word = Some 0xfe051ae3 } in
   let commits =
     [
       commit 0x10 ~retired:5 ~charged:4;
-      commit 0x14 ~retired:9 ~charged:3;
+      bne (commit 0x14 ~retired:9 ~charged:3);
       commit 0x10 ~retired:12 ~charged:2;
-      commit 0x14 ~retired:14 ~charged:1;
+      bne (commit 0x14 ~retired:14 ~charged:1);
       commit 0x18 ~retired:20 ~charged:10;
     ]
   in

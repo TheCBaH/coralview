@@ -136,10 +136,21 @@ let reads_rs1 w =
 let reads_rs2 w = List.mem (opcode w) [ 0x33; 0x3b; 0x23; 0x63; 0x2f ]
 let reads_regd w = opcode w = 0x67 || is_lsu w
 
+(* floatWritesRd: fmv.x.w, fclass, feq/flt/fle and fcvt.w.s, single precision only. *)
+let float_writes_rd w =
+  (w lsr 25) land 3 = 0 && List.mem ((w lsr 27) land 31) [ 0b11100; 0b10100; 0b11000 ]
+
+(* rvvWritesRd: vset* (the Zvt msetmtype forms have rd = x0) and VWXUNARY0 (vmv.x.s, vcpop, vfirst). *)
+let rvv_writes_rd w = f3 w = 7 || (f3 w = 2 && w lsr 26 = 0b010000)
+
 let writes_rd w =
+  rd w <> 0
+  &&
   match opcode w with
-  | 0x33 | 0x3b | 0x13 | 0x1b | 0x03 | 0x37 | 0x17 | 0x6f | 0x67 | 0x2f -> rd w <> 0
-  | 0x73 -> f3 w <> 0 && rd w <> 0
+  | 0x33 | 0x3b | 0x13 | 0x1b | 0x03 | 0x37 | 0x17 | 0x6f | 0x67 | 0x2f -> true
+  | 0x73 -> f3 w <> 0
+  | 0x53 -> float_writes_rd w
+  | 0x57 -> rvv_writes_rd w
   | _ -> false
 
 let bit mask r = (mask lsr r) land 1 = 1

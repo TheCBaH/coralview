@@ -22,25 +22,36 @@ let row_jsont =
 
 let region_name (a : Memory.Event.access) = match a.access.region with Some r -> r | None -> "mem"
 
-(* A request belongs to the youngest instance of its PC dispatched at or before it: a store can make
-   its request after it retired, but not before it was dispatched. *)
+(* The instances of a PC in dispatch order, so a request's owner is the last one dispatched at or before
+   it: a store can make its request after it retired, but not before it was dispatched. A binary search
+   finds it, and the later of equal dispatch cycles wins. *)
+let owner instances ~pc ~cycle =
+  match Hashtbl.find_opt instances pc with
+  | None -> None
+  | Some a ->
+      let lo = ref 0 and hi = ref (Array.length a) in
+      while !lo < !hi do
+        let mid = (!lo + !hi) / 2 in
+        if fst a.(mid) <= cycle then lo := mid + 1 else hi := mid
+      done;
+      if !lo = 0 then None else Some (snd a.(!lo - 1))
+
 let join ~classify ~(window : Text.window) (commits : Commits.commit list)
     (accesses : Memory.Event.access list) =
-  let instances = Hashtbl.create 64 in
+  let by_pc = Hashtbl.create 64 in
   List.iteri
     (fun i (c : Commits.commit) ->
       let at = Option.value c.dispatched ~default:c.retired in
-      Hashtbl.replace instances c.pc
-        ((at, i) :: Option.value (Hashtbl.find_opt instances c.pc) ~default:[]))
+      Hashtbl.replace by_pc c.pc ((at, i) :: Option.value (Hashtbl.find_opt by_pc c.pc) ~default:[]))
     commits;
+  let instances = Hashtbl.create (Hashtbl.length by_pc) in
+  Hashtbl.iter (fun pc l -> Hashtbl.replace instances pc (Array.of_list (List.rev l))) by_pc;
   let commits = Array.of_list commits in
   let region = Array.make (Array.length commits) None in
   List.iter
     (fun (a : Memory.Event.access) ->
-      let candidates = Option.value (Hashtbl.find_opt instances a.pc) ~default:[] in
-      (* Newest first; take the first dispatched at or before the request. *)
-      match List.find_opt (fun (at, _) -> at <= a.cycle) candidates with
-      | Some (_, i) -> if region.(i) = None then region.(i) <- Some (region_name a)
+      match owner instances ~pc:a.pc ~cycle:a.cycle with
+      | Some i -> if region.(i) = None then region.(i) <- Some (region_name a)
       | None -> ())
     accesses;
   let m = ref SM.empty in

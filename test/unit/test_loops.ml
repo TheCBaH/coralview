@@ -4,23 +4,29 @@ let bne = 0xfe051ae3 (* bne x10, x0, <back> *)
 let addi = 0x00150513
 let jal_x0 = 0x0000006f
 let jal_x1 = 0x000000ef
+let mret = 0x30200073
 
-let commit ?(word = addi) pc ~retired ~charged : Commits.commit =
+let commit ?(word = Some addi) ?(trap = false) pc ~retired ~charged : Commits.commit =
   {
     lane = 0;
     pc;
-    word = Some word;
+    word;
     dispatched = None;
     written = None;
     retired;
     dest = None;
     store = false;
-    trap = false;
+    trap;
     charged;
   }
 
 (* PCs with their charges, retired a cycle apart. *)
-let run l = List.mapi (fun i (pc, charged, word) -> commit ~word pc ~retired:(100 + i) ~charged) l
+let run l =
+  List.mapi (fun i (pc, charged, word) -> commit ~word:(Some word) pc ~retired:(100 + i) ~charged) l
+
+(* The same with the word and the trap flag of each retirement. *)
+let run_t l =
+  List.mapi (fun i (pc, charged, word, trap) -> commit ~word ~trap pc ~retired:(100 + i) ~charged) l
 
 let print loops =
   List.iter
@@ -110,3 +116,87 @@ let%expect_test "a backward call and a forward jump are not loops" =
     loop 10 tail 14 trips 2/2@100 2/2@102
       10 count 2 cycles 2
       14 count 2 cycles 2 |}]
+
+(* Two faults in straight-line code, each followed by a handler below it that returns. *)
+let two_faults ~word ~trap =
+  let fault pc = (pc, 1, word, trap) in
+  Loops.detect
+    (run_t
+       [
+         (0x20, 1, Some addi, false);
+         fault 0x24;
+         (0x04, 1, Some addi, false);
+         (0x08, 1, Some mret, false);
+         (0x28, 1, Some addi, false);
+         fault 0x2c;
+         (0x04, 1, Some addi, false);
+         (0x08, 1, Some mret, false);
+         (0x30, 1, Some addi, false);
+       ])
+
+let%expect_test "a trap after a branch is not a back edge to its handler" =
+  List.iter
+    (fun (name, loops) -> Printf.printf "%s: %d loops\n" name (List.length loops))
+    [
+      ("a branch that traps", two_faults ~word:(Some bne) ~trap:true);
+      ("a decode fault, unmatched", two_faults ~word:None ~trap:true);
+      ("an unmatched retire", two_faults ~word:None ~trap:false);
+    ];
+  [%expect
+    {|
+    a branch that traps: 0 loops
+    a decode fault, unmatched: 0 loops
+    an unmatched retire: 0 loops
+    |}]
+
+let%expect_test "an interrupted trip leaves the handler out" =
+  (* The third retirement of 0x10 takes the trap; the handler is a PC below the loop. *)
+  print
+    (Loops.detect
+       (run_t
+          [
+            (0x00, 1, Some addi, false);
+            (0x10, 1, Some addi, false);
+            (0x14, 1, Some bne, false);
+            (0x10, 1, Some addi, true);
+            (0x04, 5, Some addi, false);
+            (0x08, 3, Some mret, false);
+            (0x14, 1, Some bne, false);
+            (0x10, 1, Some addi, false);
+            (0x14, 1, Some bne, false);
+            (0x18, 1, Some addi, false);
+          ]));
+  [%expect
+    {|
+    loop 10 tail 14 trips 2/2@101 2/2@103 2/2@107
+      10 count 3 cycles 3
+      14 count 3 cycles 3
+    |}]
+
+let%expect_test "a loop inside a handler has its own trips; the outer trip leaves it out" =
+  print
+    (Loops.detect
+       (run_t
+          [
+            (0x10, 1, Some addi, false);
+            (0x14, 1, Some bne, false);
+            (0x10, 1, Some addi, true);
+            (0x04, 4, Some addi, false);
+            (0x08, 1, Some bne, false);
+            (0x04, 1, Some addi, false);
+            (0x08, 1, Some bne, false);
+            (0x0c, 1, Some mret, false);
+            (0x14, 1, Some bne, false);
+            (0x10, 1, Some addi, false);
+            (0x14, 1, Some bne, false);
+            (0x18, 1, Some addi, false);
+          ]));
+  [%expect
+    {|
+    loop 4 tail 8 trips 2/5@103 2/2@105
+      4 count 2 cycles 5
+      8 count 2 cycles 2
+    loop 10 tail 14 trips 2/2@100 2/2@102 2/2@109
+      10 count 3 cycles 3
+      14 count 3 cycles 3
+    |}]

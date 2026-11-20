@@ -363,6 +363,9 @@ The same sidecar labels the rows of `commits` (names need --elf):
   $ coralview commits --platform test-core.json --annotate only-names.txt core.vcd
   --annotate: first needs --elf
   [2]
+  $ printf '80000004\tthe nop\n' > bare.txt
+  $ coralview commits --platform test-core.json --annotate bare.txt core.vcd | sed -n 4p
+         5 0 80000004 00000013 addi x0, x0, 0                                      3   -   1  # the nop
 
 An output file that cannot be created is a user error, not an internal one. A trace file that does not
 exist is rejected by the command line before anything is read:

@@ -64,6 +64,35 @@ module Summary : sig
   val jsont : t Jsont.t
 end
 
+val writes_rd : int -> bool
+(** Whether an instruction word writes an [x] register other than [x0], as the scoreboard sees it:
+    scalar writers, CSR accesses, the float instructions with [scalar_rd] ([fmv.x.w], [fclass], [feq],
+    [flt], [fle], [fcvt.w.s]) and the RVV ones with [rvvWritesRd] ([vset*], [vmv.x.s], [vcpop], [vfirst]). *)
+
+type port = {
+  valid : bool;
+  ready : bool;
+  try_ : bool;
+  pc : int;
+  word : int;
+  comb : int;
+  fcomb : int;
+}
+
+type core = {
+  halted : bool;
+  interlock : bool;
+  regd : int;
+  n_space : int;
+  rob_empty : bool;
+  trap_pending : bool;
+  lsu_cap : int;
+  rvv_cap : int;
+}
+
+val classify : core -> port list -> lane list
+(** The reason of each lane of a sample, in lane order. *)
+
 val build :
   Config.t -> 'c Core.t -> (Event.t list, 'c) Hwfrp.Ev.t * (Hwfrp.Sched.run_stats -> Summary.t)
 (** Built once per net. Raises {!Hwfrp.Bind.Unbound} and {!Core.No_block}. *)

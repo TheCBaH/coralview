@@ -59,3 +59,62 @@ let%expect_test "a window keeps the commits retired in it" =
   let window = { Text.first = 7; last = max_int; pcs = [] } in
   print (Cost.join ~classify ~window commits [ access 0x10 3 0x1000 (Some "dtcm") ]);
   [%expect {| alu - count 1 cycles 1 d->r 1 |}]
+
+let%expect_test "of equal dispatch cycles the later instance takes the request" =
+  let commits =
+    [
+      commit 0x10 1 ~dispatched:5 ~retired:8 ~charged:3;
+      commit 0x10 1 ~dispatched:5 ~retired:9 ~charged:4;
+    ]
+  in
+  print (Cost.join ~classify ~window:Text.everything commits [ access 0x10 6 0x1000 (Some "dtcm") ]);
+  [%expect {|
+    mem dtcm count 1 cycles 4 d->r 4
+    mem - count 1 cycles 3 d->r 3 |}]
+
+let%expect_test "a retire without a dispatch is joined by its retire cycle" =
+  let unmatched ~retired ~charged =
+    { (commit 0x10 1 ~dispatched:0 ~retired ~charged) with word = None; dispatched = None }
+  in
+  let commits = [ unmatched ~retired:6 ~charged:2; unmatched ~retired:12 ~charged:3 ] in
+  (* Before the first retire nothing owns the request; at 6 the first does, and keeps the first it gets. *)
+  let accesses =
+    [
+      access 0x10 5 0x1000 (Some "early");
+      access 0x10 6 0x1000 (Some "dtcm");
+      access 0x10 11 0x1000 (Some "later");
+    ]
+  in
+  print (Cost.join ~classify ~window:Text.everything commits accesses);
+  [%expect {|
+    unknown - count 1 cycles 3 d->r 0
+    unknown dtcm count 1 cycles 2 d->r 0 |}]
+
+let%expect_test "an instance keeps the region of its first request in the list" =
+  let commits = [ commit 0x10 1 ~dispatched:0 ~retired:9 ~charged:7 ] in
+  let accesses = [ access 0x10 4 0x1000 (Some "dtcm"); access 0x10 3 0x2000 (Some "ext") ] in
+  print (Cost.join ~classify ~window:Text.everything commits accesses);
+  [%expect {| mem dtcm count 1 cycles 7 d->r 9 |}]
+
+let%expect_test "a request before every dispatch of its PC, or of another PC, joins nothing" =
+  let commits = [ commit 0x10 1 ~dispatched:4 ~retired:9 ~charged:7 ] in
+  let accesses = [ access 0x10 3 0x1000 (Some "dtcm"); access 0x14 5 0x1000 (Some "dtcm") ] in
+  print (Cost.join ~classify ~window:Text.everything commits accesses);
+  [%expect {| mem - count 1 cycles 7 d->r 5 |}]
+
+let%expect_test "a hot PC is joined in time that grows with its instances, not their square" =
+  let n = 200_000 in
+  let commits =
+    List.init n (fun k -> commit 0x10 1 ~dispatched:(2 * k) ~retired:((2 * k) + 1) ~charged:1)
+  in
+  (* Instance k, dispatched at 2k, requests at 2k + 1; every even instance makes one. *)
+  let accesses =
+    List.filter_map
+      (fun k -> if k mod 2 = 0 then Some (access 0x10 ((2 * k) + 1) 0x1000 (Some "dtcm")) else None)
+      (List.init n Fun.id)
+  in
+  print (Cost.join ~classify ~window:Text.everything commits accesses);
+  [%expect
+    {|
+    mem - count 100000 cycles 100000 d->r 100000
+    mem dtcm count 100000 cycles 100000 d->r 100000 |}]

@@ -11,7 +11,9 @@ val vtype : Ops.op -> string
 val join : Commits.commit list -> Ops.op list -> (int * int, Ops.op) Hashtbl.t
 (** For each retired commit with a vector op, by (PC, retire cycle), the first op of that PC taken from
     its dispatch up to the next dispatch of the same PC (up to the end of the run for the last). An op of
-    an instance that never retired belongs to nobody. *)
+    an instance that never retired belongs to nobody. A commit without a dispatch has no window: it gets no
+    op and does not bound the previous one. The commits of a PC must come in dispatch order; one walk
+    merges them with the ops, which are taken in cycle order. *)
 
 val notes :
   static:(int -> string option) ->

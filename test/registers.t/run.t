@@ -44,3 +44,15 @@ bad.vcd stores 9 in x2 where 7 was written back and retired:
   error[registers.storage] registers cycle 3 time 8: key 2: x2 holds 00000009, last written 00000007
   error[registers.architectural] registers cycle 3 time 8: key 2: x2 retired as 00000007, storage holds 00000009
   [1]
+
+--at prints the storage as of the last change at or before that cycle (changes were in cycles 0, 2 and 3):
+
+  $ coralview registers --platform reg-core.json --at 1 registers.vcd | grep -A1 'storage at cycle'
+  storage at cycle 0:
+    x1   00000000  x2   00000000  x3   00000000  f0   00000000
+  $ coralview registers --platform reg-core.json --at 2 registers.vcd | grep -A1 'storage at cycle'
+  storage at cycle 2:
+    x1   0000002a  x2   00000000  x3   00000000  f0   00000000
+  $ coralview registers --platform reg-core.json --at 100 registers.vcd | grep -A1 'storage at cycle'
+  storage at cycle 3:
+    x1   0000002a  x2   00000007  x3   00000000  f0   00000000
