@@ -32,7 +32,11 @@ val value : t -> Trace.slot -> Vcd_types.Value.t
 (** The current sampled value; X before the first change. *)
 
 val logic : t -> Trace.slot -> Logic.t
-(** {!value} as a 4-state vector, cached until the slot changes; all unknown when it is not a bit vector. *)
+(** {!value} as a 4-state vector, cached until the slot changes; all unknown when it is not a bit vector
+    ({!decoded} says why). *)
+
+val decoded : t -> Trace.slot -> (Logic.t, Logic.decode_error) result
+(** As {!logic}, with the reason a value that is not a bit vector of the signal's width is not one. *)
 
 val changed : t -> Bitset.t
 (** Slots whose value differs from the previous sample of the domain being ticked. *)

@@ -43,7 +43,7 @@ val clock :
   Trace.sample_rule ->
   Vcd_types.Reference.t ->
   Frp.Clock.any
-(** A clock domain sampled on a 1-bit signal. Raises {!Unbound}. *)
+(** A clock domain sampled on a 1-bit signal. Raises {!Unbound}, for an empty path as for an absent signal. *)
 
 val collect : Frp.Net.t -> unit
 (** Switches the net to collecting: from now on a probe that does not resolve is recorded instead of
@@ -122,7 +122,8 @@ val requirements : Frp.Net.t -> requirement list
 (** In binding order. *)
 
 val check : Trace.t -> requirement list -> report list
-(** The requirements resolved against a trace, grouped by model and root in first-seen order. *)
+(** The requirements resolved against a trace, grouped by model and root in first-seen order. Nothing is
+    tracked, so the trace may be frozen; a bound signal has an invalid slot. *)
 
 val ok : requirement * status -> bool
 val pp_width_rule : Format.formatter -> width_rule -> unit

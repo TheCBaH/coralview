@@ -87,4 +87,26 @@ signal is named once on the standard error:
          -          1   64 TOP/temp 0bxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
          -          1    4 TOP/count 0x2
   $ cat err.txt
-  TOP/temp: not a bit vector: 1.5; shown as unknown
+  TOP/temp: not a bit vector: 1.5; read as unknown
+
+The sampled form reads such a value as unknown too, and names the signal once, as requested:
+
+  $ sed 's/^b10100101 #/r1.5 #/' sig.vcd > badval.vcd
+  $ coralview signals --platform sig.json --from-cycle 2 --to-cycle 3 badval.vcd TOP.sim/core/data 2> err.txt
+  # sampled after_falling on io_aclk at TOP.sim.core
+         2          6    8 TOP.sim/core/data 0bxxxxxxxx
+         3          8    8 TOP.sim/core/data 0bxxxxxxxx
+  $ cat err.txt
+  TOP.sim/core/data: not a bit vector: 1.5; read as unknown
+
+A VCD file is read as strictly as standard input is. One without its final newline, or with a
+$dumpvars that is still open, is a cut file, and the error names the file:
+
+  $ head -c -1 sig.vcd > nonl.vcd
+  $ coralview signals --platform sig.json nonl.vcd TOP.sim/core/count > /dev/null
+  coralview: trace read failed (incomplete): input does not end with a newline at nonl.vcd line 41 col 6
+  [3]
+  $ sed '/^bx #$/q' sig.vcd > open.vcd
+  $ coralview signals --platform sig.json open.vcd TOP.sim/core/count > /dev/null
+  coralview: trace read failed (incomplete): unterminated dump block at end of input at open.vcd line 15 col 0
+  [3]

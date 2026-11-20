@@ -9,7 +9,9 @@
 module Net : sig
   type t
 
-  val create : unit -> t
+  val create : ?max_diags:int -> unit -> t
+  (** [max_diags] (default 10 000) is the number of diagnostics the net retains, whatever their source;
+      see {!Diag.stream}. *)
 
   val domains : t -> Trace.domain_spec array
   (** The specs of the defined clocks, in definition order: pass them to {!Sampler.create}. *)
@@ -145,7 +147,9 @@ module Source : sig
     init:'a ->
     (Logic.t -> 'a) ->
     ('a, 'c) Sig.t
-  (** A tracked signal decoded at every sample where it changed. *)
+  (** A tracked signal decoded at every sample where it changed. A value that is not a bit vector of the
+      signal's width (a real, a string, a byte that is no logic value, too many bits) reads as all unknown,
+      and the first one is reported as a [signal.undecodable] diagnostic of source [trace], once per signal. *)
 
   val value :
     ?name:string ->
@@ -208,10 +212,32 @@ module Diag : sig
       that dumps every signal once at the start has all its steady signals in [signal.constant]. *)
 
   val stream : Net.t -> t Seq.t
-  (** The recorded diagnostics, oldest first, at most [max_diags] of them. *)
+  (** The recorded diagnostics, oldest first: the first [max_diags] of the net ({!Net.create}), shared by
+      every source in it. The counts below do not depend on what is retained. *)
 
   val dropped : Net.t -> int
-  val max_diags : int ref
+  (** The diagnostics recorded past the budget, kept in the counts and the groups only. *)
+
+  val count : Net.t -> source:string -> code:string -> int
+  (** Every diagnostic of that source and code, retained or not. *)
+
+  val failed : Net.t -> source:string -> bool
+  (** Whether the source reported an [Error], retained or not. *)
+
+  type group = {
+    source : string;
+    code : string;
+    paths : Vcd_types.Reference.t list;
+    severity : severity;  (** Of the first. *)
+    count : int;
+    first_cycle : int option;
+    last_cycle : int option;
+  }
+
+  val groups : Net.t -> group list
+  (** The diagnostics aggregated by source, code and paths, in the order of their first occurrence; every
+      diagnostic is in one, retained or not. *)
+
   val pp : Format.formatter -> t -> unit
 end
 
@@ -256,10 +282,12 @@ module Sched : sig
   }
 
   val compile : ?strategy:strategy -> Net.t -> (t, build_error list) result
-  (** Freezes the net: no node can be added afterwards. *)
+  (** Freezes the net: no node can be added afterwards. Raises [Invalid_argument] on a net that is already
+      compiled: the nodes and subscribers keep the state of a run. *)
 
   val run : ?clock:(unit -> float) -> t -> Sampler.t -> run_stats
-  (** The sampler must have been created with {!Net.domains}. *)
+  (** The sampler must have been created with {!Net.domains}. A scheduler runs once: raises
+      [Invalid_argument] when it has been started, here or by {!Run.start}. *)
 
   val dump_dot : t -> out_channel -> unit
 end
@@ -271,7 +299,8 @@ module Run : sig
   type t
 
   val start : ?clock:(unit -> float) -> Sched.t -> Sampler.t -> t
-  (** [clock] reads the time for [wall_s] of the statistics (seconds); the library has none of its own. *)
+  (** [clock] reads the time for [wall_s] of the statistics (seconds); the library has none of its own.
+      Raises [Invalid_argument] when the scheduler has already been started. *)
 
   type step =
     | Stepped  (** One sample was evaluated. *)

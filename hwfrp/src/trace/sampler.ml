@@ -20,7 +20,7 @@ type t = {
   slot_of_id : (string, int) Hashtbl.t;
   values : Value.t array;
   widths : int array;
-  logic_cache : Logic.t option array;
+  logic_cache : (Logic.t, Logic.decode_error) result option array;
   domains : domain array;
   events : unit -> Trace.pull;
   mutable batch : (int * Value.t) list;  (** reversed *)
@@ -186,18 +186,17 @@ let next t =
 
 let value t s = t.values.((s : Trace.slot :> int))
 
-let logic t s =
+let decoded t s =
   let s = (s : Trace.slot :> int) in
   match t.logic_cache.(s) with
-  | Some l -> l
+  | Some r -> r
   | None ->
-      let l =
-        match Logic.of_value ~width:t.widths.(s) t.values.(s) with
-        | Ok l -> l
-        | Error _ -> Logic.unknown t.widths.(s)
-      in
-      t.logic_cache.(s) <- Some l;
-      l
+      let r = Logic.of_value ~width:t.widths.(s) t.values.(s) in
+      t.logic_cache.(s) <- Some r;
+      r
+
+let logic t s =
+  match decoded t s with Ok l -> l | Error _ -> Logic.unknown t.widths.((s : Trace.slot :> int))
 
 let activity t =
   Array.mapi

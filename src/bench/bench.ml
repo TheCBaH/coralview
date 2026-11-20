@@ -16,7 +16,7 @@ let inputs (p : Platform.t) tr root =
     (Trace.scope_vars tr root)
 
 let read path =
-  let { Vcd.simulation; _ } = Vcd_fst.open_file path in
+  let { Vcd.simulation; _ } = Hwfrp_native.parse_file path in
   Seq.fold_left (fun n _ -> n + 1) 0 simulation
 
 (* Decoding alone, of what sampling would read. *)
@@ -74,7 +74,9 @@ let engine (p : Platform.t) ~select ~nodes ~strategy path =
   Sched.run ~clock:Hwfrp_native.wall_clock sched (Sampler.create tr (Net.domains net))
 
 let run p ~select ~nodes path =
-  let { Vcd.header; _ }, header_s = time (fun () -> Vcd_fst.open_file path) in
+  let header, header_s =
+    time (fun () -> Hwfrp_native.with_parse_file path (fun { Vcd.header; _ } -> header))
+  in
   let resolver, resolver_s = time (fun () -> Vcd.Resolver.make header) in
   Printf.printf "header  %.3f s, resolver %.3f s for %d signals\n" header_s resolver_s
     (Vcd.Resolver.fold (fun _ n -> n + 1) resolver 0);

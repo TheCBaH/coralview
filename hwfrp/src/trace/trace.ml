@@ -28,6 +28,7 @@ type t = {
   mutable count : int;
   mutable frozen : bool;
   mutable events : (unit -> pull) option;
+  mutable closers : (unit -> unit) list;
 }
 
 (* The parse reads only the tracked signals' changes: ovcd asks [select] on the first pull, after
@@ -52,6 +53,7 @@ let of_header ~format header events =
       count = 0;
       frozen = false;
       events = Some events;
+      closers = [];
     },
     by_id )
 
@@ -81,6 +83,13 @@ let of_parse ?(select = true) ~format parse =
   t
 
 let of_pull ~format header pull = fst (of_header ~format header pull)
+let on_close t f = t.closers <- f :: t.closers
+
+let close t =
+  let l = t.closers in
+  t.closers <- [];
+  List.iter (fun f -> f ()) l
+
 let format t = t.format
 let header t = t.header
 let resolver t = t.resolver
