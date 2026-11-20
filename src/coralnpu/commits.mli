@@ -66,6 +66,24 @@ module Summary : sig
   val jsont : t Jsont.t
 end
 
+type state
+(** The matcher's state: the dispatches in flight, the written values by register and the summary so far. *)
+
+val start : state
+
+val step :
+  no_write:int ->
+  store:int ->
+  state ->
+  int ->
+  Core.dispatched list * Core.write list * Core.retired list ->
+  state * Event.t list
+(** One cycle's dispatches, writes and retirements, in that order. The retirements come out in lane order.
+    [no_write] and [store] are the retirement buffer's destination indices of those kinds. *)
+
+val finish : state -> summary
+(** The summary of the cycles stepped, with what is still in flight. *)
+
 val build :
   Config.t -> 'c Core.t -> (Event.t list, 'c) Hwfrp.Ev.t * (Hwfrp.Sched.run_stats -> summary)
 (** {!shared}. Raises {!Hwfrp.Bind.Unbound} and {!Core.No_block}. *)

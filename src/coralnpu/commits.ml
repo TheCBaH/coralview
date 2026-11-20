@@ -227,7 +227,22 @@ let step ~no_write ~store st cycle
   in
   (st, List.rev out)
 
-let summary_of st =
+let start =
+  let sum =
+    {
+      cycles = 0;
+      before = 0;
+      empty = 0;
+      unmatched_retires = 0;
+      skipped = 0;
+      missing_values = 0;
+      in_flight = 0;
+      pending = [];
+    }
+  in
+  { queue = []; values = IM.empty; sum; started = false }
+
+let finish st =
   {
     st.sum with
     in_flight = List.length st.queue;
@@ -244,30 +259,18 @@ let make (c : _ Core.t) =
     (d, w, r)
   in
   let no_write = Core.no_write c and store = Core.store c in
-  let zero =
-    {
-      cycles = 0;
-      before = 0;
-      empty = 0;
-      unmatched_retires = 0;
-      skipped = 0;
-      missing_values = 0;
-      in_flight = 0;
-      pending = [];
-    }
-  in
   let out, st =
     Machine.run
       {
         name;
-        init = { queue = []; values = IM.empty; sum = zero; started = false };
+        init = start;
         step = (fun ~tick st i -> step ~no_write ~store st tick.index i);
         finish = (fun st -> List.map (fun f -> Event.In_flight f) st.queue);
         every_tick = true;
       }
       input
   in
-  (out, fun _ -> summary_of (Sig.peek st))
+  (out, fun _ -> finish (Sig.peek st))
 
 type 'c Core.dep += Shared of ((Event.t list, 'c) Ev.t * (Sched.run_stats -> summary))
 
