@@ -156,6 +156,7 @@ domain; crossing domains takes `Clock_cross.resample`.
 | `Ev.subscribe e f` | runs `f` after each sample where `e` fired; the way out of the graph |
 | `Source.many clk signals ~init update` | one node over many signals, updated with the indices that changed |
 | `Diag.emit`, `Diag.report` | diagnostics with cycle, time and the paths to look at |
+| `Diag.count`, `Diag.failed`, `Diag.groups` | totals by source and code, an error flag per source, and groups by source, code and paths; they keep counting once `Net.create ~max_diags` details are retained |
 
 ### Purity
 

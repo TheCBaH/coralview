@@ -55,6 +55,19 @@ and clock_rec = {
   mutable enabled : bool node option;
 }
 
+and tally = { mutable total : int; mutable errors : int }
+
+and group = {
+  g_order : int;
+  g_source : string;
+  g_code : string;
+  g_paths : Reference.t list;
+  g_severity : D.severity;
+  mutable g_count : int;
+  g_first : int option;
+  mutable g_last : int option;
+}
+
 and net = {
   mutable next_id : int;
   mutable nodes : packed list;
@@ -63,9 +76,12 @@ and net = {
   mutable tick : Trace.tick;
   mutable sampler : Sampler.t option;
   mutable finishing : bool;  (** past the last sample: machines no longer step *)
+  max_diags : int;
   mutable diags : D.t list;
   mutable ndiags : int;
   mutable dropped : int;
+  tallies : (string * string, tally) Hashtbl.t;
+  groups : (string * string * string list, group) Hashtbl.t;
   mutable exts : ext list;
   mutable poisoned : string list;
 }
@@ -132,7 +148,7 @@ let fire n v =
 module Net = struct
   type t = net
 
-  let create () =
+  let create ?(max_diags = 10_000) () =
     {
       next_id = 0;
       nodes = [];
@@ -141,9 +157,12 @@ module Net = struct
       tick = { Trace.domain = 0; index = 0; time = Timestamp.of_int64 0L; enabled = true };
       sampler = None;
       finishing = false;
+      max_diags;
       diags = [];
       ndiags = 0;
       dropped = 0;
+      tallies = Hashtbl.create 8;
+      groups = Hashtbl.create 8;
       exts = [];
       poisoned = [];
     }
@@ -495,21 +514,50 @@ module Diag = struct
     message : string;
   }
 
-  let max_diags = ref 10_000
-
   let make ?(severity = Warning) ?(paths = []) ~source ~code message =
     { severity; source; code; cycle = None; time = None; paths; message }
 
+  let tally net (d : t) =
+    let key = (d.source, d.code) in
+    let t =
+      match Hashtbl.find_opt net.tallies key with
+      | Some t -> t
+      | None ->
+          let t = { total = 0; errors = 0 } in
+          Hashtbl.replace net.tallies key t;
+          t
+    in
+    t.total <- t.total + 1;
+    if d.severity = Error then t.errors <- t.errors + 1;
+    let gkey = (d.source, d.code, List.map Reference.to_string d.paths) in
+    match Hashtbl.find_opt net.groups gkey with
+    | Some g ->
+        g.g_count <- g.g_count + 1;
+        g.g_last <- d.cycle
+    | None ->
+        Hashtbl.replace net.groups gkey
+          {
+            g_order = Hashtbl.length net.groups;
+            g_source = d.source;
+            g_code = d.code;
+            g_paths = d.paths;
+            g_severity = d.severity;
+            g_count = 1;
+            g_first = d.cycle;
+            g_last = d.cycle;
+          }
+
   let record net d =
-    if net.ndiags >= !max_diags then net.dropped <- net.dropped + 1
+    let d =
+      {
+        d with
+        cycle = (match d.cycle with Some _ -> d.cycle | None -> Some net.tick.index);
+        time = (match d.time with Some _ -> d.time | None -> Some net.tick.time);
+      }
+    in
+    tally net d;
+    if net.ndiags >= net.max_diags then net.dropped <- net.dropped + 1
     else begin
-      let d =
-        {
-          d with
-          cycle = (match d.cycle with Some _ -> d.cycle | None -> Some net.tick.index);
-          time = (match d.time with Some _ -> d.time | None -> Some net.tick.time);
-        }
-      in
       net.diags <- d :: net.diags;
       net.ndiags <- net.ndiags + 1
     end
@@ -552,6 +600,36 @@ module Diag = struct
     Option.iter (Format.fprintf ppf " time %a" Timestamp.pp) d.time;
     Format.fprintf ppf ": %s" d.message;
     List.iter (fun r -> Format.fprintf ppf "@ %s" (Reference.to_string r)) d.paths
+
+  let count net ~source ~code =
+    match Hashtbl.find_opt net.tallies (source, code) with Some t -> t.total | None -> 0
+
+  let failed net ~source =
+    Hashtbl.fold (fun (s, _) t acc -> acc || (s = source && t.errors > 0)) net.tallies false
+
+  type group = {
+    source : string;
+    code : string;
+    paths : Reference.t list;
+    severity : severity;
+    count : int;
+    first_cycle : int option;
+    last_cycle : int option;
+  }
+
+  let groups net =
+    Hashtbl.fold (fun _ g acc -> g :: acc) net.groups []
+    |> List.sort (fun a b -> Int.compare a.g_order b.g_order)
+    |> List.map (fun g ->
+        {
+          source = g.g_source;
+          code = g.g_code;
+          paths = g.g_paths;
+          severity = g.g_severity;
+          count = g.g_count;
+          first_cycle = g.g_first;
+          last_cycle = g.g_last;
+        })
 end
 
 module Track = struct

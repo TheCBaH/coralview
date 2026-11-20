@@ -9,7 +9,9 @@
 module Net : sig
   type t
 
-  val create : unit -> t
+  val create : ?max_diags:int -> unit -> t
+  (** [max_diags] (default 10 000) is the number of diagnostics the net retains, whatever their source;
+      see {!Diag.stream}. *)
 
   val domains : t -> Trace.domain_spec array
   (** The specs of the defined clocks, in definition order: pass them to {!Sampler.create}. *)
@@ -208,10 +210,32 @@ module Diag : sig
       that dumps every signal once at the start has all its steady signals in [signal.constant]. *)
 
   val stream : Net.t -> t Seq.t
-  (** The recorded diagnostics, oldest first, at most [max_diags] of them. *)
+  (** The recorded diagnostics, oldest first: the first [max_diags] of the net ({!Net.create}), shared by
+      every source in it. The counts below do not depend on what is retained. *)
 
   val dropped : Net.t -> int
-  val max_diags : int ref
+  (** The diagnostics recorded past the budget, kept in the counts and the groups only. *)
+
+  val count : Net.t -> source:string -> code:string -> int
+  (** Every diagnostic of that source and code, retained or not. *)
+
+  val failed : Net.t -> source:string -> bool
+  (** Whether the source reported an [Error], retained or not. *)
+
+  type group = {
+    source : string;
+    code : string;
+    paths : Vcd_types.Reference.t list;
+    severity : severity;  (** Of the first. *)
+    count : int;
+    first_cycle : int option;
+    last_cycle : int option;
+  }
+
+  val groups : Net.t -> group list
+  (** The diagnostics aggregated by source, code and paths, in the order of their first occurrence; every
+      diagnostic is in one, retained or not. *)
+
   val pp : Format.formatter -> t -> unit
 end
 

@@ -166,13 +166,12 @@ let graph ?at (c : _ Core.t) =
   ( fired,
     fun (st : Sched.run_stats) ->
       let diags = List.of_seq (Diag.stream c.net) in
-      let mine code = List.filter (fun (d : Diag.t) -> d.code = code) diags in
       {
         cycles = st.ticks.(0);
         relations =
           [
-            (code, !comparisons, List.length (mine code));
-            (retired_code, !retired, List.length (mine retired_code));
+            (code, !comparisons, Diag.count c.net ~source:model ~code);
+            (retired_code, !retired, Diag.count c.net ~source:model ~code:retired_code);
           ];
         failures =
           List.filteri
@@ -251,7 +250,7 @@ let build (cfg : Config.t) (c : _ Core.t) =
   let fired, summary = graph ?at:cfg.at c in
   (Ev.map (List.map (fun w -> Event.Vreg_write w)) fired, summary)
 
-let status (s : summary) = if s.failures <> [] then 1 else 0
+let status (s : summary) = if List.exists (fun (_, _, n) -> n > 0) s.relations then 1 else 0
 
 let text (ctx : Text.ctx) events (s : summary) =
   let shown = ref 0 in

@@ -218,3 +218,49 @@ let%expect_test "a net compiles once and a scheduler runs once" =
     run: ok, 2 changes in all
     run: Invalid_argument: Run.start: the scheduler has already run, 2 changes in all
     start: Invalid_argument: Run.start: the scheduler has already run |}]
+
+let%expect_test "diagnostic counts and groups outlive the budget" =
+  let net = Net.create ~max_diags:2 () in
+  let path = Reference.of_list [ "top"; "a" ] in
+  let report ?(severity = Diag.Warning) ?paths source code =
+    Diag.report net (Diag.make ~severity ?paths ~source ~code "m")
+  in
+  report "noise" "x";
+  report "noise" "x";
+  report ~severity:Error "model" "bad";
+  report ~severity:Error ~paths:[ path ] "model" "bad";
+  report ~severity:Error "model" "bad";
+  Printf.printf "kept %d, dropped %d\n" (Seq.length (Diag.stream net)) (Diag.dropped net);
+  Printf.printf "noise.x %d, model bad %d, model other %d\n"
+    (Diag.count net ~source:"noise" ~code:"x")
+    (Diag.count net ~source:"model" ~code:"bad")
+    (Diag.count net ~source:"model" ~code:"other");
+  Printf.printf "failed: noise %b, model %b\n" (Diag.failed net ~source:"noise")
+    (Diag.failed net ~source:"model");
+  List.iter
+    (fun (g : Diag.group) ->
+      Printf.printf "%s %s [%s] x%d\n" g.source g.code
+        (String.concat " " (List.map Reference.to_string g.paths))
+        g.count)
+    (Diag.groups net);
+  [%expect
+    {|
+    kept 2, dropped 3
+    noise.x 2, model bad 3, model other 0
+    failed: noise false, model true
+    noise x [] x2
+    model bad [] x2
+    model bad [top.a] x1 |}]
+
+let%expect_test "the budget is an argument of the net" =
+  let kept net =
+    for i = 1 to 20 do
+      Diag.report net (Diag.make ~source:"s" ~code:"c" (string_of_int i))
+    done;
+    Seq.length (Diag.stream net)
+  in
+  Printf.printf "%d %d %d\n"
+    (kept (Net.create ~max_diags:5 ()))
+    (kept (Net.create ~max_diags:0 ()))
+    (kept (Net.create ()));
+  [%expect {| 5 0 20 |}]

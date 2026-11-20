@@ -19,8 +19,8 @@ type any = Any : 'c t -> any
 
 exception No_block of string * string
 
-let bind ?(collect = false) (p : Platform.t) tr ~model =
-  let net = Net.create () in
+let bind ?(collect = false) ?max_diags (p : Platform.t) tr ~model =
+  let net = Net.create ?max_diags () in
   if collect then Bind.collect net;
   let (Clock.Any clk) =
     Bind.clock net tr ~model ~purpose:"core clock" ~name:p.clock p.sample

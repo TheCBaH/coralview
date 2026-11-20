@@ -256,9 +256,7 @@ let graph ?at (c : _ Core.t) =
       (fun code ->
         ( code,
           Option.value (Hashtbl.find_opt counts code) ~default:0,
-          Seq.fold_left
-            (fun n (d : Diag.t) -> if d.code = code then n + 1 else n)
-            0 (Diag.stream c.net) ))
+          Diag.count c.net ~source:model ~code ))
       codes
   in
   let cycle = Sig.cycle c.clk in
@@ -335,7 +333,7 @@ module Summary = struct
 end
 
 let build (cfg : Config.t) (c : _ Core.t) = graph ?at:cfg.at c
-let status (s : summary) = if s.failures <> [] then 1 else 0
+let status (s : summary) = if List.exists (fun (_, _, n) -> n > 0) s.relations then 1 else 0
 
 let text (ctx : Text.ctx) (_ : Event.t list) (s : summary) =
   Printf.printf "root %s: %d cycles\n" ctx.root s.cycles;
