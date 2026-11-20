@@ -156,29 +156,17 @@ let graph ?at (c : _ Core.t) =
                               (function Some pc -> Printf.sprintf "pc %08x" pc | None -> "?")
                               pcs))))
          | _ -> ()));
-  let at_snapshot = ref None in
-  Option.iter
-    (fun at ->
-      Ev.subscribe
-        (Ev.tag (Sig.cycle c.clk) storage.changes)
-        (fun (_, cycle) -> if cycle <= at then at_snapshot := Some (cycle, Sig.peek storage.state)))
-    at;
+  let at_snapshot =
+    Regmodel.storage_at ~at c [ storage.changes ] (fun () -> Sig.peek storage.state)
+  in
   ( fired,
     fun (st : Sched.run_stats) ->
-      let diags = List.of_seq (Diag.stream c.net) in
       {
         cycles = st.ticks.(0);
-        relations =
-          [
-            (code, !comparisons, Diag.count c.net ~source:model ~code);
-            (retired_code, !retired, Diag.count c.net ~source:model ~code:retired_code);
-          ];
-        failures =
-          List.filteri
-            (fun i _ -> i < 20)
-            (List.filter (fun (d : Diag.t) -> List.mem d.code [ code; retired_code ]) diags);
+        relations = Regmodel.relations c ~model [ (code, !comparisons); (retired_code, !retired) ];
+        failures = Regmodel.failures c ~model ~codes:[ code; retired_code ];
         storage = State.bindings (Sig.peek storage.state);
-        storage_at = Option.map (fun (cycle, s) -> (cycle, State.bindings s)) !at_snapshot;
+        storage_at = Option.map (fun (cycle, s) -> (cycle, State.bindings s)) (at_snapshot ());
       } )
 
 module Config = struct
@@ -215,31 +203,14 @@ end
 module Summary = struct
   type t = summary
 
-  let relation =
-    Jsont.Object.map ~kind:"relation" (fun code comparisons failures ->
-        (code, comparisons, failures))
-    |> Jsont.Object.mem "code" Jsont.string ~enc:(fun (c, _, _) -> c)
-    |> Jsont.Object.mem "comparisons" Jsont.int ~enc:(fun (_, n, _) -> n)
-    |> Jsont.Object.mem "failures" Jsont.int ~enc:(fun (_, _, f) -> f)
-    |> Jsont.Object.finish
-
-  let reg =
-    Jsont.Object.map ~kind:"register" (fun reg value -> (reg, value))
-    |> Jsont.Object.mem "reg" Jsont.int ~enc:fst
-    |> Jsont.Object.mem "value" Codec.bits ~enc:snd
-    |> Jsont.Object.finish
-
-  let at =
-    Jsont.Object.map ~kind:"storage_at" (fun cycle storage -> (cycle, storage))
-    |> Jsont.Object.mem "cycle" Jsont.int ~enc:fst
-    |> Jsont.Object.mem "storage" (Jsont.list reg) ~enc:snd
-    |> Jsont.Object.finish
+  let reg = Regmodel.reg Codec.bits
+  let at = Regmodel.at Codec.bits
 
   let jsont =
     Codec.record "vectors.summary" (fun cycles relations failures storage storage_at ->
         { cycles; relations; failures; storage; storage_at })
     |> Jsont.Object.mem "cycles" Jsont.int ~enc:(fun s -> s.cycles)
-    |> Jsont.Object.mem "relations" (Jsont.list relation) ~enc:(fun s -> s.relations)
+    |> Jsont.Object.mem "relations" (Jsont.list Regmodel.relation) ~enc:(fun s -> s.relations)
     |> Jsont.Object.mem "failures" (Jsont.list Codec.diag) ~enc:(fun s -> s.failures)
     |> Jsont.Object.mem "storage" (Jsont.list reg) ~enc:(fun s -> s.storage)
     |> Codec.opt (fun s -> s.storage_at) "storage_at" at
@@ -250,7 +221,7 @@ let build (cfg : Config.t) (c : _ Core.t) =
   let fired, summary = graph ?at:cfg.at c in
   (Ev.map (List.map (fun w -> Event.Vreg_write w)) fired, summary)
 
-let status (s : summary) = if List.exists (fun (_, _, n) -> n > 0) s.relations then 1 else 0
+let status (s : summary) = Regmodel.status s.relations
 
 let text (ctx : Text.ctx) events (s : summary) =
   let shown = ref 0 in

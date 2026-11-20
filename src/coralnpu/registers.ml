@@ -31,13 +31,6 @@ let needs =
 let codes =
   [ "registers.storage"; "registers.scoreboard"; "registers.flushed"; "registers.architectural" ]
 
-let relation_jsont =
-  Jsont.Object.map ~kind:"relation" (fun code comparisons failures -> (code, comparisons, failures))
-  |> Jsont.Object.mem "code" Jsont.string ~enc:(fun (c, _, _) -> c)
-  |> Jsont.Object.mem "comparisons" Jsont.int ~enc:(fun (_, n, _) -> n)
-  |> Jsont.Object.mem "failures" Jsont.int ~enc:(fun (_, _, f) -> f)
-  |> Jsont.Object.finish
-
 module Event = struct
   type write = { cycle : int; reg : int; value : int }
   type flush = { cycle : int; file : string }
@@ -66,7 +59,7 @@ module Event = struct
       (fun c -> Checks c)
       (Jsont.Object.map (fun cycle relations -> { cycle; relations })
       |> Jsont.Object.mem "cycle" Jsont.int ~enc:(fun (c : checks) -> c.cycle)
-      |> Jsont.Object.mem "relations" (Jsont.list relation_jsont) ~enc:(fun (c : checks) ->
+      |> Jsont.Object.mem "relations" (Jsont.list Regmodel.relation) ~enc:(fun (c : checks) ->
           c.relations)
       |> Jsont.Object.finish)
 
@@ -237,27 +230,13 @@ let graph ?at (c : _ Core.t) =
       ]
   in
   let files = List.map fst both in
-  (* Snapshots are persistent, so keeping one is cheap, and one per change would keep every past state. *)
-  let at_snapshot = ref None in
-  Option.iter
-    (fun at ->
-      List.iter
-        (fun ((storage : _ State.store), _) ->
-          Ev.subscribe
-            (Ev.tag (Sig.cycle c.clk) storage.changes)
-            (fun (_, cycle) ->
-              if cycle <= at then
-                at_snapshot :=
-                  Some (cycle, List.map (fun ((s : _ State.store), _) -> Sig.peek s.state) files)))
-        files)
-    at;
+  let snapshot () = List.map (fun ((s : _ State.store), _) -> Sig.peek s.state) files in
+  let at_snapshot =
+    Regmodel.storage_at ~at c (List.map (fun ((s : _ State.store), _) -> s.changes) files) snapshot
+  in
   let relations () =
-    List.map
-      (fun code ->
-        ( code,
-          Option.value (Hashtbl.find_opt counts code) ~default:0,
-          Diag.count c.net ~source:model ~code ))
-      codes
+    Regmodel.relations c ~model
+      (List.map (fun code -> (code, Option.value (Hashtbl.find_opt counts code) ~default:0)) codes)
   in
   let cycle = Sig.cycle c.clk in
   let writes =
@@ -288,13 +267,10 @@ let graph ?at (c : _ Core.t) =
         cycles = st.ticks.(0);
         relations = relations ();
         flushes = Option.value (Hashtbl.find_opt counts "flushes") ~default:0;
-        failures =
-          List.of_seq
-            (Seq.take 20
-               (Seq.filter (fun (d : Diag.t) -> List.mem d.code codes) (Diag.stream c.net)));
-        storage = union (List.map (fun ((s : _ State.store), _) -> Sig.peek s.state) files);
+        failures = Regmodel.failures c ~model ~codes;
+        storage = union (snapshot ());
         architectural = union (List.map (fun (_, (a : _ State.store)) -> Sig.peek a.state) files);
-        storage_at = Option.map (fun (cycle, snaps) -> (cycle, union snaps)) !at_snapshot;
+        storage_at = Option.map (fun (cycle, snaps) -> (cycle, union snaps)) (at_snapshot ());
       } )
 
 module Config = struct
@@ -306,24 +282,15 @@ end
 module Summary = struct
   type t = summary
 
-  let reg =
-    Jsont.Object.map ~kind:"register" (fun reg value -> (reg, value))
-    |> Jsont.Object.mem "reg" Jsont.int ~enc:fst
-    |> Jsont.Object.mem "value" Jsont.int ~enc:snd
-    |> Jsont.Object.finish
-
-  let at =
-    Jsont.Object.map ~kind:"storage_at" (fun cycle storage -> (cycle, storage))
-    |> Jsont.Object.mem "cycle" Jsont.int ~enc:fst
-    |> Jsont.Object.mem "storage" (Jsont.list reg) ~enc:snd
-    |> Jsont.Object.finish
+  let reg = Regmodel.reg Jsont.int
+  let at = Regmodel.at Jsont.int
 
   let jsont =
     Codec.record "registers.summary"
       (fun cycles relations flushes failures storage architectural storage_at ->
         { cycles; relations; flushes; failures; storage; architectural; storage_at })
     |> Jsont.Object.mem "cycles" Jsont.int ~enc:(fun s -> s.cycles)
-    |> Jsont.Object.mem "relations" (Jsont.list relation_jsont) ~enc:(fun s -> s.relations)
+    |> Jsont.Object.mem "relations" (Jsont.list Regmodel.relation) ~enc:(fun s -> s.relations)
     |> Jsont.Object.mem "flushes" Jsont.int ~enc:(fun s -> s.flushes)
     |> Jsont.Object.mem "failures" (Jsont.list Codec.diag) ~enc:(fun s -> s.failures)
     |> Jsont.Object.mem "storage" (Jsont.list reg) ~enc:(fun s -> s.storage)
@@ -333,7 +300,7 @@ module Summary = struct
 end
 
 let build (cfg : Config.t) (c : _ Core.t) = graph ?at:cfg.at c
-let status (s : summary) = if List.exists (fun (_, _, n) -> n > 0) s.relations then 1 else 0
+let status (s : summary) = Regmodel.status s.relations
 
 let text (ctx : Text.ctx) (_ : Event.t list) (s : summary) =
   Printf.printf "root %s: %d cycles\n" ctx.root s.cycles;
@@ -398,7 +365,7 @@ module Accumulator = struct
         { writes; flushes; relations; storage })
     |> Jsont.Object.mem "writes" Jsont.int ~enc:(fun (s : snapshot) -> s.writes)
     |> Jsont.Object.mem "flushes" Jsont.int ~enc:(fun (s : snapshot) -> s.flushes)
-    |> Jsont.Object.mem "relations" (Jsont.list relation_jsont) ~enc:(fun (s : snapshot) ->
+    |> Jsont.Object.mem "relations" (Jsont.list Regmodel.relation) ~enc:(fun (s : snapshot) ->
         s.relations)
     |> Jsont.Object.mem "storage" (Jsont.list Summary.reg) ~enc:(fun (s : snapshot) -> s.storage)
     |> Jsont.Object.finish
