@@ -187,7 +187,10 @@ equality.
   - `field ~lo ~width`: a slice.
 
   A sample with X or Z bits where the decoder needs 0/1 yields the
-  decoder's `unknown` value and a `bind.unknown-bits` diagnostic.
+  decoder's `unknown` value and a `bind.unknown-bits` diagnostic. A value
+  that is not a bit vector of the signal's width (a real, a byte that is no
+  logic value, too many bits) reads as all unknown, with one
+  `signal.undecodable` diagnostic per signal.
 - A probe that does not resolve raises `Bind.Unbound`: the signal is
   missing, has a width the decoder rejects, or is real or string where bits
   are expected. There are no stand-in values and no optional probes. A

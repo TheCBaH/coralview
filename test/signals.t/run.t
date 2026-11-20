@@ -87,4 +87,14 @@ signal is named once on the standard error:
          -          1   64 TOP/temp 0bxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
          -          1    4 TOP/count 0x2
   $ cat err.txt
-  TOP/temp: not a bit vector: 1.5; shown as unknown
+  TOP/temp: not a bit vector: 1.5; read as unknown
+
+The sampled form reads such a value as unknown too, and names the signal once, as requested:
+
+  $ sed 's/^b10100101 #/r1.5 #/' sig.vcd > badval.vcd
+  $ coralview signals --platform sig.json --from-cycle 2 --to-cycle 3 badval.vcd TOP.sim/core/data 2> err.txt
+  # sampled after_falling on io_aclk at TOP.sim.core
+         2          6    8 TOP.sim/core/data 0bxxxxxxxx
+         3          8    8 TOP.sim/core/data 0bxxxxxxxx
+  $ cat err.txt
+  TOP.sim/core/data: not a bit vector: 1.5; read as unknown

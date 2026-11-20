@@ -318,3 +318,134 @@ let%expect_test "check tracks nothing" =
     m at top.core
       bound   io_lane_0_v 1
     tracked 0 |}]
+
+(* A value that is not a bit vector of the signal's width reads as unknown; it is reported once. *)
+let%expect_test "an undecodable value is reported once per signal" =
+  let vcd =
+    {|$timescale 1ps $end
+$scope module top $end
+$var wire 1 ! clk $end
+$var wire 4 " narrow $end
+$var wire 4 # fine $end
+$upscope $end
+$enddefinitions $end
+#0
+0!
+b11 "
+b1 #
+#1
+1!
+#2
+0!
+r1.5 "
+b10 #
+#3
+1!
+#4
+0!
+b11 "
+#5
+1!
+#6
+0!
+r2.5 "
+#7
+1!
+#8
+0!
+r1.5 "
+#9
+1!
+#10
+0!
+|}
+  in
+  let tr = Hwfrp_vcd.of_string vcd in
+  let net = Net.create () in
+  let at n = Reference.of_list [ "top"; n ] in
+  let (Clock.Any c) = Bind.clock net tr ~model:"m" ~name:"clk" After_falling (at "clk") in
+  let sc = Bind.root net tr c ~model:"m" (Reference.of_list [ "top" ]) in
+  let row =
+    let open Sig in
+    let+ cycle = cycle c
+    and+ n = Bind.signal sc "narrow" Bind.logic
+    and+ f = Bind.signal sc "fine" Bind.uint in
+    Printf.sprintf "cycle %d narrow=%s fine=%d" cycle (Logic.to_string n) f
+  in
+  Ev.subscribe (Ev.when_ (Sig.const c true) row) print_endline;
+  let sched = Result.get_ok (Sched.compile net) in
+  ignore (Sched.run sched (Sampler.create tr (Net.domains net)));
+  Seq.iter (Format.printf "%a@." Diag.pp) (Diag.stream net);
+  [%expect
+    {|
+    cycle 0 narrow=xxxx fine=2
+    cycle 1 narrow=0011 fine=2
+    cycle 2 narrow=xxxx fine=2
+    cycle 3 narrow=xxxx fine=2
+    cycle 4 narrow=xxxx fine=2
+    warning[signal.undecodable] trace cycle 0 time 2: not a bit vector: 1.5; read as unknown
+    top.narrow |}]
+
+let%expect_test "a byte that is no logic value and a too wide value are reported" =
+  let open In_memory in
+  let header =
+    header
+      [
+        scope "top"
+          [ var ~id:"!" ~width:1 "clk"; var ~id:"a" ~width:1 "flag"; var ~id:"b" ~width:4 "nib" ];
+      ]
+  in
+  let bit b = Value.Scalar (if b then B1 else B0) in
+  let events =
+    List.to_seq
+      [
+        at 0L;
+        change ~id:"!" (bit false);
+        change ~id:"a" (Value.Other "Q");
+        change ~id:"b" (Value.Int 3);
+        at 1L;
+        change ~id:"!" (bit true);
+        at 2L;
+        change ~id:"!" (bit false);
+        change ~id:"b" (Value.Bytes (Bytes.make 9 '\255'));
+        at 3L;
+        change ~id:"!" (bit true);
+        at 4L;
+        change ~id:"!" (bit false);
+        change ~id:"a" (bit true);
+        at 5L;
+        change ~id:"!" (bit true);
+        at 6L;
+        change ~id:"!" (bit false);
+        change ~id:"a" (Value.Other "Q");
+      ]
+  in
+  let tr = trace header events in
+  let net = Net.create () in
+  let at n = Reference.of_list [ "top"; n ] in
+  let (Clock.Any c) = Bind.clock net tr ~model:"m" ~name:"clk" After_falling (at "clk") in
+  let sc = Bind.root net tr c ~model:"m" (Reference.of_list [ "top" ]) in
+  let row =
+    let open Sig in
+    let+ cycle = cycle c
+    and+ a = Bind.signal sc "flag" Bind.bool
+    and+ n = Bind.signal sc "nib" Bind.logic in
+    Printf.sprintf "cycle %d flag=%b nib=%s" cycle a (Logic.to_string n)
+  in
+  Ev.subscribe (Ev.when_ (Sig.const c true) row) print_endline;
+  let sched = Result.get_ok (Sched.compile net) in
+  ignore (Sched.run sched (Sampler.create tr (Net.domains net)));
+  Seq.iter (Format.printf "%a@." Diag.pp) (Diag.stream net);
+  [%expect
+    {|
+    cycle 0 flag=false nib=xxxx
+    cycle 1 flag=true nib=xxxx
+    cycle 2 flag=false nib=xxxx
+    warning[signal.undecodable] trace cycle 0 time 2: not a bit vector: bQ; read as unknown
+    top.flag
+    warning[bind.unknown-bits] m cycle 0 time 2: bool of x
+    top.flag
+    warning[signal.undecodable] trace cycle 0 time 2: 9-byte value wider than its 4-bit signal; read as unknown
+    top.nib
+    warning[bind.unknown-bits] m cycle 2 time 6: bool of x
+    top.flag |}]

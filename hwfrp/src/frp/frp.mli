@@ -147,7 +147,9 @@ module Source : sig
     init:'a ->
     (Logic.t -> 'a) ->
     ('a, 'c) Sig.t
-  (** A tracked signal decoded at every sample where it changed. *)
+  (** A tracked signal decoded at every sample where it changed. A value that is not a bit vector of the
+      signal's width (a real, a string, a byte that is no logic value, too many bits) reads as all unknown,
+      and the first one is reported as a [signal.undecodable] diagnostic of source [trace], once per signal. *)
 
   val value :
     ?name:string ->

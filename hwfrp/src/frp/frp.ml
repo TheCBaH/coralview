@@ -82,6 +82,7 @@ and net = {
   mutable dropped : int;
   tallies : (string * string, tally) Hashtbl.t;
   groups : (string * string * string list, group) Hashtbl.t;
+  undecodable : (int, unit) Hashtbl.t;  (** slots already reported as not decodable *)
   mutable exts : ext list;
   mutable poisoned : string list;
 }
@@ -163,6 +164,7 @@ module Net = struct
       dropped = 0;
       tallies = Hashtbl.create 8;
       groups = Hashtbl.create 8;
+      undecodable = Hashtbl.create 8;
       exts = [];
       poisoned = [];
     }
@@ -443,64 +445,6 @@ module Machine = struct
     (out, st)
 end
 
-module Source = struct
-  let make ?name ?(eq = ( == )) rc (s : Trace.signal) ~init read =
-    let name = match name with Some n -> n | None -> Reference.to_string s.path in
-    let n = mk ~name ~kind:K_source rc init in
-    n.eval <-
-      (fun () ->
-        match rc.net.sampler with Some sm -> set_if eq n (read sm s.slot) | None -> false);
-    rc.sources <- ((s.slot :> int), P n) :: rc.sources;
-    n
-
-  let logic ?name ?eq rc s ~init decode =
-    make ?name ?eq rc s ~init (fun sm slot -> decode (Sampler.logic sm slot))
-
-  let value ?name ?eq rc s ~init decode =
-    make ?name ?eq rc s ~init (fun sm slot -> decode (Sampler.value sm slot))
-
-  let many ?name ?(eq = ( == )) rc (signals : Trace.signal array) ~init update =
-    let name =
-      match name with Some n -> n | None -> Printf.sprintf "many(%d)" (Array.length signals)
-    in
-    let n = mk ~name ~kind:K_source rc init in
-    let index = Hashtbl.create (2 * Array.length signals) in
-    Array.iteri
-      (fun i (s : Trace.signal) ->
-        let slot = (s.slot :> int) in
-        Hashtbl.replace index slot (i :: Option.value (Hashtbl.find_opt index slot) ~default:[]))
-      signals;
-    n.eval <-
-      (fun () ->
-        match rc.net.sampler with
-        | None -> false
-        | Some sm ->
-            let changed =
-              if rc.net.tick.index = 0 then List.init (Array.length signals) Fun.id
-              else begin
-                let l = ref [] in
-                Bitset.iter
-                  (fun slot ->
-                    match Hashtbl.find_opt index slot with Some is -> l := is @ !l | None -> ())
-                  (Sampler.changed sm);
-                List.sort Int.compare !l
-              end
-            in
-            changed <> []
-            && set_if eq n (update changed (fun i -> Sampler.logic sm signals.(i).slot) n.value));
-    Hashtbl.iter (fun slot _ -> rc.sources <- (slot, P n) :: rc.sources) index;
-    n
-end
-
-module Clock_cross = struct
-  let resample a rc =
-    let n = mk ~kind:K_signal rc a.value in
-    n.lagged <- [ a.id ];
-    n.eval <- (fun () -> set_if ( == ) n a.value);
-    rc.every <- P n :: rc.every;
-    n
-end
-
 module Diag = struct
   type severity = D.severity = Error | Warning | Info
 
@@ -630,6 +574,77 @@ module Diag = struct
           first_cycle = g.g_first;
           last_cycle = g.g_last;
         })
+end
+
+module Source = struct
+  let make ?name ?(eq = ( == )) rc (s : Trace.signal) ~init read =
+    let name = match name with Some n -> n | None -> Reference.to_string s.path in
+    let n = mk ~name ~kind:K_source rc init in
+    n.eval <-
+      (fun () ->
+        match rc.net.sampler with Some sm -> set_if eq n (read sm s.slot) | None -> false);
+    rc.sources <- ((s.slot :> int), P n) :: rc.sources;
+    n
+
+  let read_logic rc sm (s : Trace.signal) =
+    match Sampler.decoded sm s.slot with
+    | Ok l -> l
+    | Error e ->
+        let slot = (s.slot :> int) in
+        if not (Hashtbl.mem rc.net.undecodable slot) then begin
+          Hashtbl.replace rc.net.undecodable slot ();
+          Diag.report rc.net
+            (Diag.make ~paths:[ s.path ] ~source:"trace" ~code:"signal.undecodable"
+               (Format.asprintf "%a; read as unknown" Logic.pp_decode_error e))
+        end;
+        Logic.unknown s.width
+
+  let logic ?name ?eq rc s ~init decode =
+    make ?name ?eq rc s ~init (fun sm _ -> decode (read_logic rc sm s))
+
+  let value ?name ?eq rc s ~init decode =
+    make ?name ?eq rc s ~init (fun sm slot -> decode (Sampler.value sm slot))
+
+  let many ?name ?(eq = ( == )) rc (signals : Trace.signal array) ~init update =
+    let name =
+      match name with Some n -> n | None -> Printf.sprintf "many(%d)" (Array.length signals)
+    in
+    let n = mk ~name ~kind:K_source rc init in
+    let index = Hashtbl.create (2 * Array.length signals) in
+    Array.iteri
+      (fun i (s : Trace.signal) ->
+        let slot = (s.slot :> int) in
+        Hashtbl.replace index slot (i :: Option.value (Hashtbl.find_opt index slot) ~default:[]))
+      signals;
+    n.eval <-
+      (fun () ->
+        match rc.net.sampler with
+        | None -> false
+        | Some sm ->
+            let changed =
+              if rc.net.tick.index = 0 then List.init (Array.length signals) Fun.id
+              else begin
+                let l = ref [] in
+                Bitset.iter
+                  (fun slot ->
+                    match Hashtbl.find_opt index slot with Some is -> l := is @ !l | None -> ())
+                  (Sampler.changed sm);
+                List.sort Int.compare !l
+              end
+            in
+            changed <> []
+            && set_if eq n (update changed (fun i -> read_logic rc sm signals.(i)) n.value));
+    Hashtbl.iter (fun slot _ -> rc.sources <- (slot, P n) :: rc.sources) index;
+    n
+end
+
+module Clock_cross = struct
+  let resample a rc =
+    let n = mk ~kind:K_signal rc a.value in
+    n.lagged <- [ a.id ];
+    n.eval <- (fun () -> set_if ( == ) n a.value);
+    rc.every <- P n :: rc.every;
+    n
 end
 
 module Track = struct

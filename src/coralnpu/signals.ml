@@ -122,7 +122,17 @@ let sampled (p : Platform.t) tr paths ~from ~until ~changes f =
           (List.combine paths vs)
       end;
       previous := vs);
-  try ignore (Core.run c : Sched.run_stats) with Stop -> ()
+  (try ignore (Core.run c : Sched.run_stats) with Stop -> ());
+  Seq.iter
+    (fun (d : Diag.t) ->
+      if d.code = "signal.undecodable" then
+        let name (r : Vcd_types.Reference.t) =
+          match List.find_opt (fun p -> components p = Vcd_types.Reference.to_list r) paths with
+          | Some p -> p
+          | None -> Vcd_types.Reference.to_string r
+        in
+        Format.eprintf "%s: %s@." (String.concat "," (List.map name d.paths)) d.message)
+    (Diag.stream c.net)
 
 let raw tr paths ~from ~until ~changes f =
   let wanted =
@@ -151,7 +161,7 @@ let raw tr paths ~from ~until ~changes f =
                     | Error e ->
                         if not (Hashtbl.mem undecodable path) then begin
                           Hashtbl.replace undecodable path ();
-                          Format.eprintf "%s: %a; shown as unknown@." path Logic.pp_decode_error e
+                          Format.eprintf "%s: %a; read as unknown@." path Logic.pp_decode_error e
                         end;
                         Logic.unknown s.width
                   in

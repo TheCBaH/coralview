@@ -37,7 +37,9 @@ val sampled :
   (record -> unit) ->
   unit
 (** Each cycle from [from] to [until], in path order; with [changes], only values that differ from the
-    previous cycle, but every value at the window's first cycle. Raises {!Missing}, and
+    previous cycle, but every value at the window's first cycle. A value that is not a bit vector of the
+    signal's width reads as unknown, and its signal is named once on the standard error, as {!raw} does.
+    Raises {!Missing}, and
     {!Hwfrp.Bind.Unbound} when the trace lacks the platform's clock. *)
 
 val raw :
