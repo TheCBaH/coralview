@@ -15,7 +15,7 @@ let producer_status : Driver.format ref = ref `Stderr
 let exit code = Stdlib.exit (Driver.finish ~format:!producer_status code)
 
 let probe path =
-  let { Vcd.header; simulation } = Vcd_fst.open_file path in
+  let { Vcd.header; simulation } = Hwfrp_native.parse_file path in
   let signals = Vcd.Resolver.fold (fun _ n -> n + 1) (Vcd.Resolver.make header) 0 in
   let times, changes, last =
     Seq.fold_left
@@ -106,7 +106,7 @@ let decode features words =
     words
 
 let tree ~depth ~vars path scope =
-  let { Vcd.header; _ } = Vcd_fst.open_file path in
+  Hwfrp_native.with_parse_file path @@ fun { Vcd.header; _ } ->
   let rec total (s : Vcd_ast.scope_node) =
     List.length s.vars + List.fold_left (fun n c -> n + total c) 0 s.children
   in
@@ -161,13 +161,22 @@ let elf_path : string option ref = ref None
 (* The simulator is only what the trace's own header says; nothing is assumed. *)
 let simulator = ref None
 
-let open_trace path =
-  let tr = Hwfrp_native.open_input ~select:!select path in
+let note_simulator tr =
   simulator :=
     Option.map String.trim (Hwfrp.Trace.header tr).version
     |> Option.map (fun v -> if v = "" then None else Some v)
-    |> Option.join;
+    |> Option.join
+
+(* A trace read to its end closes itself; a reader that may stop early scopes it with [with_trace]. *)
+let open_trace path =
+  let tr = Hwfrp_native.open_input ~select:!select path in
+  note_simulator tr;
   tr
+
+let with_trace path f =
+  Hwfrp_native.with_input ~select:!select path (fun tr ->
+      note_simulator tr;
+      f tr)
 
 let banner_line ~platform ~simulator =
   Printf.sprintf "platform %s%s\n" platform
@@ -233,26 +242,27 @@ let resolve_between (p : Platform.t) path (ctx : Text.ctx) =
                       name,
                       "a ret of " ^ name )))
       in
-      let pulled = guard p (fun () -> Analysis.pull (module Commits) () p (open_trace path)) in
       let seen = ref 0 and first = ref None and last = ref None in
-      (try
-         Seq.iter
-           (function
-             | Commits.Event.Commit c -> (
-                 match !first with
-                 | None ->
-                     if is_start c then begin
-                       incr seen;
-                       if !seen = nth then first := Some c.retired
-                     end
-                 | Some f ->
-                     if is_end c && c.retired >= f then begin
-                       last := Some c.retired;
-                       raise Exit
-                     end)
-             | _ -> ())
-           pulled.events
-       with Exit -> ());
+      with_trace path (fun tr ->
+          let pulled = guard p (fun () -> Analysis.pull (module Commits) () p tr) in
+          try
+            Seq.iter
+              (function
+                | Commits.Event.Commit c -> (
+                    match !first with
+                    | None ->
+                        if is_start c then begin
+                          incr seen;
+                          if !seen = nth then first := Some c.retired
+                        end
+                    | Some f ->
+                        if is_end c && c.retired >= f then begin
+                          last := Some c.retired;
+                          raise Exit
+                        end)
+                | _ -> ())
+              pulled.events
+          with Exit -> ());
       let first =
         match !first with
         | Some c -> c
@@ -392,7 +402,7 @@ let signals platform ~raw ~format ~changes ~cycles:(from_cycle, to_cycle)
   producer_status := if jsonl then `Jsonl else `Text;
   if raw && !plan_path <> None then
     fail ~code:2 "--plan checks the sampled signals, which --raw does not build: drop --raw";
-  let tr = open_trace path in
+  with_trace path @@ fun tr ->
   (try Signals.require tr paths
    with Signals.Missing p -> fail ~code:3 ("no signal " ^ p ^ " in the trace"));
   let phase, run =
@@ -565,14 +575,14 @@ let select_models (p : Platform.t) = function
 let check p names ~format path =
   let selected = select_models p names in
   let jsonl = format = `Jsonl and bound = ref 0 and failed = ref 0 in
-  ignore (open_trace path);
+  with_trace path ignore;
   if not jsonl then banner p;
   if jsonl then
     print_endline
       (Codec.to_line Jsonl.header_jsont (jsonl_header ~model:"check" ~platform:p.name ~trace:path));
   List.iter
     (fun m ->
-      let tr = Hwfrp_native.open_input ~select:!select path in
+      with_trace path @@ fun tr ->
       guard p (fun () ->
           let (Core.Any c) = Core.bind ~collect:true p tr ~model:m.name in
           m.build c;
@@ -600,9 +610,9 @@ let check p names ~format path =
 let plan_command (p : Platform.t) names signal_paths catalogs dir producer ~format =
   if catalogs = [] then fail ~code:2 "plan needs --catalog";
   let models = if names = [] && signal_paths <> [] then [] else select_models p names in
-  let catalog file =
+  let with_catalog file f =
     match Hwfrp_native.open_file_result file with
-    | Ok tr -> tr
+    | Ok tr -> Fun.protect ~finally:(fun () -> Hwfrp_native.close tr) (fun () -> f tr)
     | Error (`Io _ as e) -> fail ~code:2 (Vcd.Error.to_string e)
     | Error e -> raise (Vcd.Error.E e)
   in
@@ -611,7 +621,7 @@ let plan_command (p : Platform.t) names signal_paths catalogs dir producer ~form
       (fun file ->
         List.map
           (fun m ->
-            let tr = catalog file in
+            with_catalog file @@ fun tr ->
             guard p (fun () ->
                 let (Core.Any c) = Core.bind p tr ~model:m.name in
                 m.build c;
@@ -620,7 +630,7 @@ let plan_command (p : Platform.t) names signal_paths catalogs dir producer ~form
         @
         if signal_paths = [] then []
         else
-          let tr = catalog file in
+          with_catalog file @@ fun tr ->
           try
             [
               guard p (fun () ->
@@ -635,8 +645,8 @@ let plan_command (p : Platform.t) names signal_paths catalogs dir producer ~form
     | Ok plan -> plan
     | Error l -> fail ~code:3 (String.concat "\n" ("the catalogs disagree:" :: indent l))
   in
-  let first = catalog (List.hd catalogs) in
   let manifest =
+    with_catalog (List.hd catalogs) @@ fun first ->
     match
       Hwfrp.Capture.Verilator.manifest ~catalog:first ~producer ~format:(Hwfrp.Trace.format first)
         plan

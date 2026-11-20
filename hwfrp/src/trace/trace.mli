@@ -36,6 +36,13 @@ val of_parse :
     With [select] (the default), only the changes of the signals tracked by the time {!events} is
     called are read. *)
 
+val on_close : t -> (unit -> unit) -> unit
+(** Registers what {!close} does for the resource the events are read from. *)
+
+val close : t -> unit
+(** Releases what the trace's source holds open, most recent registration first. Idempotent. Events
+    pulled afterwards are an error of the source. *)
+
 val format : t -> format
 val header : t -> Vcd_ast.header
 val resolver : t -> Vcd.Resolver.t
