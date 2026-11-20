@@ -154,3 +154,27 @@ from writes it; the labels follow the instruction as `; label`:
   $ coralview disasm --annotate bad.txt img.elf
   --annotate: bad.txt: line 1: expected LOCATION LABEL
   [2]
+
+A tab separates the location from the label as a space does:
+
+  $ printf 'kernel+0x1c\tloop back edge\n' > tab.txt
+  $ coralview disasm --annotate tab.txt --range 0x118-0x124 img.elf
+    00000118  43e06057  vtzero mt0
+    0000011c  feb512e3  bne x10, x11, -28  <kernel>  ; loop back edge
+    00000120  010000ef  jal x1, 16  <helper>
+
+A token of eight hex digits is a function when the ELF has one of that name, and an address
+otherwise:
+
+  $ ../../tools/mkelf.exe hex.elf 100 deadbeef=$H
+  $ printf 'deadbeef the function\n' > hex.txt
+  $ coralview disasm --annotate hex.txt hex.elf
+  deadbeef:
+    00000100  ff010113  addi x2, x2, -16  ; the function
+    00000104  00008067  jalr x0, 0(x1)  ; the function
+    00000108  12345678  .word 0x12345678  ; the function
+  $ printf '00000104\tan address\n' > addr.txt
+  $ coralview disasm --annotate addr.txt hex.elf --range 0x100-0x108
+  deadbeef:
+    00000100  ff010113  addi x2, x2, -16
+    00000104  00008067  jalr x0, 0(x1)  ; an address

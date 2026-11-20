@@ -327,6 +327,7 @@ let annotation_labels ~functions =
 
 let elf_functions name =
   match !elf_symbols with
+  | None when Annotate.is_hex8 name -> []
   | None -> fail ~code:2 ("--annotate: " ^ name ^ " needs --elf")
   | Some t -> List.map (fun (f : Symbols.func) -> (f.address, f.size)) (Symbols.find t name)
 

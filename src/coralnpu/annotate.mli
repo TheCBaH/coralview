@@ -11,11 +11,17 @@
     - [NAME]: the whole function [NAME] of the ELF;
     - [NAME+OFF] or [NAME+OFF-OFF]: the byte at that offset, or the offsets from the first up to but not
       including the second;
-    - [0xADDR] or [0xADDR-0xADDR], or eight hex digits: the same by absolute address.
+    - [0xADDR] or [0xADDR-0xADDR], or eight hex digits: the same by absolute address. Eight hex
+      digits that name a function of the ELF are that function.
+
+    The location ends at the first space or tab.
 
     Offsets are decimal or [0x] hexadecimal. Several entries can cover one address; all their labels apply. *)
 
 type t
+
+val is_hex8 : string -> bool
+(** Eight hex digits: a location that is an address, or a function of that name. *)
 
 val parse : functions:(string -> (int * int) list) -> string -> (t, string) result
 (** [functions name] gives the [(address, size)] of the functions of that name. An entry naming a function
