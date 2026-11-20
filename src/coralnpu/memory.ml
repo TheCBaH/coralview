@@ -149,20 +149,21 @@ let accesses ~region ~data_bytes s pc events =
             let pcs_of = IM.remove source pcs_of in
             if Tlul.is_get t.request then (pcs_of, access ~region ~data_bytes t at t.response :: out)
             else (pcs_of, out)
-        | Unmatched _ -> (pcs_of, out))
+        | Unmatched _ | Reopened _ -> (pcs_of, out))
       (s.pcs_of, []) events
   in
   (pcs_of, List.rev out)
 
-let step ~region ~data_bytes ~port s cycle (sample, pc, fault) =
+let step ?(report = ignore) ~region ~data_bytes ~port s cycle (sample, pc, fault) =
   let tl, events = Tlul.step port s.tl cycle sample in
+  List.iter report events;
   let pcs_of, accesses = accesses ~region ~data_bytes s pc events in
   let last_request =
     List.fold_left
       (fun m -> function
         | Tlul.Accepted t ->
             RM.add (pc, not (Tlul.is_get t.request)) (t.accepted, t.request.address) m
-        | Responded _ | Unmatched _ -> m)
+        | Responded _ | Unmatched _ | Reopened _ -> m)
       s.last_request events
   in
   let s = { s with tl; pcs_of; last_request } in
@@ -230,7 +231,10 @@ let build (cfg : Config.t) (c : _ Core.t) =
             pcs = IM.empty;
             faults = 0;
           };
-        step = (fun ~tick s x -> step ~region:cfg.region ~data_bytes ~port s tick.index x);
+        step =
+          (fun ~tick s x ->
+            let report e = Option.iter (Diag.report c.net) (Tlul.diagnostic port ~source:name e) in
+            step ~report ~region:cfg.region ~data_bytes ~port s tick.index x);
         finish = (fun _ -> []);
         every_tick = true;
       }

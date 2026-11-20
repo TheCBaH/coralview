@@ -1,6 +1,7 @@
 #!/bin/bash
-# Writes memory.vcd to stdout, wide.vcd with the argument "wide", or narrow.vcd with "narrow": a clock, the LSU's
-# TileLink-UL port (channel A and D), its fault port, and the PC of its slot, set at each falling edge.
+# Writes memory.vcd to stdout, wide.vcd with the argument "wide", narrow.vcd with "narrow", or proto.vcd with
+# "proto": a clock, the LSU's TileLink-UL
+# port (channel A and D), its fault port, and the PC of its slot, set at each falling edge.
 variant=$1
 vars=(
   "1 av io_tlul_a_valid" "1 ar io_tlul_a_ready" "3 ao io_tlul_a_bits_opcode" "4 az io_tlul_a_bits_size"
@@ -75,6 +76,15 @@ if [ "$variant" = narrow ]; then # 8-byte accesses, a write at the upper lanes, 
     "az 2 as 1 aa 10014 am f0 ad cafef00d00000000 ep 304"
     "ao 4 as 2 aa 10028 am 0 ad 0 ep 308"
     "av 0 dv 1 ds 2 dd 1122334455667788"
+    "dv 0"
+  )
+fi
+if [ "$variant" = proto ]; then # a source requested twice, then answered twice: the second answer is stray
+  cycles=(
+    "av 1 ar 1 ao 4 az 2 as 1 aa 10008 am 0f00 ad 0 ep 400"
+    "aa 1000c ep 404"
+    "av 0 dv 1 ds 1 dd 00000000112233440000000000000000"
+    "ds 5"
     "dv 0"
   )
 fi

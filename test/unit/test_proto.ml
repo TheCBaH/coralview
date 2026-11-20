@@ -261,7 +261,8 @@ let%expect_test "Tlul" =
                     (function
                       | Tlul.Accepted t -> Printf.printf "%d accepted %s\n" c (pp t)
                       | Responded t -> Printf.printf "%d responded %s\n" c (pp t)
-                      | Unmatched s -> Printf.printf "%d unmatched source %d\n" c s)
+                      | Unmatched s -> Printf.printf "%d unmatched source %d\n" c s
+                      | Reopened t -> Printf.printf "%d reopened %s\n" c (pp t))
                     evs;
                   if c = 7 then Printf.printf "max outstanding %d\n" (Tlul.max_outstanding !st)));
         })
@@ -285,6 +286,57 @@ let%expect_test "Tlul" =
     5 responded Get src 1 14 req 4 acc 4 resp 5 data 0 error
     6 unmatched source 3
     max outstanding 2 |}]
+
+(* A request for a source with one outstanding replaces it; a response in the same cycle frees the source
+   first. *)
+let%expect_test "Tlul reopened source" =
+  let cycles =
+    [
+      (0, a 4 1 0x10 0);
+      (1, a 0 1 0x20 0xaa);
+      (2, d 1 0x5);
+      (3, a 4 3 0x30 0);
+      (4, d 3 0x7 @ a 4 3 0x34 0);
+      (5, d 3 0x8);
+    ]
+  in
+  setup (vcd tl_wires cycles 7)
+    {
+      build =
+        (fun clk sc ->
+          let p = Tlul.bind sc { prefix = "t_"; d_ready = true } ~data_bytes:4 in
+          let st = ref Tlul.init in
+          Ev.subscribe
+            (Ev.when_ (Sig.const clk true)
+               (Sig.map2 (fun c s -> (c, s)) (Sig.cycle clk) (Tlul.sample p)))
+            (fun (c, s) ->
+              let s, evs = Tlul.step p !st c s in
+              st := s;
+              List.iter
+                (fun ev ->
+                  (match ev with
+                  | Tlul.Accepted t ->
+                      Printf.printf "%d accepted src %d %x\n" c t.request.source t.request.address
+                  | Responded t ->
+                      Printf.printf "%d responded src %d %x\n" c t.request.source t.request.address
+                  | Unmatched s -> Printf.printf "%d unmatched source %d\n" c s
+                  | Reopened t ->
+                      Printf.printf "%d reopened src %d %x\n" c t.request.source t.request.address);
+                  Option.iter (Format.printf "  %a@." Diag.pp) (Tlul.diagnostic p ~source:"t" ev))
+                evs));
+    };
+  [%expect
+    {|
+    0 accepted src 1 10
+    1 reopened src 1 10
+      warning[tlul.reopened] t: source 1 requested again while its read of 00000010, accepted at cycle 0, is outstanding
+    top.t_a_bits_source
+    1 accepted src 1 20
+    2 responded src 1 20
+    3 accepted src 3 30
+    4 accepted src 3 34
+    4 responded src 3 30
+    5 responded src 3 34 |}]
 
 (* An access of 8 bytes does not fit an int: the value keeps its low 62 bits. *)
 let%expect_test "Tlul.value of an 8-byte access" =

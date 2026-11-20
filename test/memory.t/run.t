@@ -84,3 +84,9 @@ the upper four bytes, and a read with no mask, whose lanes come from its address
   {"type":"memory.access","cycle":0,"pc":768,"lanes":[0,1,2,3,4,5,6,7],"data":"8899aabbccddeeff"}
   {"type":"memory.access","cycle":1,"pc":772,"lanes":[4,5,6,7],"data":"cafef00d00000000"}
   {"type":"memory.access","cycle":2,"pc":776,"lanes":[0,1,2,3],"data":"1122334455667788"}
+
+A source that is requested again before its response replaces the first request, which the diagnostic
+names (proto.vcd is made by gen.sh proto):
+
+  $ coralview memory --platform mem-core.json --format jsonl proto.vcd | grep tlul.reopened
+  {"type":"diag","severity":"warning","source":"memory","code":"tlul.reopened","cycle":1,"time":4,"paths":["TOP.core.lsu.io_tlul_a_bits_source"],"message":"source 1 requested again while its read of 00010008, accepted at cycle 0, is outstanding"}

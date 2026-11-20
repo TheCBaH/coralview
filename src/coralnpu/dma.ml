@@ -224,6 +224,9 @@ let on_device ~data_bytes ~stray cycle req s = function
   | Tlul.Unmatched src ->
       stray (Printf.sprintf "CSR response for source %d" src);
       s
+  | Tlul.Reopened t ->
+      stray (Printf.sprintf "CSR request for source %d while one is outstanding" t.request.source);
+      s
   | Tlul.Responded t ->
       let reg = t.request.address land 0xfff in
       let pc = Option.join (IM.find_opt t.request.source s.pcs) in
@@ -295,6 +298,9 @@ let on_host ~region ~stray cycle s = function
       | None -> s)
   | Tlul.Unmatched src ->
       stray (Printf.sprintf "host response for source %d" src);
+      s
+  | Tlul.Reopened t ->
+      stray (Printf.sprintf "host request for source %d while one is outstanding" t.request.source);
       s
   | Tlul.Responded t -> (
       let q = t.request in
