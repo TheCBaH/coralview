@@ -45,3 +45,52 @@ holds the date it was written, so regenerating changes its bytes, not its conten
 
   $ coralview memory --platform mem-core.json --format jsonl memory.fst | tail -n +2 > fst.jsonl
   $ coralview memory --platform mem-core.json --format jsonl memory.vcd | tail -n +2 | cmp - fst.jsonl
+
+Accesses of 8 and 16 bytes print every byte of their data, a read of 16 bytes the line of its response (wide.vcd
+is made by gen.sh wide):
+
+  $ coralview memory --platform mem-core.json wide.vcd
+  platform mem-core
+         0 W pc 00000200 addr 00010008 8 bytes 8899aabbccddeeff
+         1 W pc 00000204 addr 00010010 16 bytes 0102030405060708090a0b0c0d0e0f10
+         2 R pc 00000208 addr 00010020 16 bytes 8f0e0d0c0b0a09080706050403020100
+  root TOP.core: 1 read and 2 write requests from 3 PCs, 0 faults
+
+The lanes follow the description's data bus, here 8 bytes (narrow.vcd is made by gen.sh narrow): a write of
+the upper four bytes, and a read with no mask, whose lanes come from its address and size:
+
+  $ coralview memory --platform mem8-core.json narrow.vcd
+  platform mem8-core
+         0 W pc 00000300 addr 00010008 8 bytes 8899aabbccddeeff
+         1 W pc 00000304 addr 00010014 4 bytes cafef00d
+         2 R pc 00000308 addr 00010028 4 bytes 55667788
+  root TOP.core: 1 read and 2 write requests from 3 PCs, 0 faults
+  $ coralview memory --platform mem8-core.json --format jsonl narrow.vcd | grep '"lanes"' | sed 's/"access.*"lanes"/"lanes"/'
+  {"type":"memory.access","cycle":0,"pc":768,"lanes":[0,1,2,3,4,5,6,7],"data":"8899aabbccddeeff"}
+  {"type":"memory.access","cycle":1,"pc":772,"lanes":[4,5,6,7],"data":"cafef00d00000000"}
+  {"type":"memory.access","cycle":2,"pc":776,"lanes":[0,1,2,3],"data":"1122334455667788"}
+
+A source that is requested again before its response replaces the first request, which the diagnostic
+names (proto.vcd is made by gen.sh proto):
+
+  $ coralview memory --platform mem-core.json --format jsonl proto.vcd | grep tlul.reopened
+  {"type":"diag","severity":"warning","source":"memory","code":"tlul.reopened","cycle":1,"time":4,"paths":["TOP.core.lsu.io_tlul_a_bits_source"],"message":"source 1 requested again while its read of 00010008, accepted at cycle 0, is outstanding"}
+
+A response for a source with nothing outstanding is counted and listed, where it came, and is a diagnostic
+too:
+
+  $ coralview memory --platform mem-core.json proto.vcd
+  platform mem-core
+         1 R pc 00000404 addr 0001000c 4 bytes 11223344
+         3 unmatched response for source 5
+  root TOP.core: 1 read and 0 write requests from 1 PCs, 0 faults, 1 unmatched
+  $ coralview memory --platform mem-core.json --format jsonl proto.vcd | tail -n +2 | grep -v tlul.reopened
+  {"type":"memory.access","cycle":1,"pc":1028,"access":{"address":65548,"bytes":4,"write":false},"lanes":[8,9,10,11],"data":"00000000112233440000000000000000"}
+  {"type":"memory.unmatched","cycle":3,"source":5}
+  {"type":"diag","severity":"warning","source":"memory","code":"tlul.unmatched","cycle":3,"time":8,"paths":["TOP.core.lsu.io_tlul_d_bits_source"],"message":"response for source 5 with nothing outstanding"}
+  {"type":"memory.summary","reads":1,"writes":0,"pcs":1,"faults":0,"unmatched":1}
+  $ coralview memory --platform mem-core.json --from-cycle 2 --to-cycle 4 proto.vcd
+  platform mem-core
+         3 unmatched response for source 5
+  root TOP.core: 1 read and 0 write requests from 1 PCs, 0 faults, 1 unmatched
+  window [2, 4]: 0 read and 0 write requests from 0 PCs, 0 faults, 1 unmatched

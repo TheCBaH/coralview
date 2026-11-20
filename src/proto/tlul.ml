@@ -20,11 +20,22 @@ let is_get r = r.opcode = 4
 
 let value ~data_bytes r data =
   let lane = r.address land (data_bytes - 1) in
-  Bits.field_int data ~lo:(8 * lane) ~width:(8 * min 8 (min r.size (data_bytes - lane)))
+  Bits.field_int data ~lo:(8 * lane) ~width:(min 62 (8 * min r.size (data_bytes - lane)))
 
-type event = Accepted of transaction | Responded of transaction | Unmatched of int
+type event =
+  | Accepted of transaction
+  | Responded of transaction
+  | Unmatched of int
+  | Reopened of transaction
+
 type sample = (bool * bool * request) * (int * Bits.t * bool) option
-type 'c t = { sample : (sample, 'c) Sig.t; data_bytes : int }
+
+type 'c t = {
+  sample : (sample, 'c) Sig.t;
+  data_bytes : int;
+  a_source : Vcd_types.Reference.t;
+  d_source : Vcd_types.Reference.t;
+}
 
 module IM = Map.Make (Int)
 
@@ -59,7 +70,13 @@ let bind sc (p : names) ~data_bytes =
     and+ error = b "d_bits_error" in
     if valid && ready then Some (source, data, error) else None
   in
-  { sample = Sig.map2 (fun a d -> (a, d)) a d; data_bytes }
+  let path x = Vcd_types.Reference.of_list (Vcd_types.Reference.to_list (Bind.path sc) @ [ n x ]) in
+  {
+    sample = Sig.map2 (fun a d -> (a, d)) a d;
+    data_bytes;
+    a_source = path "a_bits_source";
+    d_source = path "d_bits_source";
+  }
 
 let sample t = t.sample
 
@@ -73,6 +90,11 @@ let step t s cycle ((valid, fire, req), d) =
         | Some x ->
             ( IM.remove source s.pending,
               [ Responded { x with responded = Some cycle; response; error } ] ))
+  in
+  let reopened =
+    if fire then
+      Option.fold (IM.find_opt req.source pending) ~none:[] ~some:(fun x -> [ Reopened x ])
+    else []
   in
   let pending, accepted =
     if fire then
@@ -91,7 +113,7 @@ let step t s cycle ((valid, fire, req), d) =
     else (pending, [])
   in
   let since = if valid && not fire then Some (Option.value s.since ~default:cycle) else None in
-  ({ pending; since; max = max s.max (IM.cardinal pending) }, accepted @ responded)
+  ({ pending; since; max = max s.max (IM.cardinal pending) }, reopened @ accepted @ responded)
 
 let max_outstanding s = s.max
 
@@ -109,3 +131,18 @@ let to_transaction t =
     status = (if t.error then 2 else 0);
     outstanding = t.outstanding;
   }
+
+let diagnostic t ~source = function
+  | Accepted _ | Responded _ -> None
+  | Unmatched src ->
+      Some
+        (Diag.make ~paths:[ t.d_source ] ~source ~code:"tlul.unmatched"
+           (Printf.sprintf "response for source %d with nothing outstanding" src))
+  | Reopened x ->
+      Some
+        (Diag.make ~paths:[ t.a_source ] ~source ~code:"tlul.reopened"
+           (Printf.sprintf
+              "source %d requested again while its %s of %08x, accepted at cycle %d, is outstanding"
+              x.request.source
+              (if is_get x.request then "read" else "write")
+              x.request.address x.accepted))

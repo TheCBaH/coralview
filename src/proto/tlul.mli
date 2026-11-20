@@ -27,13 +27,16 @@ type transaction = {
 val is_get : request -> bool
 
 val value : data_bytes:int -> request -> Hwfrp.Bits.t -> int
-(** The [request.size] bytes at the request's address in a data bus of [data_bytes], little-endian;
-    at most 8. *)
+(** The [request.size] bytes at the request's address in a data bus of [data_bytes], little-endian,
+    clipped to the bus; an access of 8 bytes keeps its low 62 bits. *)
 
 type event =
   | Accepted of transaction
   | Responded of transaction
   | Unmatched of int  (** A response for a source with nothing outstanding. *)
+  | Reopened of transaction
+      (** A request accepted for a source that has one outstanding: it replaces that one, which is this
+          transaction, and is never answered. Reported before the {!Accepted} of the new request. *)
 
 type 'c t
 
@@ -58,6 +61,10 @@ val init : state
 
 val step : 'c t -> state -> int -> sample -> state * event list
 (** Advances the port by one cycle, given its sample: that cycle's acceptance and then its response. *)
+
+val diagnostic : 'c t -> source:string -> event -> Hwfrp.Diag.t option
+(** [tlul.unmatched] for an {!Unmatched} and [tlul.reopened] for a {!Reopened}, with the path of the
+    source wire; [source] is the reporting model. [None] for the other events. *)
 
 val max_outstanding : state -> int
 

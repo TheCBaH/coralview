@@ -71,7 +71,9 @@ type event =
   | Open_at_end of Hwfrp.Transaction.t * extra
   | Unmatched of { cycle : int; write : bool; id : int; what : string }
       (** Read data or a write response with no outstanding transaction of its ID, as it comes; write
-          data with no write address by the end ([id] is [-1], [cycle] its first beat). *)
+          data with no write address by the end ([id] is [-1], [cycle] its first beat). Also a burst whose
+          beats are not [AxLEN + 1] (a read at its last beat, a write when its data and its address are both
+          known), and a write response ahead of its last data beat. *)
 
 type counts = { max_reads : int; max_writes : int  (** Outstanding at once. *) }
 

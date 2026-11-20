@@ -108,7 +108,7 @@ module IM = Map.Make (Int)
 
 (* A write data burst, possibly ahead of its address. *)
 type wburst = { wb_first : int; wb_bytes : int; wb_beats : int }
-type pending = { t : Transaction.t; x : extra }
+type pending = { t : Transaction.t; x : extra; seen : int  (** Read beats so far. *) }
 
 type state = {
   live : pending IM.t;  (** Outstanding, by serial: acceptance order. *)
@@ -152,7 +152,7 @@ let pop q id = IM.update id (function Some (_ :: (_ :: _ as rest)) -> Some rest 
 let push q id s = IM.update id (fun l -> Some (Option.value l ~default:[] @ [ s ])) q
 let set s k f = { s with live = IM.add k (f (IM.find k s.live)) s.live }
 
-let attach s k wb =
+let attach_data s k wb =
   set s k (fun p -> { p with t = { p.t with bytes = wb.wb_bytes; first_data = Some wb.wb_first } })
 
 (* One cycle: responses first, as none can belong to an address accepted in the same cycle. *)
@@ -160,6 +160,17 @@ let step s cycle (ar, aw, r, w, bch) =
   let out = ref [] in
   let emit e = out := e :: !out in
   let miss write id what = emit (Unmatched { cycle; write; id; what }) in
+  let beats ch (p : pending) n =
+    if n <> p.t.beats then
+      miss (ch = 'W') p.t.id
+        (Printf.sprintf "%s data burst of %d beats, A%cLEN+1 is %d"
+           (if ch = 'W' then "write" else "read")
+           n ch p.t.beats)
+  in
+  let attach s k wb =
+    beats 'W' (IM.find k s.live) wb.wb_beats;
+    attach_data s k wb
+  in
   let complete s k =
     let p = IM.find k s.live in
     let t = { p.t with completed = Some cycle } in
@@ -174,12 +185,14 @@ let step s cycle (ar, aw, r, w, bch) =
           miss false r.r_id "read data with no outstanding read";
           s
       | Some k ->
+          if r.r_last then beats 'R' (IM.find k s.live) ((IM.find k s.live).seen + 1);
           let s =
             set s k (fun p ->
                 let t = p.t in
                 let first_data = if t.first_data = None then Some cycle else t.first_data in
                 {
                   p with
+                  seen = p.seen + 1;
                   t =
                     {
                       t with
@@ -201,6 +214,13 @@ let step s cycle (ar, aw, r, w, bch) =
           miss true bch.b_id "write response with no outstanding write";
           s
       | Some k ->
+          let s =
+            if List.mem k s.need_data then begin
+              miss true bch.b_id "write response before its last data beat";
+              { s with need_data = List.filter (( <> ) k) s.need_data }
+            end
+            else s
+          in
           let s =
             set s k (fun p -> { p with t = { p.t with status = max p.t.status bch.b_resp } })
           in
@@ -242,6 +262,7 @@ let step s cycle (ar, aw, r, w, bch) =
             outstanding = reads_out + writes_out;
           };
         x = { serial = s.serial; burst = ch.a_burst; beat_bytes = 1 lsl ch.a_size };
+        seen = 0;
       }
     in
     ( {

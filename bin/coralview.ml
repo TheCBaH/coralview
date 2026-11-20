@@ -1747,7 +1747,7 @@ let commands =
               let pulled = Analysis.pull (module Memory) { region } p (open_trace ()) in
               List.of_seq
                 (Seq.filter_map
-                   (function Memory.Event.Access a -> Some a | Fault _ -> None)
+                   (function Memory.Event.Access a -> Some a | Fault _ | Unmatched _ -> None)
                    pulled.events)
             in
             let rows = Cost.join ~classify:c.instruction_class ~window commits accesses in
