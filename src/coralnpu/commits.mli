@@ -5,7 +5,8 @@
 (** Retired instructions with their word, destination value and timing, from the debug ports alone: the word
     comes from the dispatch lane (the mini core's retirement buffer reports 0), the value from the register
     file writeback that the retirement's destination index consumes, and every cycle is charged to the oldest
-    instruction in flight, so that the charges of a run add up to its cycles. *)
+    instruction in flight, so that the charges of a run, those of the dispatches dropped unretired
+    included, add up to its cycles. *)
 
 val name : string
 val doc : string
@@ -53,7 +54,9 @@ type summary = {
   before : int;  (** Cycles before the first dispatch: reset and boot. *)
   empty : int;  (** Later cycles with nothing in flight: the front end is not delivering. *)
   unmatched_retires : int;  (** Retired with no dispatch in flight for its PC. *)
-  skipped : int;  (** Dispatched but passed over by a younger retirement. *)
+  skipped : int;
+      (** Dispatched but dropped without retiring: passed over by a younger retirement, or behind a trapping one. *)
+  discarded : int;  (** Cycles that were charged to those instructions. *)
   missing_values : int;  (** Destination with no writeback to consume. *)
   in_flight : int;  (** Dispatched, not retired by the end. *)
   pending : (int * int * int) list;
@@ -65,6 +68,27 @@ module Summary : sig
 
   val jsont : t Jsont.t
 end
+
+type state
+(** The matcher's state: the dispatches in flight, the written values by register and the summary so far. *)
+
+val start : state
+
+val step :
+  no_write:int ->
+  store:int ->
+  state ->
+  int ->
+  Core.dispatched list * Core.write list * Core.retired list ->
+  state * Event.t list
+(** One cycle's dispatches, writes and retirements, in that order. The retirements come out in lane order.
+    [no_write] and [store] are the retirement buffer's destination indices of those kinds. *)
+
+val finish : state -> summary
+(** The summary of the cycles stepped, with what is still in flight. *)
+
+val flights : state -> flight list
+(** Dispatched and not retired, oldest first. *)
 
 val build :
   Config.t -> 'c Core.t -> (Event.t list, 'c) Hwfrp.Ev.t * (Hwfrp.Sched.run_stats -> summary)

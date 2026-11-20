@@ -179,12 +179,32 @@ cycle on the cycle's dispatched, written and retired lanes, keeps:
 
 - **the instructions in flight, in dispatch order.** Dispatch is in
   program order, so a retirement takes the oldest entry with its PC; that
-  entry supplies the word;
+  entry supplies the word. A decode fault retires without a dispatch,
+  which is counted as a retire without dispatch;
 - **a queue of written values per register.** A retirement whose
   destination index is a register takes the oldest value written to it.
-  The scoreboard keeps writes to one register in order;
-- **a charge per cycle,** given to the oldest instruction in flight, so
-  that the charges add up to the run's cycles.
+  The scoreboard keeps writes to one register in order. Writes to x0 are
+  not kept: the retirement buffer reports no destination for it;
+- **a flush.** A retirement with the trap bit flushes the retirement
+  buffer in the same sample: nothing dispatches in it, no lane retires
+  after the trapping one, and dispatch resumes four cycles later. The
+  instructions dispatched behind the trapping one never retire, and some
+  have already written back (an `addi` in the same dispatch group does,
+  before the flush). Both queues are emptied after the sample's
+  retirements, and the dropped entries count as skipped;
+- **a charge per cycle,** given to the oldest instruction in flight.
+  A retirement that finds an older entry ahead of its own drops it, as
+  does a flush; the cycles charged to a dropped entry go to `discarded`
+  in the summary. Every cycle is charged once, so
+
+  ```
+  cycles = retired + in flight + discarded + before + empty
+  ```
+
+  where `retired` and `in flight` are the sums of `charged` over the
+  `commits.commit` and `commits.in_flight` events, and `before` and `empty`
+  are the cycles with nothing in flight before and after the first
+  dispatch.
 
 ```
 $ coralview commits --platform vme-core-mini-axi --limit 6 --profile 5 matrix.fst
@@ -196,8 +216,8 @@ $ coralview commits --platform vme-core-mini-axi --limit 6 --profile 5 matrix.fs
      414 0 00000010 00018117 auipc x2, 24                     x2=00018010        1   1   1
      415 0 00000014 ff010113 addi x2, x2, -16                 x2=00018000        1   1   1
 root VVmeCoreMiniAxi.core.VmeCoreMiniAxi: 1084 cycles, 406 before the first dispatch, 18 later
-with nothing in flight; 0 retires without dispatch, 0 dispatches skipped, 10 values missing, 0 in
-flight at the end
+with nothing in flight; 0 retires without dispatch, 0 dispatches skipped with 0 cycles
+charged, 10 values missing, 0 in flight at the end
       pc  count  cycles  share     d->r  instruction
 0000023c      1      23   2.1%    22.00  vtse32 x12, 0(x2)
 000001fc      1      20   1.8%    21.00  vtse32 x12, 0(x2)
@@ -927,7 +947,7 @@ axi.unmatched: cycle id what write
 check.binding: actual model path purpose root status width
 check.summary: bound failed
 commits.commit: charged dest.reg dest.value dispatch_to_retire dispatch_to_writeback instance.dispatched instance.pc instance.retired instance.word lane store trap writeback
-commits.summary: before cycles empty in_flight missing_values skipped unmatched_retires
+commits.summary: before cycles discarded empty in_flight missing_values skipped unmatched_retires
 coralview: model platform schema_version trace
 diag: code cycle message paths[] severity source time
 dma.job: aborted beats[].read.accepted beats[].read.address beats[].read.beats beats[].read.bytes beats[].read.completed beats[].read.first_data beats[].read.id beats[].read.outstanding beats[].read.requested beats[].read.status beats[].read.write beats[].write.accepted beats[].write.address beats[].write.beats beats[].write.bytes beats[].write.completed beats[].write.first_data beats[].write.id beats[].write.outstanding beats[].write.requested beats[].write.status beats[].write.write descriptors[].at descriptors[].beat descriptors[].dst.address descriptors[].dst.bytes descriptors[].dst.write descriptors[].dst_fixed descriptors[].fetch.start descriptors[].fetch.stop descriptors[].len descriptors[].next descriptors[].poll.address descriptors[].poll.mask descriptors[].poll.value descriptors[].src.address descriptors[].src.bytes descriptors[].src.write descriptors[].src_fixed error first observed.cycle observed.pc pc polls span.start span.stop status_reads
@@ -972,8 +992,9 @@ instruction:
 
 `d->r` is latency. Instructions overlap, so latencies do not add up to run
 time. `charged` is the run-time view: summed over all instructions, plus
-the cycles before the first dispatch and the cycles with nothing in flight,
-it equals the cycle count. Sorted by PC (`--profile N`), it says which
+the charges of dispatches dropped unretired (`discarded` in the summary), the
+cycles before the first dispatch and the cycles with nothing in flight, it
+equals the cycle count. Sorted by PC (`--profile N`), it says which
 instructions the run was waiting for. Add `stalls` to see why the next
 instruction could not dispatch while they were in flight.
 
