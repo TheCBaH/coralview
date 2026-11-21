@@ -878,6 +878,9 @@ text, or JSONL, its own command gives (`KIND` is `text` or `jsonl`,
 1.8 s together, against about 10 s for each alone, as opening the trace
 dominates. The common options (`--manifest`, `--profile`, `--at`,
 `--beats`, the window) apply to every analysis they concern.
+The analyses share one net, so its diagnostics (unknown bits, a signal that
+does not bind) are written once, into the first JSONL sink in model order
+(models are sorted by name); the other JSONL files have none.
 
 Three views come only from `run`:
 

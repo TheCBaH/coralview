@@ -1228,6 +1228,7 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
   in
   let hold = List.length (on_stdout "text") > 1 || on_stdout "jsonl" <> [] in
   let outs = ref [] in
+  let diags_written = ref false in
   Fun.protect ~finally:(fun () -> List.iter (fun o -> o.abandon ()) !outs) @@ fun () ->
   let finishers =
     guard p (fun () ->
@@ -1314,11 +1315,14 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
                   (summary_of := fun () -> s);
                   List.iter
                     (fun (oc, _) ->
-                      Seq.iter
-                        (fun d ->
-                          output_string oc (Codec.to_line Codec.diag d);
-                          output_char oc '\n')
-                        (Hwfrp.Diag.stream c.net);
+                      if not !diags_written then begin
+                        diags_written := true;
+                        Seq.iter
+                          (fun d ->
+                            output_string oc (Codec.to_line Codec.diag d);
+                            output_char oc '\n')
+                          (Hwfrp.Diag.stream c.net)
+                      end;
                       output_string oc (Codec.to_line A.Summary.jsont s);
                       output_char oc '\n';
                       if oc == stdout then flush oc else close_out oc)
@@ -2082,7 +2086,8 @@ let commands =
             & info [ "sink" ] ~docv:"M:KIND:PATH"
                 ~doc:
                   "Send analysis $(i,M) as $(b,text) or $(b,jsonl) to $(i,PATH), $(b,-) for the \
-                   standard output; repeatable.")
+                   standard output; repeatable. The diagnostics of the shared net go into the \
+                   first $(b,jsonl) sink only.")
         $ Arg.(
             value
             & opt (some string) None
