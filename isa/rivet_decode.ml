@@ -29,8 +29,7 @@ let driver definition spec =
       (Riscv32_encode.Profile)
       (struct
         let definition = definition
-      end)
-  in
+      end) in
   let module D = Pipeline.Make (C) in
   let decode_under config word =
     let state = C.initial_state config in
