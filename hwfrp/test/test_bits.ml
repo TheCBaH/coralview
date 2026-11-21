@@ -173,3 +173,21 @@ let%expect_test "word-wise paths against bit-at-a-time references" =
   done;
   Printf.printf "%d checks, %d mismatches\n" !n !bad;
   [%expect {| 26860 checks, 0 mismatches |}]
+
+let%expect_test "Bitset.iter visits the set bits in ascending order" =
+  let n = 300 in
+  let s = Bitset.create n in
+  let seen = ref [] in
+  Bitset.iter (fun i -> seen := i :: !seen) s;
+  Printf.printf "empty: %d\n" (List.length !seen);
+  List.iter (Bitset.add s) [ 0; 1; 61; 62; 63; 123; 124; 186; 299; 150 ];
+  Printf.printf "%s\n" (String.concat "," (List.map string_of_int (Bitset.elements s)));
+  let all = Bitset.create n in
+  for i = 0 to n - 1 do
+    Bitset.add all i
+  done;
+  Printf.printf "%b\n" (Bitset.elements all = List.init n Fun.id);
+  [%expect {|
+    empty: 0
+    0,1,61,62,63,123,124,150,186,299
+    true |}]
