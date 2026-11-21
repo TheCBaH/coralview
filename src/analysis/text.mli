@@ -15,8 +15,12 @@ val windowed : window -> bool
 val describe : window -> string
 (** ["window [first, last] pc …"], for the totals of a window; [last] is ["end"] when unbounded. *)
 
+val pc_selected : window -> int -> bool
+(** One of [pcs], unless empty. The set of [pcs] is built when the window is applied: apply it once, and
+    call the result for each row. *)
+
 val selected : window -> cycle:int -> pc:int -> bool
-(** In the cycle range, and of one of [pcs] unless empty. *)
+(** In the cycle range, and {!pc_selected}; apply it once as {!pc_selected}. *)
 
 type profile_by = Pc | Class | Function
 

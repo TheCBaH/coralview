@@ -323,7 +323,9 @@ let events c =
   let out, summary = shared c in
   (Ev.filter (( <> ) []) (Ev.map commits out), summary)
 
-let selected (ctx : Text.ctx) (c : commit) = Text.selected ctx.window ~cycle:c.retired ~pc:c.pc
+let selected (ctx : Text.ctx) =
+  let selected = Text.selected ctx.window in
+  fun (c : commit) -> selected ~cycle:c.retired ~pc:c.pc
 
 let print_grouped ppf (ctx : Text.ctx) ~title rows total_cycles =
   Format.fprintf ppf "%-24s %6s %7s %6s %8s\n" title "count" "cycles" "share" "d->r";
@@ -381,8 +383,9 @@ let profile_state (ctx : Text.ctx) =
 
 let profile (ctx : Text.ctx) ppf summary : Event.t Text.sink =
   let add, print = profile_state ctx in
+  let selected = selected ctx in
   {
-    add = (function Event.Commit c when selected ctx c -> add c | _ -> ());
+    add = (function Event.Commit c when selected c -> add c | _ -> ());
     finish = (fun () -> print ppf (summary ()));
   }
 
@@ -408,6 +411,7 @@ let text (ctx : Text.ctx) ppf summary : Event.t Text.sink =
   let disasm w = match w with Some w -> ctx.disasm w | None -> "?" in
   let delta a b = match (a, b) with Some a, Some b -> string_of_int (b - a) | _ -> "-" in
   let in_window = ref 0 and charged = ref 0 in
+  let selected = selected ctx in
   let padd, pprint = if ctx.profile > 0 then profile_state ctx else (ignore, fun _ _ -> ()) in
   let row (c : commit) =
     incr shown;
@@ -430,7 +434,7 @@ let text (ctx : Text.ctx) ppf summary : Event.t Text.sink =
   {
     add =
       (function
-      | Event.Commit c when selected ctx c ->
+      | Event.Commit c when selected c ->
           if !shown < ctx.limit then row c;
           incr in_window;
           charged := !charged + c.charged;

@@ -444,8 +444,9 @@ let build (cfg : Config.t) (c : _ Core.t) =
 
 let rate n d = if d = 0 then 0. else float_of_int n /. float_of_int d
 
-let op_selected (ctx : Text.ctx) (o : op) =
-  Text.selected ctx.window ~cycle:o.cycle ~pc:(Option.value o.pc ~default:(-1))
+let op_selected (ctx : Text.ctx) =
+  let selected = Text.selected ctx.window in
+  fun (o : op) -> selected ~cycle:o.cycle ~pc:(Option.value o.pc ~default:(-1))
 
 (* The instruction names, and the operations by instruction, of the ops the window selects. *)
 let profile_state (ctx : Text.ctx) =
@@ -477,18 +478,20 @@ let profile_state (ctx : Text.ctx) =
 
 let profile (ctx : Text.ctx) ppf _ : Event.t Text.sink =
   let add, print = profile_state ctx in
+  let op_selected = op_selected ctx in
   {
-    add = (function Event.Op o when op_selected ctx o -> add o | _ -> ());
+    add = (function Event.Op o when op_selected o -> add o | _ -> ());
     finish = (fun () -> print ppf);
   }
 
 let text (ctx : Text.ctx) ppf summary : Event.t Text.sink =
   let windowed = Text.windowed ctx.window in
+  let op_selected = op_selected ctx in
   let padd, pprint = if ctx.profile > 0 then profile_state ctx else (ignore, fun _ -> ()) in
   let n = ref 0 and elements = ref 0 and ops = ref 0 and flops = ref 0 and units = ref SM.empty in
   let bursts = ref [] and shown = ref 0 and any = ref false in
   let add = function
-    | Event.Op o when op_selected ctx o ->
+    | Event.Op o when op_selected o ->
         incr n;
         elements := !elements + o.elements;
         ops := !ops + o.ops;

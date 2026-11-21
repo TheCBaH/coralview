@@ -317,16 +317,19 @@ let build () c =
     (fun () -> make c)
 
 (* The span clipped to the window, so the cycles of the spans add up to the window's. *)
-let clip (ctx : Text.ctx) ~last (x : Event.stall_span) =
-  let start = max x.span.start ctx.window.first
-  and stop = min (Option.value x.span.stop ~default:last) ctx.window.last in
-  if start > stop || not (ctx.window.pcs = [] || List.mem x.pc ctx.window.pcs) then None
-  else Some { x with span = { Span.start; stop = Some stop } }
+let clip (ctx : Text.ctx) =
+  let pc_selected = Text.pc_selected ctx.window in
+  fun ~last (x : Event.stall_span) ->
+    let start = max x.span.start ctx.window.first
+    and stop = min (Option.value x.span.stop ~default:last) ctx.window.last in
+    if start > stop || not (pc_selected x.pc) then None
+    else Some { x with span = { Span.start; stop = Some stop } }
 
 (* The cycles by lane and reason, and the cycles lane 0 was blocked by instruction, of the spans of
    the window. A span still open at the end has no extent until the summary says where that is. *)
 let view (ctx : Text.ctx) =
   let windowed = Text.windowed ctx.window in
+  let clip = clip ctx in
   let counts = ref CM.empty and open_ = ref [] in
   let blocked =
     Profile.Acc.create
@@ -350,15 +353,14 @@ let view (ctx : Text.ctx) =
     | None -> open_ := x :: !open_
     | Some _ -> (
         if not windowed then account x
-        else match clip ctx ~last:0 x with Some x -> account x | None -> ())
+        else match clip ~last:0 x with Some x -> account x | None -> ())
   in
   let finish (s : Summary.t) =
     let last = s.cycles - 1 in
     List.iter
       (fun x ->
         match
-          if windowed then clip ctx ~last x
-          else Some { x with span = { x.span with stop = Some last } }
+          if windowed then clip ~last x else Some { x with span = { x.span with stop = Some last } }
         with
         | Some x -> account x
         | None -> ())

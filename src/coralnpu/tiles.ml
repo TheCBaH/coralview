@@ -187,8 +187,9 @@ end)
 let text (ctx : Text.ctx) ppf summary : Event.t Text.sink =
   let shown = ref 0 and by_pc = ref Pcs.empty in
   let acc = Accumulator.create () in
+  let selected = Text.selected ctx.window in
   let add (Event.Tile_write w as e) =
-    if Text.selected ctx.window ~cycle:w.cycle ~pc:(Option.value w.pc ~default:(-1)) then begin
+    if selected ~cycle:w.cycle ~pc:(Option.value w.pc ~default:(-1)) then begin
       if !shown < ctx.limit then begin
         incr shown;
         Format.fprintf ppf "%8d blk%d port%d %s tile %2d sub %2d mask %04x %s\n" w.cycle w.block

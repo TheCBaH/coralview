@@ -18,7 +18,7 @@ type t = {
 }
 
 let make ~(window : Text.window) ~end_cycle ~commits ~accesses ~ops ~stalls =
-  let selected ~cycle ~pc = Text.selected window ~cycle ~pc in
+  let selected = Text.selected window in
   let commits =
     List.filter (fun (c : Commits.commit) -> selected ~cycle:c.retired ~pc:c.pc) commits
   in

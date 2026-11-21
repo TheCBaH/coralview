@@ -161,8 +161,6 @@ let tree ~depth ~vars path scope =
       else show "" 0 s)
     here
 
-let selected = Text.selected
-
 let jsonl_window (w : Text.window) =
   if Text.windowed w then
     Some
@@ -329,8 +327,9 @@ let analyze env (type k e s)
           print_banner env ppf p;
           Text.drain (text ctx ppf pulled.summary) pulled.events)
   | `Jsonl ->
+      let selected = Text.selected ctx.window in
       let keep e =
-        selected ctx.window ~cycle:(A.Event.cycle e) ~pc:(Option.value (A.Event.pc e) ~default:(-1))
+        selected ~cycle:(A.Event.cycle e) ~pc:(Option.value (A.Event.pc e) ~default:(-1))
       in
       Jsonl.write stdout
         {
@@ -1262,9 +1261,9 @@ let run_models env (p : Platform.t) o models sinks ?perfetto ?kanata ?report pat
             | None -> fail ~code:2 ("run: no analysis " ^ m)
             | Some (E { a = (module A); cfg; text; status; perfetto = view; _ }) ->
                 let mine = targets m in
+                let selected = Text.selected ctx.window in
                 let keep e =
-                  selected ctx.window ~cycle:(A.Event.cycle e)
-                    ~pc:(Option.value (A.Event.pc e) ~default:(-1))
+                  selected ~cycle:(A.Event.cycle e) ~pc:(Option.value (A.Event.pc e) ~default:(-1))
                 in
                 let jsonl =
                   List.filter_map

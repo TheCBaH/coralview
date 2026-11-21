@@ -320,22 +320,24 @@ let text (ctx : Text.ctx) ppf summary : Event.t Text.sink =
      faults and unmatched responses, which are all shown, are kept all. *)
   let accesses = ref KM.empty and n = ref 0 and others = ref [] and seq = ref 0 in
   let acc = Accumulator.create () in
+  let selected = Text.selected ctx.window in
+  let selected_any_pc = Text.selected { ctx.window with pcs = [] } in
   let add e =
     incr seq;
     let key = (Event.cycle e, !seq) in
     match e with
     | Event.Fault f ->
-        if Text.selected ctx.window ~cycle:f.cycle ~pc:f.pc then begin
+        if selected ~cycle:f.cycle ~pc:f.pc then begin
           others := (key, e) :: !others;
           Accumulator.add acc e
         end
     | Unmatched u ->
-        if Text.selected { ctx.window with pcs = [] } ~cycle:u.cycle ~pc:(-1) then begin
+        if selected_any_pc ~cycle:u.cycle ~pc:(-1) then begin
           others := (key, e) :: !others;
           Accumulator.add acc e
         end
     | Access a ->
-        if Text.selected ctx.window ~cycle:a.cycle ~pc:a.pc then begin
+        if selected ~cycle:a.cycle ~pc:a.pc then begin
           Accumulator.add acc e;
           accesses := KM.add key e !accesses;
           incr n;

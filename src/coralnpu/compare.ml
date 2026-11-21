@@ -17,9 +17,10 @@ type stat = { count : int; cycles : int; text : string }
 type row = { offset : int; a : stat option; b : stat option }
 
 let stats (s : side) =
+  let selected = Text.selected s.window in
   List.fold_left
     (fun m (c : Commits.commit) ->
-      if Text.selected s.window ~cycle:c.retired ~pc:c.pc then
+      if selected ~cycle:c.retired ~pc:c.pc then
         IM.update (c.pc - s.base)
           (function
             | None ->
@@ -113,10 +114,9 @@ type loop_stat = {
 type loop_row = { rank : int; a : loop_stat option; b : loop_stat option }
 
 let loop_stats (s : side) =
+  let in_window = Text.selected s.window in
   let selected =
-    List.filter
-      (fun (c : Commits.commit) -> Text.selected s.window ~cycle:c.retired ~pc:c.pc)
-      s.commits
+    List.filter (fun (c : Commits.commit) -> in_window ~cycle:c.retired ~pc:c.pc) s.commits
   in
   List.map
     (fun (l : Loops.loop) ->

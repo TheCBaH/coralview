@@ -824,9 +824,10 @@ module Accumulator = struct
     |> Jsont.Object.finish
 end
 
-let selected (ctx : Text.ctx) (t : Event.transaction) =
-  Text.selected ctx.window ~cycle:t.txn.accepted
-    ~pc:(Option.value (Event.pc (Transaction t)) ~default:(-1))
+let selected (ctx : Text.ctx) =
+  let in_window = Text.selected ctx.window in
+  fun (t : Event.transaction) ->
+    in_window ~cycle:t.txn.accepted ~pc:(Option.value (Event.pc (Transaction t)) ~default:(-1))
 
 let profile_acc () =
   Profile.Acc.create
@@ -852,8 +853,9 @@ let print_profile ppf (ctx : Text.ctx) (s : Summary.t) acc =
 
 let profile (ctx : Text.ctx) ppf summary : Event.t Text.sink =
   let acc = profile_acc () in
+  let selected = selected ctx in
   {
-    add = (function Event.Transaction t when selected ctx t -> Profile.Acc.add acc t | _ -> ());
+    add = (function Event.Transaction t when selected t -> Profile.Acc.add acc t | _ -> ());
     finish = (fun () -> print_profile ppf ctx (summary ()) acc);
   }
 
@@ -864,9 +866,10 @@ let text (ctx : Text.ctx) ppf summary : Event.t Text.sink =
      completes: the rows to show are held until then. *)
   let rows = ref [] and shown = ref 0 and unmatched = ref [] in
   let acc = Accumulator.create () and pacc = profile_acc () in
+  let selected = selected ctx and selected_any_pc = Text.selected { ctx.window with pcs = [] } in
   let add = function
     | Event.Transaction t as e ->
-        if selected ctx t then begin
+        if selected t then begin
           Accumulator.add acc e;
           Profile.Acc.add pacc t;
           if !shown < ctx.limit then begin
@@ -875,7 +878,7 @@ let text (ctx : Text.ctx) ppf summary : Event.t Text.sink =
           end
         end
     | Unmatched u as e ->
-        if Text.selected { ctx.window with pcs = [] } ~cycle:u.cycle ~pc:(-1) then begin
+        if selected_any_pc ~cycle:u.cycle ~pc:(-1) then begin
           Accumulator.add acc e;
           unmatched := u :: !unmatched
         end
