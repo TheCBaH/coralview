@@ -102,8 +102,8 @@ val events : 'c Core.t -> (commit list, 'c) Hwfrp.Ev.t * (Hwfrp.Sched.run_stats 
 
 val commits : Event.t list -> commit list
 
-val profile : Text.ctx -> Event.t list -> Summary.t -> unit
-(** The cycles charged by instruction, the [ctx.profile] heaviest PCs. *)
+val profile : Text.ctx -> Format.formatter -> (unit -> Summary.t) -> Event.t Text.sink
+(** The cycles charged by instruction, the [ctx.profile] heaviest PCs. The summary is read at the end. *)
 
-val text : Text.ctx -> Event.t list -> Summary.t -> unit
+val text : Text.ctx -> Format.formatter -> (unit -> Summary.t) -> Event.t Text.sink
 (** The retirements the context selects, the summary, what was in flight and the profile. *)

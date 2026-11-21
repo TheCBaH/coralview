@@ -39,5 +39,13 @@ type ctx = {
           configuration of [commits --vector]. *)
 }
 
+type 'e sink = { add : 'e -> unit; finish : unit -> unit }
+(** What a text view does with the events of an analysis: [add] sees each in stream order, [finish]
+    follows the last and prints what needs the summary. A view prints to the formatter it was made
+    with, never to the standard output, and does not flush it. A sink is single-use. *)
+
+val drain : 'e sink -> 'e Seq.t -> unit
+(** Adds the events as they are pulled, then finishes. *)
+
 val stats : Hwfrp.Reduce.Stats.t -> string
 (** ["min/mean/max"], the mean with one decimal; ["-"] when empty. *)

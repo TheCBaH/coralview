@@ -31,3 +31,21 @@ val by_pc :
 
 val pc_jsont : int row Jsont.t
 (** [{"pc", "count", "weight", "total"}]. *)
+
+(** The same table, built as the events arrive. *)
+module Acc : sig
+  type ('e, 'k) t
+
+  val create :
+    ?buckets:int ->
+    key:('e -> 'k option) ->
+    ?weight:('e -> int) ->
+    ?total:('e -> int) ->
+    unit ->
+    ('e, 'k) t
+
+  val add : ('e, 'k) t -> 'e -> unit
+
+  val rows : ('e, 'k) t -> 'k row list
+  (** As {!by}. *)
+end

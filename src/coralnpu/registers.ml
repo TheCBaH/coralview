@@ -302,27 +302,32 @@ end
 let build (cfg : Config.t) (c : _ Core.t) = graph ?at:cfg.at c
 let status (s : summary) = Regmodel.status s.relations
 
-let text (ctx : Text.ctx) (_ : Event.t list) (s : summary) =
-  Printf.printf "root %s: %d cycles\n" ctx.root s.cycles;
-  List.iter
-    (fun (code, checks, n) -> Printf.printf "%-26s %8d comparisons, %d failures\n" code checks n)
-    s.relations;
-  Printf.printf "%d pipeline flushes\n" s.flushes;
-  let table title regs =
-    Printf.printf "%s:\n" title;
-    List.iteri
-      (fun i (r, v) ->
-        Printf.printf "  %-4s %08x%s" (Core.reg_name r) v (if i mod 6 = 5 then "\n" else ""))
-      regs;
-    print_newline ()
+let text (ctx : Text.ctx) ppf summary : Event.t Text.sink =
+  let finish () =
+    let s : summary = summary () in
+    Format.fprintf ppf "root %s: %d cycles\n" ctx.root s.cycles;
+    List.iter
+      (fun (code, checks, n) ->
+        Format.fprintf ppf "%-26s %8d comparisons, %d failures\n" code checks n)
+      s.relations;
+    Format.fprintf ppf "%d pipeline flushes\n" s.flushes;
+    let table title regs =
+      Format.fprintf ppf "%s:\n" title;
+      List.iteri
+        (fun i (r, v) ->
+          Format.fprintf ppf "  %-4s %08x%s" (Core.reg_name r) v (if i mod 6 = 5 then "\n" else ""))
+        regs;
+      Format.fprintf ppf "\n"
+    in
+    Option.iter
+      (fun (cycle, regs) -> table (Printf.sprintf "storage at cycle %d" cycle) regs)
+      s.storage_at;
+    table "storage at the end" s.storage;
+    let differ = List.filter (fun (r, v) -> List.assoc_opt r s.storage <> Some v) s.architectural in
+    if differ <> [] then table "architectural values that differ from storage at the end" differ;
+    List.iteri (fun i d -> if i < ctx.limit then Format.fprintf ppf "%a@." Diag.pp d) s.failures
   in
-  Option.iter
-    (fun (cycle, regs) -> table (Printf.sprintf "storage at cycle %d" cycle) regs)
-    s.storage_at;
-  table "storage at the end" s.storage;
-  let differ = List.filter (fun (r, v) -> List.assoc_opt r s.storage <> Some v) s.architectural in
-  if differ <> [] then table "architectural values that differ from storage at the end" differ;
-  List.iteri (fun i d -> if i < ctx.limit then Format.printf "%a@." Diag.pp d) s.failures
+  { add = ignore; finish }
 
 module Accumulator = struct
   module IM = Map.Make (Int)

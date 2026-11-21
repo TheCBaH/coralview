@@ -73,8 +73,10 @@ val build :
 val value : Event.access -> Hwfrp.Bits.t
 (** The selected bytes, the first lane least significant, [8 * bytes] bits wide. *)
 
-val text : Text.ctx -> Event.t list -> Summary.t -> unit
-(** The requests the context selects, up to its limit, and the faults and unmatched responses it selects. *)
+val text : Text.ctx -> Format.formatter -> (unit -> Summary.t) -> Event.t Text.sink
+(** The requests the context selects, up to its limit, and the faults and unmatched responses it selects,
+    in the order of the requests' cycles. Memory is held for the limit's requests and for every fault and
+    unmatched response. *)
 
 (** The totals of the events: the {!Summary}, in full. *)
 module Accumulator : Accumulator.ACCUMULATOR with type event = Event.t and type snapshot = Summary.t

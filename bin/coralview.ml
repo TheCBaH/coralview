@@ -184,6 +184,9 @@ let banner_line ~platform ~simulator =
 
 let banner (p : Platform.t) = print_string (banner_line ~platform:p.name ~simulator:!simulator)
 
+let print_banner ppf (p : Platform.t) =
+  Format.pp_print_string ppf (banner_line ~platform:p.name ~simulator:!simulator)
+
 let jsonl_header ~model ~platform ~trace =
   { (Jsonl.header ~model ~platform ~trace) with simulator = !simulator }
 
@@ -282,19 +285,35 @@ let resolve_between (p : Platform.t) path (ctx : Text.ctx) =
           { ctx.window with first = max first ctx.window.first; last = min last ctx.window.last };
       }
 
+(* [k] prints to the standard output for "-", else to the file [path]. *)
+let with_ppf path k =
+  if path = "-" then begin
+    let ppf = Format.formatter_of_out_channel stdout in
+    Fun.protect (fun () -> k ppf) ~finally:(fun () -> Format.pp_print_flush ppf ())
+  end
+  else begin
+    let oc = open_out path in
+    Fun.protect
+      (fun () ->
+        let ppf = Format.formatter_of_out_channel oc in
+        Fun.protect (fun () -> k ppf) ~finally:(fun () -> Format.pp_print_flush ppf ()))
+      ~finally:(fun () -> close_out oc)
+  end
+
 (* A converted analysis: text through its own view, or JSON lines with the rows the window and the
    limit select; the summary always covers the whole trace. *)
 let analyze (type k e s)
     (module A : Analysis.S with type Config.t = k and type Event.t = e and type Summary.t = s)
     (cfg : k) (p : Platform.t) ?(status = fun _ -> 0) ~format ~(ctx : Text.ctx)
-    (text : Text.ctx -> e list -> s -> unit) path =
+    (text : Text.ctx -> Format.formatter -> (unit -> s) -> e Text.sink) path =
   let ctx = resolve_between p path ctx in
   producer_status := if format = `Jsonl then `Jsonl else `Text;
   let pulled = guard p (fun () -> Analysis.pull (module A) cfg p (open_trace path)) in
   (match format with
   | `Text ->
-      banner p;
-      text ctx (List.of_seq pulled.events) (pulled.summary ())
+      with_ppf "-" (fun ppf ->
+          print_banner ppf p;
+          Text.drain (text ctx ppf pulled.summary) pulled.events)
   | `Jsonl ->
       let keep e =
         selected ctx.window ~cycle:(A.Event.cycle e) ~pc:(Option.value (A.Event.pc e) ~default:(-1))
@@ -1005,9 +1024,9 @@ type entry =
   | E : {
       a : (module Analysis.S with type Config.t = 'k and type Event.t = 'e and type Summary.t = 's);
       cfg : opts -> 'k;
-      text : opts -> Text.ctx -> 'e list -> 's -> unit;
+      text : opts -> Text.ctx -> Format.formatter -> (unit -> 's) -> 'e Text.sink;
       status : 's -> int;
-      profile : (Text.ctx -> 'e list -> 's -> unit) option;
+      profile : (Text.ctx -> Format.formatter -> (unit -> 's) -> 'e Text.sink) option;
       perfetto : (Text.ctx -> 'e list -> 's -> Perfetto.process) option;
     }
       -> entry
@@ -1117,21 +1136,6 @@ let entries =
         } );
   ]
 
-(* Prints of [f] go to [path], or to the standard output for "-". *)
-let printing_to path f =
-  if path = "-" then f ()
-  else begin
-    flush stdout;
-    let saved = Unix.dup Unix.stdout in
-    let fd = Unix.openfile path [ O_WRONLY; O_CREAT; O_TRUNC ] 0o644 in
-    Unix.dup2 fd Unix.stdout;
-    Unix.close fd;
-    Fun.protect f ~finally:(fun () ->
-        flush stdout;
-        Unix.dup2 saved Unix.stdout;
-        Unix.close saved)
-  end
-
 (* Several analyses in one pass: each is built in the same net, and its events are pushed to its
    sinks as they come. A model without a sink prints its text to the standard output. *)
 let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
@@ -1235,14 +1239,13 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
                   let events = List.rev !events in
                   List.iter
                     (fun f ->
-                      printing_to f (fun () ->
-                          banner p;
-                          text o ctx events s))
+                      with_ppf f (fun ppf ->
+                          print_banner ppf p;
+                          Text.drain (text o ctx ppf (fun () -> s)) (List.to_seq events)))
                     texts;
                   let section =
                     Option.map
                       (fun _ ->
-                        let tmp = Filename.temp_file "coralview" ".txt" in
                         let ctx =
                           {
                             ctx with
@@ -1250,10 +1253,11 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
                             profile = (if ctx.profile = 0 then 10 else ctx.profile);
                           }
                         in
-                        printing_to tmp (fun () -> text o ctx events s);
-                        let body = In_channel.with_open_text tmp In_channel.input_all in
-                        Sys.remove tmp;
-                        (A.name, A.doc, body))
+                        let buf = Buffer.create 1024 in
+                        let ppf = Format.formatter_of_buffer buf in
+                        Text.drain (text o ctx ppf (fun () -> s)) (List.to_seq events);
+                        Format.pp_print_flush ppf ();
+                        (A.name, A.doc, Buffer.contents buf))
                       report
                   in
                   ( status s,
@@ -1328,21 +1332,26 @@ let read_jsonl file =
   in
   match first with Ok h -> h | Error e -> fail ~code:2 (file ^ ": " ^ e)
 
-(* The events and summary of a saved JSONL, decoded with the model's codecs. *)
-let decode_jsonl (type e s) (module A : Analysis.S with type Event.t = e and type Summary.t = s)
-    file =
-  let events = ref [] and summary = ref None in
+(* The events of a saved JSONL, decoded with the model's codecs, and its summary, which follows them:
+   it is read once the events are exhausted. *)
+let with_jsonl (type e s) (module A : Analysis.S with type Event.t = e and type Summary.t = s) file
+    k =
   In_channel.with_open_text file (fun ic ->
-      Seq.iteri
-        (fun i -> function
-          | Ok (Jsonl.Event e) -> events := e :: !events
-          | Ok (Summary s) -> summary := Some s
-          | Ok (Header _ | Diag _) -> ()
-          | Error e -> fail ~code:2 (Printf.sprintf "%s:%d: %s" file (i + 1) e))
-        (Jsonl.read (module A) ic));
-  match !summary with
-  | None -> fail ~code:2 (file ^ ": no summary")
-  | Some s -> (List.rev !events, s)
+      let summary = ref None in
+      let events =
+        Seq.filter_map
+          (fun (i, line) ->
+            match line with
+            | Ok (Jsonl.Event e) -> Some e
+            | Ok (Summary s) ->
+                summary := Some s;
+                None
+            | Ok (Header _ | Diag _) -> None
+            | Error e -> fail ~code:2 (Printf.sprintf "%s:%d: %s" file (i + 1) e))
+          (Seq.mapi (fun i l -> (i, l)) (Jsonl.read (module A) ic))
+      in
+      k events (fun () ->
+          match !summary with None -> fail ~code:2 (file ^ ": no summary") | Some s -> s))
 
 let entry file (h : Jsonl.header) =
   match List.assoc_opt h.model entries with
@@ -1357,9 +1366,16 @@ let opts_ctx p o =
 let render p o file =
   let h = read_jsonl file in
   let (E { a = (module A); text; status; _ }) = entry file h in
-  let events, s = decode_jsonl (module A) file in
-  print_string (banner_line ~platform:h.platform ~simulator:h.simulator);
-  text o (opts_ctx p o) events s;
+  let s =
+    with_jsonl
+      (module A)
+      file
+      (fun events summary ->
+        with_ppf "-" (fun ppf ->
+            Format.pp_print_string ppf (banner_line ~platform:h.platform ~simulator:h.simulator);
+            Text.drain (text o (opts_ctx p o) ppf summary) events);
+        summary ())
+  in
   match status s with 0 -> () | n -> exit n
 
 (* The profile of a saved JSONL, as its model's --profile prints it. *)
@@ -1367,8 +1383,11 @@ let profile_of p o file =
   let h = read_jsonl file in
   match entry file h with
   | E { a = (module A); profile = Some profile; _ } ->
-      let events, s = decode_jsonl (module A) file in
-      profile (opts_ctx p o) events s
+      with_jsonl
+        (module A)
+        file
+        (fun events summary ->
+          with_ppf "-" (fun ppf -> Text.drain (profile (opts_ctx p o) ppf summary) events))
   | E _ -> fail ~code:2 (file ^ ": " ^ h.model ^ " has no profile")
 
 let saved_platform =

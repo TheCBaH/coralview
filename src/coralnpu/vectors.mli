@@ -65,6 +65,6 @@ val build :
 val status : summary -> int
 (** 1 if a relation failed. *)
 
-val text : Text.ctx -> Event.t list -> summary -> unit
+val text : Text.ctx -> Format.formatter -> (unit -> summary) -> Event.t Text.sink
 (** The first writes, up to the context's limit, the writes by PC, the relations, the storage and the
     first 20 failures. *)

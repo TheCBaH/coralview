@@ -30,5 +30,11 @@ type ctx = {
   note : pc:int -> cycle:int -> string option;  (** Explain the columns of a row listing. *)
 }
 
+type 'e sink = { add : 'e -> unit; finish : unit -> unit }
+
+let drain sink events =
+  Seq.iter sink.add events;
+  sink.finish ()
+
 let stats (s : Hwfrp.Reduce.Stats.t) =
   if s.n = 0 then "-" else Printf.sprintf "%d/%.1f/%d" s.min (Hwfrp.Reduce.Stats.mean s) s.max

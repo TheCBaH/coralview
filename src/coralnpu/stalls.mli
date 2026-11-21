@@ -97,11 +97,12 @@ val build :
   Config.t -> 'c Core.t -> (Event.t list, 'c) Hwfrp.Ev.t * (Hwfrp.Sched.run_stats -> Summary.t)
 (** Built once per net. Raises {!Hwfrp.Bind.Unbound} and {!Core.No_block}. *)
 
-val profile : Text.ctx -> Event.t list -> Summary.t -> unit
+val profile : Text.ctx -> Format.formatter -> (unit -> Summary.t) -> Event.t Text.sink
 (** Lane 0's blocked cycles by instruction and reason, the [ctx.profile] heaviest. *)
 
-val text : Text.ctx -> Event.t list -> Summary.t -> unit
-(** The cycles of each reason per lane, and the profile of lane 0's blocked cycles by instruction. *)
+val text : Text.ctx -> Format.formatter -> (unit -> Summary.t) -> Event.t Text.sink
+(** The cycles of each reason per lane, and the profile of lane 0's blocked cycles by instruction, both
+    over the window's clipped spans. *)
 
 val perfetto : Text.ctx -> Event.t list -> Summary.t -> Perfetto.process
 (** A track per lane with a slice per span, named by its reason. *)

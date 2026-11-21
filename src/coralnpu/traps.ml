@@ -316,32 +316,40 @@ let build () (c : _ Core.t) =
   in
   (out, summary)
 
-let text (ctx : Text.ctx) events (s : Summary.t) =
+let text (ctx : Text.ctx) ppf summary : Event.t Text.sink =
   let at = function Some c -> Printf.sprintf "at %d" c | None -> "never" in
   let fault f =
-    Printf.printf "%8d %s fault: cause %d (%s), pc %08x, mtval %08x\n" f.cycle f.source f.cause
+    Format.fprintf ppf "%8d %s fault: cause %d (%s), pc %08x, mtval %08x\n" f.cycle f.source f.cause
       (cause_name f.cause) f.pc f.value;
-    Printf.printf "         csr      mcause/mepc/mtval hold them %s\n" (at f.csr);
+    Format.fprintf ppf "         csr      mcause/mepc/mtval hold them %s\n" (at f.csr);
     let ret = function
       | Some r -> Printf.sprintf "at %d%s" r.at (if r.trapped then " as a trap" else "")
       | None -> "never"
     in
-    Printf.printf "         pc       retired up to the fault %s, after it %s\n"
+    Format.fprintf ppf "         pc       retired up to the fault %s, after it %s\n"
       (ret f.retired_before) (ret f.retired_after);
-    Printf.printf "         handler  %08x dispatched %s, retired %s: %s\n" f.handler
+    Format.fprintf ppf "         handler  %08x dispatched %s, retired %s: %s\n" f.handler
       (at f.dispatched) (at f.delivered)
       (match f.delivered with
       | Some _ -> "delivered"
       | None -> Printf.sprintf "not delivered by cycle %d" f.until)
   and change c =
-    Printf.printf "%8d csr change with no fault: mcause %d (%s), mepc %08x, mtval %08x\n" c.c_cycle
-      c.c_mcause (cause_name c.c_mcause) c.c_mepc c.c_mtval
+    Format.fprintf ppf "%8d csr change with no fault: mcause %d (%s), mepc %08x, mtval %08x\n"
+      c.c_cycle c.c_mcause (cause_name c.c_mcause) c.c_mepc c.c_mtval
   in
-  List.filter_map (function Event.Fault f -> Some (f.cycle, fun () -> fault f) | _ -> None) events
-  @ List.filter_map
-      (function Event.Csr_change c -> Some (c.c_cycle, fun () -> change c) | _ -> None)
-      events
-  |> List.stable_sort (fun (a, _) (b, _) -> compare a b)
-  |> List.iter (fun (_, print) -> print ());
-  Printf.printf "root %s: %d cycles, %d faults, %d delivered\n" ctx.root s.cycles s.faults
-    s.delivered
+  (* The faults and the CSR changes are few; they are printed by cycle, the faults first on a tie. *)
+  let faults = ref [] and changes = ref [] in
+  {
+    add =
+      (function
+      | Event.Fault f -> faults := (f.cycle, fun () -> fault f) :: !faults
+      | Event.Csr_change c -> changes := (c.c_cycle, fun () -> change c) :: !changes);
+    finish =
+      (fun () ->
+        let s : Summary.t = summary () in
+        List.rev !faults @ List.rev !changes
+        |> List.stable_sort (fun (a, _) (b, _) -> compare a b)
+        |> List.iter (fun (_, print) -> print ());
+        Format.fprintf ppf "root %s: %d cycles, %d faults, %d delivered\n" ctx.root s.cycles
+          s.faults s.delivered);
+  }

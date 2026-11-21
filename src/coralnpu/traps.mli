@@ -65,5 +65,5 @@ val build :
   Config.t -> 'c Core.t -> (Event.t list, 'c) Hwfrp.Ev.t * (Hwfrp.Sched.run_stats -> Summary.t)
 (** Raises {!Hwfrp.Bind.Unbound} and {!Core.No_block}. *)
 
-val text : Text.ctx -> Event.t list -> Summary.t -> unit
+val text : Text.ctx -> Format.formatter -> (unit -> Summary.t) -> Event.t Text.sink
 (** Faults and unmatched CSR changes in cycle order, then the summary. *)

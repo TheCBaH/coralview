@@ -307,49 +307,69 @@ module Accumulator = struct
     }
 end
 
-let text (ctx : Text.ctx) events (s : Summary.t) =
-  (* A read is emitted with its response, after later writes: show them in request order. *)
-  let events = List.stable_sort (fun a b -> compare (Event.cycle a) (Event.cycle b)) events in
+module KM = Map.Make (struct
+  type t = int * int
+
+  let compare = compare
+end)
+
+let text (ctx : Text.ctx) ppf summary : Event.t Text.sink =
   let region = Region.suffix ctx.region in
-  let shown = ref 0 in
-  List.iter
-    (function
-      | Event.Fault f ->
-          if Text.selected ctx.window ~cycle:f.cycle ~pc:f.pc then
-            Printf.printf "%8d fault %s pc %08x addr %08x%s, %s\n" f.cycle
-              (if f.write then "W" else "R")
-              f.pc f.address (region f.address)
-              (match f.request with
-              | Some (cycle, addr) -> Printf.sprintf "requested at %d, addr %08x" cycle addr
-              | None -> "no request seen")
-      | Unmatched u ->
-          if Text.selected { ctx.window with pcs = [] } ~cycle:u.cycle ~pc:(-1) then
-            Printf.printf "%8d unmatched response for source %d\n" u.cycle u.source
-      | Access a ->
-          if Text.selected ctx.window ~cycle:a.cycle ~pc:a.pc && !shown < ctx.limit then begin
-            incr shown;
-            Printf.printf "%8d %s pc %08x addr %08x%s %d bytes %s\n" a.cycle
-              (if a.access.write then "W" else "R")
-              a.pc a.access.address (region a.access.address) (List.length a.lanes)
-              (Bits.to_hex (value a))
-          end)
-    events;
-  let unmatched n = if n = 0 then "" else Printf.sprintf ", %d unmatched" n in
-  Printf.printf "root %s: %d read and %d write requests from %d PCs, %d faults%s\n" ctx.root s.reads
-    s.writes s.pcs s.faults (unmatched s.unmatched);
-  if Text.windowed ctx.window then begin
-    let acc = Accumulator.create () in
-    List.iter
-      (fun e ->
-        let window, cycle, pc =
-          match e with
-          | Event.Access a -> (ctx.window, a.cycle, a.pc)
-          | Fault f -> (ctx.window, f.cycle, f.pc)
-          | Unmatched u -> ({ ctx.window with pcs = [] }, u.cycle, -1)
-        in
-        if Text.selected window ~cycle ~pc then Accumulator.add acc e)
-      events;
-    let w = Accumulator.snapshot acc in
-    Printf.printf "%s: %d read and %d write requests from %d PCs, %d faults%s\n"
-      (Text.describe ctx.window) w.reads w.writes w.pcs w.faults (unmatched w.unmatched)
-  end
+  (* A read is emitted with its response, after later writes: rows go in request order, ties in
+     arrival order. Only the first [limit] requests are shown, so only that many are kept; the
+     faults and unmatched responses, which are all shown, are kept all. *)
+  let accesses = ref KM.empty and n = ref 0 and others = ref [] and seq = ref 0 in
+  let acc = Accumulator.create () in
+  let add e =
+    incr seq;
+    let key = (Event.cycle e, !seq) in
+    match e with
+    | Event.Fault f ->
+        if Text.selected ctx.window ~cycle:f.cycle ~pc:f.pc then begin
+          others := (key, e) :: !others;
+          Accumulator.add acc e
+        end
+    | Unmatched u ->
+        if Text.selected { ctx.window with pcs = [] } ~cycle:u.cycle ~pc:(-1) then begin
+          others := (key, e) :: !others;
+          Accumulator.add acc e
+        end
+    | Access a ->
+        if Text.selected ctx.window ~cycle:a.cycle ~pc:a.pc then begin
+          Accumulator.add acc e;
+          accesses := KM.add key e !accesses;
+          incr n;
+          if !n > ctx.limit then begin
+            accesses := KM.remove (fst (KM.max_binding !accesses)) !accesses;
+            decr n
+          end
+        end
+  in
+  let finish () =
+    let s : Summary.t = summary () in
+    List.sort (fun (a, _) (b, _) -> compare a b) (KM.bindings !accesses @ !others)
+    |> List.iter (function
+      | _, Event.Fault f ->
+          Format.fprintf ppf "%8d fault %s pc %08x addr %08x%s, %s\n" f.cycle
+            (if f.write then "W" else "R")
+            f.pc f.address (region f.address)
+            (match f.request with
+            | Some (cycle, addr) -> Printf.sprintf "requested at %d, addr %08x" cycle addr
+            | None -> "no request seen")
+      | _, Unmatched u ->
+          Format.fprintf ppf "%8d unmatched response for source %d\n" u.cycle u.source
+      | _, Access a ->
+          Format.fprintf ppf "%8d %s pc %08x addr %08x%s %d bytes %s\n" a.cycle
+            (if a.access.write then "W" else "R")
+            a.pc a.access.address (region a.access.address) (List.length a.lanes)
+            (Bits.to_hex (value a)));
+    let unmatched n = if n = 0 then "" else Printf.sprintf ", %d unmatched" n in
+    Format.fprintf ppf "root %s: %d read and %d write requests from %d PCs, %d faults%s\n" ctx.root
+      s.reads s.writes s.pcs s.faults (unmatched s.unmatched);
+    if Text.windowed ctx.window then begin
+      let w = Accumulator.snapshot acc in
+      Format.fprintf ppf "%s: %d read and %d write requests from %d PCs, %d faults%s\n"
+        (Text.describe ctx.window) w.reads w.writes w.pcs w.faults (unmatched w.unmatched)
+    end
+  in
+  { add; finish }

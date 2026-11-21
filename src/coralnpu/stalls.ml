@@ -316,80 +316,119 @@ let build () c =
     ~prj:(function Shared x -> Some x | _ -> None)
     (fun () -> make c)
 
-(* The spans of a window: each clipped to it, so the cycles add up to the window's. *)
-let in_window (ctx : Text.ctx) (s : Summary.t) events =
-  if not (Text.windowed ctx.window) then events
-  else
-    List.filter_map
-      (fun (Event.Stall_span x) ->
-        let start = max x.span.start ctx.window.first
-        and stop = min (Option.value x.span.stop ~default:(s.cycles - 1)) ctx.window.last in
-        if start > stop || not (ctx.window.pcs = [] || List.mem x.pc ctx.window.pcs) then None
-        else Some (Event.Stall_span { x with span = { Span.start; stop = Some stop } }))
-      events
+(* The span clipped to the window, so the cycles of the spans add up to the window's. *)
+let clip (ctx : Text.ctx) ~last (x : Event.stall_span) =
+  let start = max x.span.start ctx.window.first
+  and stop = min (Option.value x.span.stop ~default:last) ctx.window.last in
+  if start > stop || not (ctx.window.pcs = [] || List.mem x.pc ctx.window.pcs) then None
+  else Some { x with span = { Span.start; stop = Some stop } }
 
-let window_counts events =
-  List.fold_left
-    (fun m (Event.Stall_span x) ->
-      CM.update (x.lane, x.reason)
-        (fun n ->
-          Some
-            (Option.value x.span.stop ~default:x.span.start
-            - x.span.start + 1 + Option.value n ~default:0))
-        m)
-    CM.empty events
-  |> CM.bindings
-  |> List.map (fun ((lane, reason), cycles) -> { Summary.lane; reason; cycles })
-
-let profile (ctx : Text.ctx) events (s : Summary.t) =
+(* The cycles by lane and reason, and the cycles lane 0 was blocked by instruction, of the spans of
+   the window. A span still open at the end has no extent until the summary says where that is. *)
+let view (ctx : Text.ctx) =
+  let windowed = Text.windowed ctx.window in
+  let counts = ref CM.empty and open_ = ref [] in
   let blocked =
-    List.filter_map
-      (fun (Event.Stall_span x) ->
-        if x.lane = 0 && x.reason <> Dispatched && x.reason <> Empty then Some x else None)
-      events
-    |> List.stable_sort (fun (a : Event.stall_span) b -> Int.compare a.span.start b.span.start)
+    Profile.Acc.create
+      ~key:(fun (x : Event.stall_span) ->
+        if x.lane = 0 && x.reason <> Dispatched && x.reason <> Empty then
+          Some (x.pc, x.word, x.reason)
+        else None)
+      ~weight:(fun (x : Event.stall_span) -> Option.get x.span.stop - x.span.start + 1)
+      ()
   in
-  Printf.printf "lane 0 blocked, by instruction:\n%8s %6s %-14s %s\n" "pc" "cycles" "reason"
+  let account (x : Event.stall_span) =
+    if windowed then
+      counts :=
+        CM.update (x.lane, x.reason)
+          (fun n -> Some (Option.get x.span.stop - x.span.start + 1 + Option.value n ~default:0))
+          !counts;
+    Profile.Acc.add blocked x
+  in
+  let add (Event.Stall_span x) =
+    match x.span.stop with
+    | None -> open_ := x :: !open_
+    | Some _ -> (
+        if not windowed then account x
+        else match clip ctx ~last:0 x with Some x -> account x | None -> ())
+  in
+  let finish (s : Summary.t) =
+    let last = s.cycles - 1 in
+    List.iter
+      (fun x ->
+        match
+          if windowed then clip ctx ~last x
+          else Some { x with span = { x.span with stop = Some last } }
+        with
+        | Some x -> account x
+        | None -> ())
+      (List.rev !open_);
+    open_ := [];
+    ( (if windowed then
+         List.map
+           (fun ((lane, reason), cycles) -> { Summary.lane; reason; cycles })
+           (CM.bindings !counts)
+       else s.counts),
+      Profile.Acc.rows blocked )
+  in
+  (add, finish)
+
+let print_profile ppf (ctx : Text.ctx) rows =
+  Format.fprintf ppf "lane 0 blocked, by instruction:\n%8s %6s %-14s %s\n" "pc" "cycles" "reason"
     "instruction";
-  Profile.by
-    ~key:(fun (x : Event.stall_span) -> Some (x.pc, x.word, x.reason))
-    ~weight:(fun (x : Event.stall_span) ->
-      Option.value x.span.stop ~default:(s.cycles - 1) - x.span.start + 1)
-    (List.to_seq blocked)
-  |> List.iteri (fun i (r : _ Profile.row) ->
+  List.iteri
+    (fun i (r : _ Profile.row) ->
       let pc, word, reason = r.key in
       if i < ctx.profile then
-        Printf.printf "%08x %6d %-14s %s\n" pc r.weight (reason_name reason) (ctx.disasm word))
+        Format.fprintf ppf "%08x %6d %-14s %s\n" pc r.weight (reason_name reason) (ctx.disasm word))
+    rows
 
-let text (ctx : Text.ctx) events (s : Summary.t) =
-  let events = in_window ctx s events in
-  let counts = if Text.windowed ctx.window then window_counts events else s.counts in
-  let count lane r =
-    List.find_map
-      (fun (c : Summary.count) -> if c.lane = lane && c.reason = r then Some c.cycles else None)
-      counts
-  in
-  let lanes = List.fold_left (fun n (c : Summary.count) -> max n (c.lane + 1)) 0 counts in
-  Printf.printf "root %s: %d cycles\n" ctx.root s.cycles;
-  if Text.windowed ctx.window then
-    Printf.printf "%s: %d lane-cycles\n" (Text.describe ctx.window)
-      (List.fold_left (fun n (c : Summary.count) -> n + c.cycles) 0 counts);
-  Printf.printf "%-14s" "reason";
-  for l = 0 to lanes - 1 do
-    Printf.printf " %7s" (Printf.sprintf "lane%d" l)
-  done;
-  print_newline ();
-  List.iter
-    (fun r ->
-      if List.exists (fun l -> count l r <> None) (List.init lanes Fun.id) then begin
-        Printf.printf "%-14s" (reason_name r);
+let profile (ctx : Text.ctx) ppf summary : Event.t Text.sink =
+  let add, finish = view ctx in
+  {
+    add;
+    finish =
+      (fun () ->
+        let _, rows = finish (summary ()) in
+        print_profile ppf ctx rows);
+  }
+
+let text (ctx : Text.ctx) ppf summary : Event.t Text.sink =
+  let add, finish = view ctx in
+  {
+    add;
+    finish =
+      (fun () ->
+        let s = summary () in
+        let counts, rows = finish s in
+        let count lane r =
+          List.find_map
+            (fun (c : Summary.count) ->
+              if c.lane = lane && c.reason = r then Some c.cycles else None)
+            counts
+        in
+        let lanes = List.fold_left (fun n (c : Summary.count) -> max n (c.lane + 1)) 0 counts in
+        Format.fprintf ppf "root %s: %d cycles\n" ctx.root s.cycles;
+        if Text.windowed ctx.window then
+          Format.fprintf ppf "%s: %d lane-cycles\n" (Text.describe ctx.window)
+            (List.fold_left (fun n (c : Summary.count) -> n + c.cycles) 0 counts);
+        Format.fprintf ppf "%-14s" "reason";
         for l = 0 to lanes - 1 do
-          Printf.printf " %7d" (Option.value (count l r) ~default:0)
+          Format.fprintf ppf " %7s" (Printf.sprintf "lane%d" l)
         done;
-        print_newline ()
-      end)
-    reasons;
-  if ctx.profile > 0 then profile ctx events s
+        Format.fprintf ppf "\n";
+        List.iter
+          (fun r ->
+            if List.exists (fun l -> count l r <> None) (List.init lanes Fun.id) then begin
+              Format.fprintf ppf "%-14s" (reason_name r);
+              for l = 0 to lanes - 1 do
+                Format.fprintf ppf " %7d" (Option.value (count l r) ~default:0)
+              done;
+              Format.fprintf ppf "\n"
+            end)
+          reasons;
+        if ctx.profile > 0 then print_profile ppf ctx rows);
+  }
 
 let perfetto (ctx : Text.ctx) events (s : Summary.t) =
   {
