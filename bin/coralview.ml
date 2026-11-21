@@ -312,35 +312,6 @@ let with_ppf path k =
       ~finally:(fun () -> close_out oc)
   end
 
-(* A converted analysis: text through its own view, or JSON lines with the rows the window and the
-   limit select; the summary always covers the whole trace. *)
-let analyze env (type k e s)
-    (module A : Analysis.S with type Config.t = k and type Event.t = e and type Summary.t = s)
-    (cfg : k) (p : Platform.t) ?(status = fun _ -> 0) ~format ~(ctx : Text.ctx)
-    (text : Text.ctx -> Format.formatter -> (unit -> s) -> e Text.sink) path =
-  let ctx = resolve_between env p path ctx in
-  Driver.report_to (if format = `Jsonl then `Jsonl else `Text);
-  let pulled = guard p (fun () -> pull env (module A) cfg p (open_trace env path)) in
-  (match format with
-  | `Text ->
-      with_ppf "-" (fun ppf ->
-          print_banner env ppf p;
-          Text.drain (text ctx ppf pulled.summary) pulled.events)
-  | `Jsonl ->
-      let selected = Text.selected ctx.window in
-      let keep e =
-        selected ~cycle:(A.Event.cycle e) ~pc:(Option.value (A.Event.pc e) ~default:(-1))
-      in
-      Jsonl.write stdout
-        {
-          (jsonl_header env ~model:A.name ~platform:p.name ~trace:path) with
-          window = jsonl_window ctx.window;
-        }
-        (module A)
-        (Seq.take ctx.limit (Seq.filter keep pulled.events))
-        ~diags:pulled.diags pulled.summary);
-  match status (pulled.summary ()) with 0 -> () | n -> exit n
-
 let annotation_labels env ~functions =
   match env.annotate with
   | None -> fun _ -> []
@@ -422,6 +393,40 @@ let ctx env (p : Platform.t) ?(features = None) ?(region = Region.none) ?(window
     note;
   }
 
+let opts_ctx env p ?legend ?note (o : Models.opts) =
+  ctx env p ~features:o.features ~region:o.region ~window:o.window ~limit:o.limit ~profile:o.profile
+    ?legend ?note ()
+
+(* A converted analysis: text through its own view, or JSON lines with the rows the window and the
+   limit select; the summary always covers the whole trace. *)
+let analyze env name (o : Models.opts) ?legend ?note (p : Platform.t) ~format path =
+  let (Models.M { a = (module A); cfg; text; status; _ }) =
+    match Models.find name with Some m -> m | None -> fail ~code:2 ("no analysis " ^ name)
+  in
+  let ctx = opts_ctx env p ?legend ?note o in
+  let ctx = resolve_between env p path ctx in
+  Driver.report_to (if format = `Jsonl then `Jsonl else `Text);
+  let pulled = guard p (fun () -> pull env (module A) (cfg o) p (open_trace env path)) in
+  (match format with
+  | `Text ->
+      with_ppf "-" (fun ppf ->
+          print_banner env ppf p;
+          Text.drain (text o ctx ppf pulled.summary) pulled.events)
+  | `Jsonl ->
+      let selected = Text.selected ctx.window in
+      let keep e =
+        selected ~cycle:(A.Event.cycle e) ~pc:(Option.value (A.Event.pc e) ~default:(-1))
+      in
+      Jsonl.write stdout
+        {
+          (jsonl_header env ~model:A.name ~platform:p.name ~trace:path) with
+          window = jsonl_window ctx.window;
+        }
+        (module A)
+        (Seq.take ctx.limit (Seq.filter keep pulled.events))
+        ~diags:pulled.diags pulled.summary);
+  match status (pulled.summary ()) with 0 -> () | n -> exit n
+
 let signals env platform ~raw ~format ~changes ~cycles:(from_cycle, to_cycle)
     ~times:(from_time, to_time) path paths =
   let jsonl = format = `Jsonl in
@@ -473,107 +478,6 @@ let signals env platform ~raw ~format ~changes ~cycles:(from_cycle, to_cycle)
   run ~changes print;
   if jsonl then print_endline (Codec.to_line Signals.Summary.jsont { samples = !samples })
 
-type model = { name : string; about : string; needs : string list; build : 'c. 'c Core.t -> unit }
-
-let models =
-  [
-    {
-      name = Commits.name;
-      about = "retired instructions with values and per-instruction cycles";
-      needs = Commits.needs;
-      build =
-        (fun c ->
-          ignore (Analysis.subscribe (module Commits) () c ignore : Hwfrp.Sched.run_stats -> _));
-    };
-    {
-      name = Stalls.name;
-      about = "why each dispatch lane did not dispatch, per cycle";
-      needs = Stalls.needs;
-      build =
-        (fun c ->
-          ignore (Analysis.subscribe (module Stalls) () c ignore : Hwfrp.Sched.run_stats -> _));
-    };
-    {
-      name = Memory.name;
-      about = "LSU data accesses with PC, address and data";
-      needs = Memory.needs;
-      build =
-        (fun c ->
-          ignore
-            (Analysis.subscribe (module Memory) Memory.Config.default c ignore
-              : Hwfrp.Sched.run_stats -> _));
-    };
-    {
-      name = Axi.name;
-      about = "AXI master transactions: all external traffic, pinned to its originators";
-      needs = Axi.needs;
-      build =
-        (fun c ->
-          ignore
-            (Analysis.subscribe (module Axi) Axi.Config.default c ignore
-              : Hwfrp.Sched.run_stats -> _));
-    };
-    {
-      name = Dma.name;
-      about = "DMA engine jobs: activation, descriptors, beats, completion";
-      needs = Dma.needs;
-      build =
-        (fun c ->
-          ignore
-            (Analysis.subscribe (module Dma) Dma.Config.default c ignore
-              : Hwfrp.Sched.run_stats -> _));
-    };
-    {
-      name = Registers.model;
-      about = "x/f register files: storage, scoreboard and retired state related";
-      needs = Registers.needs;
-      build =
-        (fun c ->
-          ignore
-            (Analysis.subscribe (module Registers) Registers.Config.default c ignore
-              : Hwfrp.Sched.run_stats -> _));
-    };
-    {
-      name = Tiles.name;
-      about = "VME tile register writes, by PC";
-      needs = Tiles.needs;
-      build =
-        (fun c ->
-          ignore (Analysis.subscribe (module Tiles) () c ignore : Hwfrp.Sched.run_stats -> _));
-    };
-    {
-      name = Ops.name;
-      about = "vector operations at the RVV backend's dispatch";
-      needs = Ops.needs;
-      build =
-        (fun c ->
-          ignore
-            (Analysis.subscribe (module Ops) Ops.Config.default c ignore
-              : Hwfrp.Sched.run_stats -> _));
-    };
-    {
-      name = Traps.name;
-      about = "faults, the CSR updates they cause and whether the handler ran";
-      needs = Traps.needs;
-      build =
-        (fun c ->
-          ignore (Analysis.subscribe (module Traps) () c ignore : Hwfrp.Sched.run_stats -> _));
-    };
-    {
-      name = Vectors.model;
-      about = "vector register file: storage related to its write ports";
-      needs = Vectors.needs;
-      build =
-        (fun c ->
-          ignore
-            (Analysis.subscribe (module Vectors) Vectors.Config.default c ignore
-              : Hwfrp.Sched.run_stats -> _));
-    };
-  ]
-
-let available p =
-  List.filter (fun m -> List.for_all (fun b -> List.mem b (Platform.blocks p)) m.needs) models
-
 let platforms manifests =
   let manifests =
     List.map (fun f -> match Manifest.load f with Ok m -> m | Error e -> fail e) manifests
@@ -581,7 +485,7 @@ let platforms manifests =
   List.iter
     (fun (p : Platform.t) ->
       Printf.printf "%s (%s, %s): %s\n" p.name p.family_name p.top_level
-        (String.concat ", " (List.map (fun m -> m.name) (available p)));
+        (String.concat ", " (List.map Models.name (Models.available p)));
       if manifests <> [] then
         match List.find_opt (fun m -> Manifest.find m p.name <> None) manifests with
         | Some m -> ( match Manifest.validate m p with Ok _ -> () | Error e -> fail ~code:3 e)
@@ -592,11 +496,11 @@ let platforms manifests =
 
 (* Binding every model of the platform proves its description against the trace. *)
 let select_models (p : Platform.t) = function
-  | [] -> available p
+  | [] -> Models.available p
   | names ->
       List.map
         (fun n ->
-          match List.find_opt (fun m -> m.name = n) models with
+          match Models.find n with
           | Some m -> m
           | None -> fail ~code:2 (Printf.sprintf "no model %s" n))
         names
@@ -614,8 +518,8 @@ let check env p names ~format path =
     (fun m ->
       with_trace env path @@ fun tr ->
       guard p (fun () ->
-          let (Core.Any c) = Core.bind ~collect:true p tr ~model:m.name in
-          m.build c;
+          let (Core.Any c) = Core.bind ~collect:true p tr ~model:(Models.name m) in
+          Models.subscribe m c;
           List.iter
             (fun (r : Hwfrp.Bind.report) ->
               List.iter (fun e -> incr (if Hwfrp.Bind.ok e then bound else failed)) r.entries;
@@ -653,9 +557,9 @@ let plan_command env (p : Platform.t) names signal_paths catalogs dir producer ~
           (fun m ->
             with_catalog file @@ fun tr ->
             guard p (fun () ->
-                let (Core.Any c) = Core.bind p tr ~model:m.name in
-                m.build c;
-                Hwfrp.Capture.plan ~origin:m.name tr [ c.net ]))
+                let (Core.Any c) = Core.bind p tr ~model:(Models.name m) in
+                Models.subscribe m c;
+                Hwfrp.Capture.plan ~origin:(Models.name m) tr [ c.net ]))
           models
         @
         if signal_paths = [] then []
@@ -1032,133 +936,6 @@ let model ?(opts = []) name doc term =
           guard p (fun () -> f env p src.path))
       $ platform $ all opts $ term $ traced)
 
-(* What [coralview run] needs of an analysis: its config and text view from the common options. *)
-type opts = {
-  o_region : Region.t;
-  o_features : string option;
-  o_window : Text.window;
-  o_limit : int;
-  o_profile : int;
-  o_at : int option;
-  o_beats : int;
-}
-
-type entry =
-  | E : {
-      a : (module Analysis.S with type Config.t = 'k and type Event.t = 'e and type Summary.t = 's);
-      cfg : opts -> 'k;
-      text : opts -> Text.ctx -> Format.formatter -> (unit -> 's) -> 'e Text.sink;
-      status : 's -> int;
-      profile : (Text.ctx -> Format.formatter -> (unit -> 's) -> 'e Text.sink) option;
-      perfetto : (Text.ctx -> 'e Seq.t -> 's -> Perfetto.process) option;
-    }
-      -> entry
-
-let entries =
-  let plain text _ = text and ok _ = 0 and profile = None and perfetto = None in
-  [
-    ( "commits",
-      E
-        {
-          a = (module Commits);
-          cfg = (fun _ -> ());
-          text = plain Commits.text;
-          status = ok;
-          profile = Some Commits.profile;
-          perfetto;
-        } );
-    ( "stalls",
-      E
-        {
-          a = (module Stalls);
-          cfg = (fun _ -> ());
-          text = plain Stalls.text;
-          status = ok;
-          profile = Some Stalls.profile;
-          perfetto = Some Stalls.perfetto;
-        } );
-    ( "memory",
-      E
-        {
-          a = (module Memory);
-          cfg = (fun o -> { region = o.o_region });
-          text = plain Memory.text;
-          status = ok;
-          profile;
-          perfetto;
-        } );
-    ( "axi",
-      E
-        {
-          a = (module Axi);
-          cfg = (fun o -> { region = o.o_region });
-          text = plain Axi.text;
-          status = ok;
-          profile = Some Axi.profile;
-          perfetto = Some Axi.perfetto;
-        } );
-    ( "dma",
-      E
-        {
-          a = (module Dma);
-          cfg = (fun o -> { region = o.o_region });
-          text = (fun o -> Dma.text ~beats:o.o_beats);
-          status = ok;
-          profile;
-          perfetto = Some Dma.perfetto;
-        } );
-    ( "tiles",
-      E
-        {
-          a = (module Tiles);
-          cfg = (fun _ -> ());
-          text = plain Tiles.text;
-          profile;
-          perfetto;
-          status = ok;
-        } );
-    ( "ops",
-      E
-        {
-          a = (module Ops);
-          cfg = (fun _ -> Ops.Config.default);
-          text = plain Ops.text;
-          status = ok;
-          profile = Some Ops.profile;
-          perfetto = Some Ops.perfetto;
-        } );
-    ( "registers",
-      E
-        {
-          a = (module Registers);
-          cfg = (fun o -> { at = o.o_at });
-          text = plain Registers.text;
-          status = Registers.status;
-          profile;
-          perfetto;
-        } );
-    ( "vectors",
-      E
-        {
-          a = (module Vectors);
-          cfg = (fun o -> { at = o.o_at });
-          text = plain Vectors.text;
-          status = Vectors.status;
-          profile;
-          perfetto;
-        } );
-    ( "traps",
-      E
-        {
-          a = (module Traps);
-          cfg = (fun _ -> ());
-          text = plain Traps.text;
-          profile;
-          perfetto;
-          status = ok;
-        } );
-  ]
-
 (* A text view's destination in [run]. The standard output is written as the views go only when one
    view alone prints to it: otherwise the text is held until the view ends, so that the views do not
    interleave. *)
@@ -1210,7 +987,7 @@ let text_out path ~hold =
 
 (* Several analyses in one pass: each is built in the same net, and its events are pushed to its
    sinks as they come. A model without a sink prints its text to the standard output. *)
-let run_models env (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
+let run_models env (p : Platform.t) (o : Models.opts) models sinks ?perfetto ?kanata ?report path =
   let sinks =
     List.map
       (fun s ->
@@ -1232,10 +1009,7 @@ let run_models env (p : Platform.t) o models sinks ?perfetto ?kanata ?report pat
      | (_, _, _) :: _ -> `Text
      | [] ->
          if sinks = [] && perfetto = None && kanata = None && report = None then `Text else `Stderr));
-  let ctx =
-    ctx env p ~features:o.o_features ~region:o.o_region ~window:o.o_window ~limit:o.o_limit
-      ~profile:o.o_profile ()
-  in
+  let ctx = opts_ctx env p o in
   let ctx = resolve_between env p path ctx in
   let env = { env with origins = Some models } in
   let tr = open_trace env path in
@@ -1257,9 +1031,9 @@ let run_models env (p : Platform.t) o models sinks ?perfetto ?kanata ?report pat
     guard p (fun () ->
         List.map
           (fun m ->
-            match List.assoc_opt m entries with
+            match Models.find m with
             | None -> fail ~code:2 ("run: no analysis " ^ m)
-            | Some (E { a = (module A); cfg; text; status; perfetto = view; _ }) ->
+            | Some (M { a = (module A); cfg; text; status; perfetto = view; _ }) ->
                 let mine = targets m in
                 let selected = Text.selected ctx.window in
                 let keep e =
@@ -1468,18 +1242,14 @@ let with_jsonl (type e s) (module A : Analysis.S with type Event.t = e and type 
           match !summary with None -> fail ~code:2 (file ^ ": no summary") | Some s -> s))
 
 let entry file (h : Jsonl.header) =
-  match List.assoc_opt h.model entries with
+  match Models.find h.model with
   | Some e -> e
   | None -> fail ~code:2 (file ^ ": no analysis " ^ h.model)
-
-let opts_ctx env p o =
-  ctx env p ~features:o.o_features ~region:o.o_region ~window:o.o_window ~limit:o.o_limit
-    ~profile:o.o_profile ()
 
 (* A saved JSONL back to the text its model prints. *)
 let render env p o file =
   let h = read_jsonl file in
-  let (E { a = (module A); text; status; _ }) = entry file h in
+  let (M { a = (module A); text; status; _ }) = entry file h in
   let s =
     with_jsonl
       (module A)
@@ -1496,13 +1266,13 @@ let render env p o file =
 let profile_of env p o file =
   let h = read_jsonl file in
   match entry file h with
-  | E { a = (module A); profile = Some profile; _ } ->
+  | M { a = (module A); profile = Some profile; _ } ->
       with_jsonl
         (module A)
         file
         (fun events summary ->
           with_ppf "-" (fun ppf -> Text.drain (profile (opts_ctx env p o) ppf summary) events))
-  | E _ -> fail ~code:2 (file ^ ": " ^ h.model ^ " has no profile")
+  | M _ -> fail ~code:2 (file ^ ": " ^ h.model ^ " has no profile")
 
 let saved_platform =
   Arg.(
@@ -1885,11 +1655,9 @@ let commands =
             redirect output;
             if vector && format = `Jsonl then fail ~code:2 "--vector is for the text listing";
             let note = if vector then Some (vector_note env p path) else None in
-            analyze env
-              (module Commits)
-              () p ~format
-              ~ctx:(ctx env p ~features ~window ~limit ~profile ~legend ?note ())
-              Commits.text path)
+            analyze env "commits"
+              { Models.default with features; window; limit; profile }
+              ~legend ?note p ~format path)
         $ features $ window $ limit $ profile $ legend
         $ Arg.(
             value & flag
@@ -1903,20 +1671,14 @@ let commands =
       Term.(
         const (fun window profile format output env p path ->
             redirect output;
-            analyze env
-              (module Stalls)
-              () p ~format ~ctx:(ctx env p ~window ~profile ()) Stalls.text path)
+            analyze env "stalls" { Models.default with window; profile } p ~format path)
         $ window $ profile $ format $ output);
     model ~opts:[ elf; between; manifest ] "memory" Memory.doc
       Term.(
         const (fun window limit format output env p path ->
             let region = regions env p in
             redirect output;
-            analyze env
-              (module Memory)
-              { region } p ~format
-              ~ctx:(ctx env p ~region ~window ~limit ())
-              Memory.text path)
+            analyze env "memory" { Models.default with region; window; limit } p ~format path)
         $ window $ limit $ format $ output);
     model ~opts:[ elf; between; manifest ] "cost"
       "Retired instructions by class and memory region: commits joined with memory."
@@ -2023,20 +1785,16 @@ let commands =
         const (fun features window limit profile format output env p path ->
             let region = regions env p in
             redirect output;
-            analyze env
-              (module Axi)
-              { region } p ~format
-              ~ctx:(ctx env p ~features ~region ~window ~limit ~profile ())
-              Axi.text path)
+            analyze env "axi"
+              { Models.default with features; region; window; limit; profile }
+              p ~format path)
         $ features $ window $ limit $ profile $ format $ output);
     model ~opts:[ manifest ] "dma" Dma.doc
       Term.(
         const (fun beats format output env p path ->
             let region = regions env p in
             redirect output;
-            analyze env
-              (module Dma)
-              { region } p ~format ~ctx:(ctx env p ~region ()) (Dma.text ~beats) path)
+            analyze env "dma" { Models.default with region; beats } p ~format path)
         $ Arg.(
             value & opt int 0
             & info [ "beats" ] ~docv:"N" ~doc:"Print the first $(docv) beats of each job.")
@@ -2045,19 +1803,15 @@ let commands =
       Term.(
         const (fun window limit format output env p path ->
             redirect output;
-            analyze env
-              (module Tiles)
-              () p ~format ~ctx:(ctx env p ~window ~limit ()) Tiles.text path)
+            analyze env "tiles" { Models.default with window; limit } p ~format path)
         $ window $ limit $ format $ output);
     model ~opts:[ elf; between; profile_by ] "ops" Ops.doc
       Term.(
         const (fun features gap peak_window window limit profile format output env p path ->
             redirect output;
-            analyze env
-              (module Ops)
-              { gap; peak_window; features } p ~format
-              ~ctx:(ctx env p ~window ~limit ~profile ())
-              Ops.text path)
+            analyze env "ops"
+              { Models.default with window; limit; profile; ops = { gap; peak_window; features } }
+              p ~format path)
         $ features
         $ Arg.(
             value & opt int Ops.Config.default.gap
@@ -2072,24 +1826,19 @@ let commands =
       Term.(
         const (fun at limit format output env p path ->
             redirect output;
-            analyze env
-              (module Registers)
-              { at } p ~status:Registers.status ~format ~ctx:(ctx env p ~limit ()) Registers.text
-              path)
+            analyze env "registers" { Models.default with at; limit } p ~format path)
         $ at $ limit $ format $ output);
     model "vectors" Vectors.doc
       Term.(
         const (fun at limit format output env p path ->
             redirect output;
-            analyze env
-              (module Vectors)
-              { at } p ~status:Vectors.status ~format ~ctx:(ctx env p ~limit ()) Vectors.text path)
+            analyze env "vectors" { Models.default with at; limit } p ~format path)
         $ at $ limit $ format $ output);
     model "traps" Traps.doc
       Term.(
         const (fun format output env p path ->
             redirect output;
-            analyze env (module Traps) () p ~format ~ctx:(ctx env p ()) Traps.text path)
+            analyze env "traps" Models.default p ~format path)
         $ format $ output);
     cmd "run" "Run several analyses in one pass over a trace, each to its own text or JSONL sinks."
       Term.(
@@ -2100,13 +1849,14 @@ let commands =
             produce src;
             run_models env p ?perfetto ?kanata ?report
               {
-                o_region = regions env p;
-                o_features = features;
-                o_window = window;
-                o_limit = limit;
-                o_profile = profile;
-                o_at = at;
-                o_beats = beats;
+                Models.default with
+                region = regions env p;
+                features;
+                window;
+                limit;
+                profile;
+                at;
+                beats;
               }
               models sinks src.path)
         $ platform
@@ -2152,13 +1902,14 @@ let commands =
             let env = set (defaults ()) in
             render env p
               {
-                o_region = regions env p;
-                o_features = features;
-                o_window = window;
-                o_limit = limit;
-                o_profile = profile;
-                o_at = at;
-                o_beats = beats;
+                Models.default with
+                region = regions env p;
+                features;
+                window;
+                limit;
+                profile;
+                at;
+                beats;
               }
               file)
         $ saved_platform $ features
@@ -2168,17 +1919,7 @@ let commands =
       Term.(
         const (fun platform features n file ->
             let p = load (Option.value platform ~default:(read_jsonl file).platform) in
-            profile_of (defaults ()) p
-              {
-                o_region = Region.none;
-                o_features = features;
-                o_window = Text.everything;
-                o_limit = max_int;
-                o_profile = n;
-                o_at = None;
-                o_beats = 0;
-              }
-              file)
+            profile_of (defaults ()) p { Models.default with features; profile = n } file)
         $ saved_platform $ features
         $ Arg.(
             value & opt int 10 & info [ "rows"; "n" ] ~docv:"N" ~doc:"The $(docv) heaviest rows.")
