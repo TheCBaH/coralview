@@ -905,6 +905,8 @@ faults of `traps`, the strays of `dma`, and for `--kanata` the lines of
 the instructions in flight. `--perfetto` still keeps the events of the
 models it draws until the run ends; the file is then written event by
 event. `cost`, `loops`, `compare` and `commits --vector` also collect.
+`make long` (the `@long` alias, outside `make ci`) generates a 3,000,000-cycle
+trace and fails if any of the other views passes 256 MB (they take about 70 MB).
 
 ```
 $ coralview run --platform vme-core-mini-axi --model axi --model stalls --perfetto vme.json --report vme.md vme_external_matmul.fst
