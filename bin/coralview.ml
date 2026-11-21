@@ -1343,31 +1343,40 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
                     section ))
           models)
   in
-  let kanata_events =
+  let kanata_out =
     Option.map
-      (fun _ ->
-        let commits = ref [] and stalls = ref [] in
+      (fun f ->
+        (* Written as the run goes, to the standard output too unless something else prints there. *)
+        let hold =
+          f = "-"
+          && (on_stdout "text" <> []
+             || on_stdout "jsonl" <> []
+             || perfetto = Some "-" || report = Some "-")
+        in
+        let buf = Buffer.create 4096 in
+        let oc = if f = "-" || hold then stdout else open_out f in
+        let put = if hold then Buffer.add_string buf else output_string oc in
+        let builder = Kanata.Builder.create ~disasm:ctx.disasm (Kanata.Writer.create put) in
         guard p (fun () ->
             let (_ : Hwfrp.Sched.run_stats -> _) =
-              Analysis.subscribe (module Commits) () c (fun e -> commits := e :: !commits)
+              Analysis.subscribe (module Commits) () c (Kanata.Builder.commit builder)
             in
             if List.mem "dispatch" (Platform.blocks p) then
               let (_ : Hwfrp.Sched.run_stats -> _) =
-                Analysis.subscribe (module Stalls) () c (fun e -> stalls := e :: !stalls)
+                Analysis.subscribe (module Stalls) () c (Kanata.Builder.stall builder)
               in
               ());
-        (commits, stalls))
+        (builder, oc, buf, hold))
       kanata
   in
   let stats = Core.run c in
   let results = List.map (fun f -> f stats) finishers in
   Option.iter
-    (fun f ->
-      let commits, stalls = Option.get kanata_events in
-      let oc = if f = "-" then stdout else open_out f in
-      Kanata.write oc (Kanata.of_run ~disasm:ctx.disasm (List.rev !commits) (List.rev !stalls));
-      if oc != stdout then close_out oc)
-    kanata;
+    (fun (builder, oc, buf, hold) ->
+      Kanata.Builder.finish builder;
+      if hold then output_string oc (Buffer.contents buf);
+      if oc != stdout then close_out oc else flush oc)
+    kanata_out;
   Option.iter
     (fun f ->
       let oc = if f = "-" then stdout else open_out f in
