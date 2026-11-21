@@ -74,3 +74,16 @@ operations of each 64-cycle window as a counter:
   $ jq -c '.traceEvents[] | select(.ph == "C") | [.name, .ts, .args]' ops.json
   ["ops per 64 cycles",0,{"value":28}]
   ["ops per 64 cycles",64,{"value":0}]
+
+A uop held on the backend's wires through a clock edge is dispatched again; here the vadd.vv of cycle 3
+stays for a cycle:
+
+  $ awk '/^#/ { n = substr($0, 2) + 0; if (n > 8) { if (!done) { print "#9"; print "1ck"; print "#10"; print "0ck"; done = 1 } print "#" n + 2; next } } { print }' ops.vcd > held.vcd
+  $ coralview ops --platform ops-core.json --format jsonl held.vcd | jq -c 'select(.type == "ops.op") | [.cycle, .mnemonic]'
+  [1,"vfmacc.vf"]
+  [2,"vle32.v"]
+  [3,"vadd.vv"]
+  [4,"vadd.vv"]
+  [6,"vmv.v.i"]
+  [10,"vfmacc.vf"]
+  [11,null]

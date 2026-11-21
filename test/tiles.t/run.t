@@ -44,3 +44,13 @@ The VME's write ports are named by the description: renamed in both, the listing
   $ sed -f rename.sed tiles.vcd > renamed.vcd
   $ coralview tiles --platform renamed-core.json renamed.vcd > after.txt
   $ diff before.txt after.txt
+
+Wires that hold their values through a clock edge keep writing: a held write is a write in each cycle.
+The trace with one more cycle after the second write, and nothing changing in it:
+
+  $ awk '/^#/ { n = substr($0, 2) + 0; if (n > 8) { if (!done) { print "#9"; print "1ck"; print "#10"; print "0ck"; done = 1 } print "#" n + 2; next } } { print }' tiles.vcd > held.vcd
+  $ coralview tiles --platform tile-core.json held.vcd | grep ' blk'
+         0 blk0 port0 load        tile  1 sub  2 mask 000f 11223344
+         2 blk0 port0 pc 00000200 tile  3 sub  0 mask 000f aabbccdd
+         3 blk0 port0 pc 00000200 tile  3 sub  0 mask 000c 55660000
+         4 blk0 port0 pc 00000200 tile  3 sub  0 mask 000c 55660000

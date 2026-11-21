@@ -204,7 +204,7 @@ let step ?(report = ignore) ~region ~data_bytes ~port s cycle (sample, pc, fault
   in
   match fault with
   | None -> (s, out)
-  | Some (cycle, pc, address, write) ->
+  | Some (pc, address, write) ->
       ( { s with faults = s.faults + 1 },
         out
         @ [
@@ -231,9 +231,8 @@ let build (cfg : Config.t) (c : _ Core.t) =
     let+ valid = b l.fault.f_valid
     and+ write = b l.fault.f_write
     and+ addr = u l.fault.f_addr
-    and+ epc = u l.fault.f_epc
-    and+ cycle = cycle c.clk in
-    if valid then Some (cycle, epc, addr, write) else None
+    and+ epc = u l.fault.f_epc in
+    if valid then Some (epc, addr, write) else None
   in
   let input =
     let open Sig in

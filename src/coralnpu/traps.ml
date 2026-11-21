@@ -141,7 +141,6 @@ let cause_name c =
     | c -> Printf.sprintf "cause %d" c
 
 type sample = {
-  now : int;
   fm : (string * int * int * int) option;  (** Source, cause, PC, value. *)
   regs : int * int * int;  (** mcause, mepc, mtval. *)
   mtvec : int;
@@ -158,7 +157,7 @@ type state = {
   unmatched : int;
 }
 
-let rec step s (x : sample) =
+let rec step ~now s (x : sample) =
   (* A fault asserted in this cycle reaches the CSRs and retirement in later cycles. *)
   let open_ =
     Option.map
@@ -168,32 +167,32 @@ let rec step s (x : sample) =
             (fun f (pc, trapped) ->
               let f =
                 if pc = f.pc && f.retired_after = None then
-                  { f with retired_after = Some { at = x.now; trapped } }
+                  { f with retired_after = Some { at = now; trapped } }
                 else f
               in
-              if pc = f.handler && f.delivered = None then { f with delivered = Some x.now } else f)
-            { f with until = x.now } x.retired
+              if pc = f.handler && f.delivered = None then { f with delivered = Some now } else f)
+            { f with until = now } x.retired
         in
         if List.mem f.handler x.dispatched && f.dispatched = None then
-          { f with dispatched = Some x.now }
+          { f with dispatched = Some now }
         else f)
       s.open_
   in
   let open_, matched =
     match open_ with
     | Some f when f.csr = None && (f.cause, f.pc, f.value) = x.regs ->
-        (Some { f with csr = Some x.now }, true)
+        (Some { f with csr = Some now }, true)
     | o -> (o, false)
   in
   let change =
     if (not matched) && s.last_regs <> Some x.regs && s.last_regs <> None then
       let mcause, mepc, mtval = x.regs in
-      [ Event.Csr_change { c_cycle = x.now; c_mcause = mcause; c_mepc = mepc; c_mtval = mtval } ]
+      [ Event.Csr_change { c_cycle = now; c_mcause = mcause; c_mepc = mepc; c_mtval = mtval } ]
     else []
   in
   let last_retired =
     List.fold_left
-      (fun m (pc, trapped) -> IM.add pc { at = x.now; trapped } m)
+      (fun m (pc, trapped) -> IM.add pc { at = now; trapped } m)
       s.last_retired x.retired
   in
   let s =
@@ -210,7 +209,7 @@ let rec step s (x : sample) =
   | Some (source, cause, pc, value) ->
       let f =
         {
-          cycle = x.now;
+          cycle = now;
           source;
           pc;
           cause;
@@ -221,7 +220,7 @@ let rec step s (x : sample) =
           retired_after = None;
           dispatched = None;
           delivered = None;
-          until = x.now;
+          until = now;
         }
       in
       let closed, s = close s in
@@ -273,8 +272,7 @@ let build () (c : _ Core.t) =
   in
   let sample =
     let open Sig in
-    let+ now = cycle c.clk
-    and+ fm = fault
+    let+ fm = fault
     and+ regs = regs
     and+ mtvec = word cs t.csr.csr_mtvec "mtvec"
     and+ dispatched =
@@ -284,7 +282,7 @@ let build () (c : _ Core.t) =
         (List.map (fun (r : Core.retired) -> (r.r_pc, r.r_trap)))
         (Core.present c (Core.retire c))
     in
-    { now; fm; regs; mtvec; dispatched; retired }
+    { fm; regs; mtvec; dispatched; retired }
   in
   let out, st =
     Machine.run
@@ -299,7 +297,7 @@ let build () (c : _ Core.t) =
             delivered = 0;
             unmatched = 0;
           };
-        step = (fun ~tick:_ s x -> step s x);
+        step = (fun ~tick s x -> step ~now:tick.index s x);
         finish = (fun s -> fst (close s));
         every_tick = true;
       }

@@ -126,3 +126,12 @@ A description without them is refused, with the place:
   $ coralview memory --platform nopc.json memory.vcd 2>&1 | head -2
   Missing member pc in lsu object
   File "nopc.json", lines 10-12, characters 11-136:
+
+A fault wire held through a clock edge is a fault in each cycle; here the store's fault of cycle 6 stays
+for one more:
+
+  $ awk '/^#/ { n = substr($0, 2) + 0; if (n > 14) { if (!done) { print "#15"; print "1ck"; print "#16"; print "0ck"; done = 1 } print "#" n + 2; next } } { print }' memory.vcd > held.vcd
+  $ coralview memory --platform mem-core.json held.vcd | grep ' fault '
+         5 fault R pc 0000010c addr 30000000, requested at 4, addr 20000010
+         6 fault W pc 00000110 addr 00000040, no request seen
+         7 fault W pc 00000110 addr 00000040, no request seen
