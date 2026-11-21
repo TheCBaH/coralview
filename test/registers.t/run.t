@@ -82,5 +82,5 @@ description:
   $ sed '/"first": 1,/s/"scoreboard_entries": 32/"scoreboard_entries": 3/' reg-core.json > small-core.json
   $ coralview registers --platform small-core.json registers.vcd 2>&1 | head -3
   register file: 3 scoreboard entries for registers up to 3
-  File "small-core.json": in member x_registers of
-  File "small-core.json", lines 9-26, characters 12-6: blocks object
+  File "small-core.json", lines 17-26, characters 19-5:
+  File "small-core.json", line 17, characters 4-17: in member x_registers of

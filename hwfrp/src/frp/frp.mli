@@ -13,6 +13,9 @@ module Net : sig
   (** [max_diags] (default 10 000) is the number of diagnostics the net retains, whatever their source;
       see {!Diag.stream}. *)
 
+  val tick : t -> Trace.tick
+  (** The sample being evaluated, or the last one at the end of the run. *)
+
   val domains : t -> Trace.domain_spec array
   (** The specs of the defined clocks, in definition order: pass them to {!Sampler.create}. *)
 
@@ -77,6 +80,10 @@ module Sig : sig
   val cycle : 'c Clock.t -> (int, 'c) t
   val time : 'c Clock.t -> (Vcd_types.Timestamp.t, 'c) t
   val enabled : 'c Clock.t -> (bool, 'c) t
+
+  val in_reset : 'c Clock.t -> (bool, 'c) t
+  (** Whether the domain's reset ({!Trace.domain_spec}) is asserted at the sample; always false without
+      one. *)
 
   val peek : ('a, 'c) t -> 'a
   (** The current value, for subscribers and tests. *)
@@ -295,6 +302,9 @@ module Sched : sig
     enabled : int array;
         (** Per domain: samples where the enable was high; equal to [ticks] for a clock without one. A
             wrong enable shows as [enabled] far from what the model expects. *)
+    in_reset : int array;
+        (** Per domain: samples taken in reset; a domain in reset at all of them ends the run with a
+            [clock.always-in-reset] diagnostic. *)
     node_evals : int;
     wall_s : float;  (** Elapsed time of the injected clock; 0 without one. *)
     per_node : (string * node_stats) list;

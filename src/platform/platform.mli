@@ -250,6 +250,8 @@ type blocks = {
   v_dispatch : vector_dispatch option;
   traps : traps option;
 }
+(** A new block is a field here, its [no_blocks] entry and one entry of [registry] in [platform.ml], which
+    gives its name, codec, accessors and {!known_blocks} needs. *)
 
 type configuration = {
   config : string;  (** As named in the archive's [hardware-configurations.json]. *)
@@ -257,10 +259,18 @@ type configuration = {
   trace_root : string list;  (** Scope components of the core in its traces. *)
 }
 
+type reset = {
+  reset_signal : string;  (** A 1-bit signal of the core's scope, like the clock. *)
+  reset_active : bool;
+      (** The level that holds the core in reset: [true] for [high], [false] for [low]. *)
+}
+
 type family = {
   family : string;
   configurations : configuration list;
   clock : string;
+  reset : reset option;
+      (** Absent when the description does not say where the reset is: every sample is then out of reset. *)
   sample : Hwfrp.Trace.sample_rule;
   blocks : blocks;
 }
@@ -272,14 +282,22 @@ type t = {
   top_level : string;
   trace_root : string list;
   clock : string;
+  reset : reset option;
   sample : Hwfrp.Trace.sample_rule;
   blocks : blocks;
 }
 
 val jsont : family Jsont.t
-(** Unknown members are errors, and per-lane wire lists must have one name per lane. *)
+(** Unknown members are errors, and per-lane wire lists must have one name per lane. [extends] is not a
+    member of it: {!of_string} resolves it before decoding. *)
 
 val of_string : ?file:string -> string -> (family, string) result
+(** A description may name one to extend, [extends] being a built-in family ([core-mini]: no ["/"], not
+    ending in [".json"]) or a file relative to [file]. The members it gives are applied over the base's as a
+    JSON merge patch (RFC 7396): objects merge by member, other values replace, [null] removes. A missing
+    base, one that is not a string and a cycle are errors at the [extends] member; any other error is at
+    the member that wrote it, in the file of the description that did. *)
+
 val configurations : family -> t list
 val builtin : t list Lazy.t
 
@@ -294,6 +312,10 @@ val scope : t -> string list -> Vcd_types.Reference.t
 
 val blocks : t -> string list
 (** The names of the blocks it describes. *)
+
+val known_blocks : (string * string list) list
+(** Every block a description can have, in the order {!blocks} lists them, with the blocks that must be
+    described with it: a description that gives a block without them is an error at the block. *)
 
 val name_of : string -> int -> string
 (** A wire name pattern with [%d] replaced by the number; a name without [%d] as is. *)

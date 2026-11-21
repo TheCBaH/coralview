@@ -1,0 +1,115 @@
+$timescale 1ps $end
+$scope module TOP $end
+$scope module core $end
+$var wire 1 ! io_aclk $end
+$var wire 1 " io_debug_dispatch_0_instFire $end
+$var wire 1 R io_aresetn $end
+$var wire 32 # io_debug_dispatch_0_instAddr $end
+$var wire 32 $ io_debug_dispatch_0_instInst $end
+$var wire 1 % io_debug_rb_inst_0_valid $end
+$var wire 32 & io_debug_rb_inst_0_bits_pc $end
+$var wire 7 ' io_debug_rb_inst_0_bits_idx $end
+$var wire 1 ( io_debug_rb_inst_0_bits_trap $end
+$var wire 1 ) io_debug_regfile_writeData_0_valid $end
+$var wire 5 * io_debug_regfile_writeData_0_bits_addr $end
+$var wire 32 + io_debug_regfile_writeData_0_bits_data $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+0!
+0R
+x"
+bx #
+bx $
+0%
+bx &
+bx '
+x(
+0)
+bx *
+bx +
+$end
+#1
+1!
+#2
+0!
+1"
+b10000000000000000000000001000 #
+b10011 $
+#3
+1!
+#4
+0!
+0"
+1%
+b100000000000000 &
+b101 '
+x(
+1)
+b1 *
+bx +
+#5
+1!
+#6
+0!
+1R
+0"
+b0 #
+b0 $
+0%
+b0 &
+b0 '
+0(
+0)
+b0 *
+b0 +
+#7
+1!
+#8
+0!
+#9
+1!
+#10
+0!
+1"
+b10000000000000000000000000000000 #
+b10101000000000010100010011 $
+#11
+1!
+#12
+0!
+b10000000000000000000000000000100 #
+b10011 $
+#13
+1!
+#14
+0!
+0"
+1)
+b1010 *
+b101010 +
+#15
+1!
+#16
+0!
+0)
+1%
+b10000000000000000000000000000000 &
+b1010 '
+#17
+1!
+#18
+0!
+b10000000000000000000000000000100 &
+b1111111 '
+#19
+1!
+#20
+0!
+0%
+#21
+1!
+#22
+0!

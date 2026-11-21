@@ -47,7 +47,9 @@ let sample rule =
   let clk = Option.get (Trace.track_path tr "top.clk") in
   let data = Option.get (Trace.track_path tr "top.data") in
   let en = Option.get (Trace.track_path tr "top.en") in
-  let s = Sampler.create tr [| { Trace.clock = clk.slot; rule; enable = Some en.slot } |] in
+  let s =
+    Sampler.create tr [| { Trace.clock = clk.slot; rule; enable = Some en.slot; reset = None } |]
+  in
   let rec go () =
     match Sampler.next s with
     | None ->
@@ -119,7 +121,7 @@ $end
 |}
   in
   let clk = Option.get (Trace.track_path tr "top.clk") in
-  let spec rule = { Trace.clock = clk.slot; rule; enable = None } in
+  let spec rule = { Trace.clock = clk.slot; rule; enable = None; reset = None } in
   let s = Sampler.create tr [| spec Before_rising; spec After_falling |] in
   let rec go () =
     match Sampler.next s with
@@ -142,7 +144,8 @@ let%expect_test "combinators" =
   let net = Net.create () in
   let clk = Option.get (Trace.track_path tr "top.clk") in
   let (Clock.Any c) =
-    Clock.define net ~name:"clk" { clock = clk.slot; rule = After_falling; enable = None }
+    Clock.define net ~name:"clk"
+      { clock = clk.slot; rule = After_falling; enable = None; reset = None }
   in
   let data =
     Source.logic c
@@ -214,7 +217,8 @@ let%expect_test "diagnostics carry the cycle" =
   let net = Net.create () in
   let clk = Option.get (Trace.track_path tr "top.clk") in
   let (Clock.Any c) =
-    Clock.define net ~name:"clk" { clock = clk.slot; rule = After_falling; enable = None }
+    Clock.define net ~name:"clk"
+      { clock = clk.slot; rule = After_falling; enable = None; reset = None }
   in
   let unused = Option.get (Trace.track_path tr "top.unused") in
   let u = Source.logic c unused ~init:false (fun l -> Logic.to_string l = "1") in
@@ -238,7 +242,8 @@ let%expect_test "a net compiles once and a scheduler runs once" =
   let net = Net.create () in
   let clk = Option.get (Trace.track_path tr "top.clk") in
   let (Clock.Any c) =
-    Clock.define net ~name:"clk" { clock = clk.slot; rule = After_falling; enable = None }
+    Clock.define net ~name:"clk"
+      { clock = clk.slot; rule = After_falling; enable = None; reset = None }
   in
   let data = Option.get (Trace.track_path tr "top.data") in
   let n = ref 0 in
@@ -314,7 +319,8 @@ let%expect_test "at_finish fires once, after the last sample, in registration or
   let net = Net.create () in
   let clk = Option.get (Trace.track_path tr "top.clk") in
   let (Clock.Any c) =
-    Clock.define net ~name:"clk" { clock = clk.slot; rule = After_falling; enable = None }
+    Clock.define net ~name:"clk"
+      { clock = clk.slot; rule = After_falling; enable = None; reset = None }
   in
   let cycle = Sig.cycle c in
   Ev.subscribe

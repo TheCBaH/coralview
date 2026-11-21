@@ -198,11 +198,13 @@ type blocks = {
 }
 
 type configuration = { config : string; top_level : string; trace_root : string list }
+type reset = { reset_signal : string; reset_active : bool }
 
 type family = {
   family : string;
   configurations : configuration list;
   clock : string;
+  reset : reset option;
   sample : Hwfrp.Trace.sample_rule;
   blocks : blocks;
 }
@@ -213,6 +215,7 @@ type t = {
   top_level : string;
   trace_root : string list;
   clock : string;
+  reset : reset option;
   sample : Hwfrp.Trace.sample_rule;
   blocks : blocks;
 }
@@ -223,16 +226,17 @@ let has_lane pattern =
   | None -> false
 
 let obj kind f = Jsont.Object.map ~kind f
+let obj_at kind f = Jsont.Object.map' ~kind f
 let finish m = Jsont.Object.(finish (error_unknown m))
 let scope = Jsont.(list string)
 
-let lanes_pattern kind lanes pattern =
+let lanes_pattern at kind lanes pattern =
   if lanes > 1 && not (has_lane pattern) then
-    Jsont.Error.msgf Jsont.Meta.none "%s: %S has no %%d for its %d lanes" kind pattern lanes
+    Jsont.Error.msgf at "%s: %S has no %%d for its %d lanes" kind pattern lanes
 
 let dispatch_debug =
-  obj "dispatch_debug" (fun dd_scope dd_lanes dd_fire dd_addr dd_inst ->
-      List.iter (lanes_pattern "dispatch_debug" dd_lanes) [ dd_fire; dd_addr; dd_inst ];
+  obj_at "dispatch_debug" (fun at dd_scope dd_lanes dd_fire dd_addr dd_inst ->
+      List.iter (lanes_pattern at "dispatch_debug" dd_lanes) [ dd_fire; dd_addr; dd_inst ];
       { dd_scope; dd_lanes; dd_fire; dd_addr; dd_inst })
   |> Jsont.Object.mem "scope" scope ~enc:(fun b -> b.dd_scope)
   |> Jsont.Object.mem "lanes" Jsont.int ~enc:(fun b -> b.dd_lanes)
@@ -242,9 +246,9 @@ let dispatch_debug =
   |> finish
 
 let retirement_debug =
-  obj "retirement_debug" (fun rd_scope rd_lanes idx_width rd_valid rd_pc rd_idx rd_trap ->
+  obj_at "retirement_debug" (fun at rd_scope rd_lanes idx_width rd_valid rd_pc rd_idx rd_trap ->
       List.iter
-        (lanes_pattern "retirement_debug" rd_lanes)
+        (lanes_pattern at "retirement_debug" rd_lanes)
         ([ rd_valid; rd_pc; rd_idx ] @ Option.to_list rd_trap);
       { rd_scope; rd_lanes; idx_width; rd_valid; rd_pc; rd_idx; rd_trap })
   |> Jsont.Object.mem "scope" scope ~enc:(fun b -> b.rd_scope)
@@ -257,8 +261,8 @@ let retirement_debug =
   |> finish
 
 let writeback =
-  obj "writeback" (fun wb_scope ports wb_valid wb_addr wb_data ->
-      List.iter (lanes_pattern "writeback" ports) [ wb_valid; wb_addr; wb_data ];
+  obj_at "writeback" (fun at wb_scope ports wb_valid wb_addr wb_data ->
+      List.iter (lanes_pattern at "writeback" ports) [ wb_valid; wb_addr; wb_data ];
       { wb_scope; ports; wb_valid; wb_addr; wb_data })
   |> Jsont.Object.mem "scope" scope ~enc:(fun b -> b.wb_scope)
   |> Jsont.Object.mem "ports" Jsont.int ~enc:(fun b -> b.ports)
@@ -275,13 +279,14 @@ let lane =
   |> Jsont.Object.mem "inst" Jsont.string ~enc:(fun l -> l.l_inst)
   |> finish
 
-let per_lane name lanes l =
+let per_lane at name lanes l =
   if List.length l <> lanes then
-    Jsont.Error.msgf Jsont.Meta.none "dispatch.%s: %d names for %d lanes" name (List.length l) lanes
+    Jsont.Error.msgf at "dispatch.%s: %d names for %d lanes" name (List.length l) lanes
 
 let dispatch =
-  obj "dispatch"
+  obj_at "dispatch"
     (fun
+      at
       d_scope
       d_lanes
       lane
@@ -297,11 +302,11 @@ let dispatch =
       rob_trap_pending
       lsu_capacity
     ->
-      per_lane "try_dispatch" d_lanes try_dispatch;
-      per_lane "comb" d_lanes comb;
-      Option.iter (per_lane "fcomb" d_lanes) fcomb;
+      per_lane at "try_dispatch" d_lanes try_dispatch;
+      per_lane at "comb" d_lanes comb;
+      Option.iter (per_lane at "fcomb" d_lanes) fcomb;
       List.iter
-        (lanes_pattern "dispatch.lane" d_lanes)
+        (lanes_pattern at "dispatch.lane" d_lanes)
         [ lane.l_valid; lane.l_ready; lane.l_addr; lane.l_inst ];
       {
         d_scope;
@@ -336,9 +341,9 @@ let dispatch =
   |> finish
 
 let tlul =
-  obj "tlul port" (fun tl_prefix tl_data_bytes d_ready ->
+  obj_at "tlul port" (fun at tl_prefix tl_data_bytes d_ready ->
       if tl_data_bytes <= 0 || tl_data_bytes land (tl_data_bytes - 1) <> 0 then
-        Jsont.Error.msgf Jsont.Meta.none "tlul: data_bytes %d is not a power of two" tl_data_bytes;
+        Jsont.Error.msgf at "tlul: data_bytes %d is not a power of two" tl_data_bytes;
       { tl_prefix; tl_data_bytes; d_ready })
   |> Jsont.Object.mem "prefix" Jsont.string ~enc:(fun t -> t.tl_prefix)
   |> Jsont.Object.mem "data_bytes" Jsont.int ~enc:(fun t -> t.tl_data_bytes)
@@ -410,10 +415,10 @@ let tracking =
   |> finish
 
 let origin =
-  obj "origin" (fun o_scope o_valid o_ready o_addr align o_write o_pc track ops ->
+  obj_at "origin" (fun at o_scope o_valid o_ready o_addr align o_write o_pc track ops ->
       if align <= 0 || align land (align - 1) <> 0 then
-        Jsont.Error.msgf Jsont.Meta.none "origin: align %d is not a power of two" align;
-      if ops <> None && o_pc = None then Jsont.Error.msgf Jsont.Meta.none "origin: ops without a pc";
+        Jsont.Error.msgf at "origin: align %d is not a power of two" align;
+      if ops <> None && o_pc = None then Jsont.Error.msgf at "origin: ops without a pc";
       { o_scope; o_valid; o_ready; o_addr; align; o_write; o_pc; track; ops })
   |> Jsont.Object.mem "scope" scope ~enc:(fun o -> o.o_scope)
   |> Jsont.Object.mem "valid" Jsont.string ~enc:(fun o -> o.o_valid)
@@ -437,13 +442,12 @@ let axi_source =
   |> finish
 
 let axi =
-  obj "axi_master" (fun axi_scope axi_prefix data_bytes sources ->
+  obj_at "axi_master" (fun at axi_scope axi_prefix data_bytes sources ->
       if data_bytes <= 0 || data_bytes land (data_bytes - 1) <> 0 then
-        Jsont.Error.msgf Jsont.Meta.none "axi_master: data_bytes %d is not a power of two"
-          data_bytes;
+        Jsont.Error.msgf at "axi_master: data_bytes %d is not a power of two" data_bytes;
       let ids = List.map (fun s -> s.source_id) sources in
       if List.length (List.sort_uniq compare ids) <> List.length ids then
-        Jsont.Error.msgf Jsont.Meta.none "axi_master: a source id is given twice";
+        Jsont.Error.msgf at "axi_master: a source id is given twice";
       { axi_scope; axi_prefix; data_bytes; sources })
   |> Jsont.Object.mem "scope" scope ~enc:(fun a -> a.axi_scope)
   |> Jsont.Object.mem "prefix" Jsont.string ~enc:(fun a -> a.axi_prefix)
@@ -452,9 +456,9 @@ let axi =
   |> finish
 
 let dma =
-  obj "dma" (fun dma_scope host device csr_base requester ->
+  obj_at "dma" (fun at dma_scope host device csr_base requester ->
       if host.tl_data_bytes < 16 then
-        Jsont.Error.msgf Jsont.Meta.none "dma: the host port carries 16-byte descriptor halves";
+        Jsont.Error.msgf at "dma: the host port carries 16-byte descriptor halves";
       { dma_scope; host; device; csr_base; requester })
   |> Jsont.Object.mem "scope" scope ~enc:(fun d -> d.dma_scope)
   |> Jsont.Object.mem "host" tlul ~enc:(fun d -> d.host)
@@ -478,8 +482,9 @@ let marks =
   |> finish
 
 let register_file =
-  obj "register file"
+  obj_at "register file"
     (fun
+      at
       rf_scope
       base
       first
@@ -492,8 +497,8 @@ let register_file =
       marks
     ->
       if scoreboard_entries < first + count then
-        Jsont.Error.msgf Jsont.Meta.none
-          "register file: %d scoreboard entries for registers up to %d" scoreboard_entries
+        Jsont.Error.msgf at "register file: %d scoreboard entries for registers up to %d"
+          scoreboard_entries
           (first + count - 1);
       {
         rf_scope;
@@ -528,16 +533,16 @@ let vector_writes =
   |> finish
 
 let vector_registers =
-  obj "vector registers" (fun vr_scope vr_base vr_count vlen storage writes ->
+  obj_at "vector registers" (fun at vr_scope vr_base vr_count vlen storage writes ->
       let has name width =
         match List.find_opt (fun f -> f.field = name) writes.layout with
         | Some f when f.field_width = width -> ()
         | Some f ->
-            Jsont.Error.msgf Jsont.Meta.none "v_registers.writes.layout: %s is %d bits, not %d" name
+            Jsont.Error.msgf at "v_registers.writes.layout: %s is %d bits, not %d" name
               f.field_width width
-        | None -> Jsont.Error.msgf Jsont.Meta.none "v_registers.writes.layout: no %s" name
+        | None -> Jsont.Error.msgf at "v_registers.writes.layout: no %s" name
       in
-      if vlen mod 8 <> 0 then Jsont.Error.msgf Jsont.Meta.none "v_registers: vlen %d" vlen;
+      if vlen mod 8 <> 0 then Jsont.Error.msgf at "v_registers: vlen %d is not a multiple of 8" vlen;
       has "rt_data" vlen;
       has "rt_strobe" (vlen / 8);
       let rec log2 k = if 1 lsl k >= vr_count then k else log2 (k + 1) in
@@ -552,10 +557,10 @@ let vector_registers =
   |> finish
 
 let vector_dispatch =
-  obj "vector dispatch" (fun vd_scope vd_lanes vd_valid vd_ready vd_uop vd_layout units ->
+  obj_at "vector dispatch" (fun at vd_scope vd_lanes vd_valid vd_ready vd_uop vd_layout units ->
       let need name =
         if not (List.exists (fun f -> f.field = name) vd_layout) then
-          Jsont.Error.msgf Jsont.Meta.none "v_dispatch.layout: no %s" name
+          Jsont.Error.msgf at "v_dispatch.layout: no %s" name
       in
       List.iter need
         [
@@ -597,55 +602,217 @@ let traps =
   |> Jsont.Object.mem "csr" csr ~enc:(fun t -> t.csr)
   |> finish
 
-let blocks =
-  obj "blocks"
-    (fun
-      dispatch_debug
-      retirement_debug
-      regfile_writeback
-      float_writeback
-      dispatch
-      lsu
-      vme
-      axi_master
-      dma
-      x_registers
-      f_registers
-      v_registers
-      v_dispatch
-      traps
-    ->
+type registered =
+  | Block : {
+      name : string;
+      codec : 'a Jsont.t;
+      get : blocks -> 'a option;
+      set : 'a -> blocks -> blocks;
+      needs : string list;
+    }
+      -> registered
+
+let no_blocks =
+  {
+    dispatch_debug = None;
+    retirement_debug = None;
+    regfile_writeback = None;
+    float_writeback = None;
+    dispatch = None;
+    lsu = None;
+    vme = None;
+    axi_master = None;
+    dma = None;
+    x_registers = None;
+    f_registers = None;
+    v_registers = None;
+    v_dispatch = None;
+    traps = None;
+  }
+
+let commits_blocks = [ "dispatch_debug"; "retirement_debug"; "regfile_writeback" ]
+
+(* A block is added with its record field, its [no_blocks] entry and one entry here: its name, codec,
+   accessors and the blocks that must be described with it. *)
+let registry =
+  [
+    Block
       {
-        dispatch_debug;
-        retirement_debug;
-        regfile_writeback;
-        float_writeback;
-        dispatch;
-        lsu;
-        vme;
-        axi_master;
-        dma;
-        x_registers;
-        f_registers;
-        v_registers;
-        v_dispatch;
-        traps;
-      })
-  |> Jsont.Object.opt_mem "dispatch_debug" dispatch_debug ~enc:(fun b -> b.dispatch_debug)
-  |> Jsont.Object.opt_mem "retirement_debug" retirement_debug ~enc:(fun b -> b.retirement_debug)
-  |> Jsont.Object.opt_mem "regfile_writeback" writeback ~enc:(fun b -> b.regfile_writeback)
-  |> Jsont.Object.opt_mem "float_writeback" writeback ~enc:(fun b -> b.float_writeback)
-  |> Jsont.Object.opt_mem "dispatch" dispatch ~enc:(fun b -> b.dispatch)
-  |> Jsont.Object.opt_mem "lsu" lsu ~enc:(fun b -> b.lsu)
-  |> Jsont.Object.opt_mem "vme" vme ~enc:(fun b -> b.vme)
-  |> Jsont.Object.opt_mem "axi_master" axi ~enc:(fun b -> b.axi_master)
-  |> Jsont.Object.opt_mem "dma" dma ~enc:(fun b -> b.dma)
-  |> Jsont.Object.opt_mem "x_registers" register_file ~enc:(fun b -> b.x_registers)
-  |> Jsont.Object.opt_mem "f_registers" register_file ~enc:(fun b -> b.f_registers)
-  |> Jsont.Object.opt_mem "v_registers" vector_registers ~enc:(fun b -> b.v_registers)
-  |> Jsont.Object.opt_mem "v_dispatch" vector_dispatch ~enc:(fun b -> b.v_dispatch)
-  |> Jsont.Object.opt_mem "traps" traps ~enc:(fun b -> b.traps)
-  |> finish
+        name = "dispatch_debug";
+        codec = dispatch_debug;
+        get = (fun b -> b.dispatch_debug);
+        set = (fun v b -> { b with dispatch_debug = Some v });
+        needs = [];
+      };
+    Block
+      {
+        name = "retirement_debug";
+        codec = retirement_debug;
+        get = (fun b -> b.retirement_debug);
+        set = (fun v b -> { b with retirement_debug = Some v });
+        needs = [];
+      };
+    Block
+      {
+        name = "regfile_writeback";
+        codec = writeback;
+        get = (fun b -> b.regfile_writeback);
+        set = (fun v b -> { b with regfile_writeback = Some v });
+        needs = [];
+      };
+    Block
+      {
+        name = "float_writeback";
+        codec = writeback;
+        get = (fun b -> b.float_writeback);
+        set = (fun v b -> { b with float_writeback = Some v });
+        needs = [];
+      };
+    Block
+      {
+        name = "dispatch";
+        codec = dispatch;
+        get = (fun b -> b.dispatch);
+        set = (fun v b -> { b with dispatch = Some v });
+        needs = [];
+      };
+    Block
+      {
+        name = "lsu";
+        codec = lsu;
+        get = (fun b -> b.lsu);
+        set = (fun v b -> { b with lsu = Some v });
+        needs = [];
+      };
+    Block
+      {
+        name = "vme";
+        codec = vme;
+        get = (fun b -> b.vme);
+        set = (fun v b -> { b with vme = Some v });
+        needs = [];
+      };
+    Block
+      {
+        name = "axi_master";
+        codec = axi;
+        get = (fun b -> b.axi_master);
+        set = (fun v b -> { b with axi_master = Some v });
+        needs = commits_blocks;
+      };
+    Block
+      {
+        name = "dma";
+        codec = dma;
+        get = (fun b -> b.dma);
+        set = (fun v b -> { b with dma = Some v });
+        needs = [];
+      };
+    Block
+      {
+        name = "x_registers";
+        codec = register_file;
+        get = (fun b -> b.x_registers);
+        set = (fun v b -> { b with x_registers = Some v });
+        needs = commits_blocks;
+      };
+    Block
+      {
+        name = "f_registers";
+        codec = register_file;
+        get = (fun b -> b.f_registers);
+        set = (fun v b -> { b with f_registers = Some v });
+        needs = commits_blocks;
+      };
+    Block
+      {
+        name = "v_registers";
+        codec = vector_registers;
+        get = (fun b -> b.v_registers);
+        set = (fun v b -> { b with v_registers = Some v });
+        needs = commits_blocks;
+      };
+    Block
+      {
+        name = "v_dispatch";
+        codec = vector_dispatch;
+        get = (fun b -> b.v_dispatch);
+        set = (fun v b -> { b with v_dispatch = Some v });
+        needs = [ "dispatch_debug" ];
+      };
+    Block
+      {
+        name = "traps";
+        codec = traps;
+        get = (fun b -> b.traps);
+        set = (fun v b -> { b with traps = Some v });
+        needs = [ "dispatch_debug"; "retirement_debug" ];
+      };
+  ]
+
+let () =
+  let names = List.map (fun (Block b) -> b.name) registry in
+  List.iter
+    (fun (Block b) ->
+      List.iter
+        (fun n ->
+          if not (List.mem n names) then invalid_arg ("Platform: " ^ b.name ^ " needs " ^ n))
+        b.needs)
+    registry
+
+let known_blocks = List.map (fun (Block b) -> (b.name, b.needs)) registry
+let present blocks n = List.exists (fun (Block b) -> b.name = n && b.get blocks <> None) registry
+
+(* The blocks object is read as generic JSON so that each member can be decoded by name, and a
+   failure reported at the member's own location. *)
+let blocks_codec =
+  let decode json =
+    match json with
+    | Jsont.Object (mems, at) ->
+        let in_member name e = Jsont.Error.push_object ("blocks object", at) name e in
+        let fail (name, name_meta) v fmt =
+          Format.kasprintf
+            (fun m ->
+              in_member (name, name_meta)
+                (Jsont.Error.make_msg Jsont.Error.Context.empty (Jsont.Json.meta v) m))
+            fmt
+        in
+        let decode blocks ((name, name_meta), v) =
+          match List.find_opt (fun (Block b) -> b.name = name) registry with
+          | None ->
+              Jsont.Error.msgf name_meta "Unexpected member %s for blocks object. Known blocks: %s"
+                name
+                (String.concat ", " (List.map fst known_blocks))
+          | Some (Block b) -> (
+              if b.get blocks <> None then fail (name, name_meta) v "%s: given twice" name;
+              match Jsont.Json.decode' b.codec v with
+              | Ok x -> b.set x blocks
+              | Error e -> in_member (name, name_meta) e)
+        in
+        let blocks = List.fold_left decode no_blocks mems in
+        List.iter
+          (fun (Block b) ->
+            if b.get blocks <> None then
+              match List.filter (fun n -> not (present blocks n)) b.needs with
+              | [] -> ()
+              | missing ->
+                  let name, v = List.find (fun ((n, _), _) -> n = b.name) mems in
+                  fail name v "%s: needs %s, which the description does not give" b.name
+                    (String.concat ", " missing))
+          registry;
+        blocks
+    | _ -> Jsont.Json.error_sort ~exp:Jsont.Sort.Object json
+  in
+  let encode blocks =
+    Jsont.Json.object'
+      (List.filter_map
+         (fun (Block b) ->
+           Option.map
+             (fun x -> (Jsont.Json.name b.name, Result.get_ok (Jsont.Json.encode' b.codec x)))
+             (b.get blocks))
+         registry)
+  in
+  Jsont.map ~kind:"blocks" ~dec:decode ~enc:encode Jsont.json
 
 let configuration =
   obj "configuration" (fun config top_level trace_root -> { config; top_level; trace_root })
@@ -662,22 +829,110 @@ let sample =
       ("after_rising", After_rising);
     ]
 
+let reset =
+  obj_at "reset" (fun at reset_signal reset_active ->
+      if reset_signal = "" then Jsont.Error.msgf at "reset: the signal has no name";
+      { reset_signal; reset_active })
+  |> Jsont.Object.mem "signal" Jsont.string ~enc:(fun r -> r.reset_signal)
+  |> Jsont.Object.mem "active"
+       (Jsont.enum ~kind:"reset level" [ ("low", false); ("high", true) ])
+       ~enc:(fun r -> r.reset_active)
+  |> finish
+
 let schema_version = Jsont.enum ~kind:"schema_version" [ ("1.0", ()) ]
 
 let jsont =
-  obj "platform" (fun () family configurations clock sample blocks ->
-      { family; configurations; clock; sample; blocks })
+  obj "platform" (fun () family configurations clock reset sample blocks ->
+      { family; configurations; clock; reset; sample; blocks })
   |> Jsont.Object.mem "schema_version" schema_version ~enc:(fun _ -> ())
   |> Jsont.Object.mem "name" Jsont.string ~enc:(fun f -> f.family)
   |> Jsont.Object.mem "configurations"
        Jsont.(list configuration)
        ~enc:(fun (f : family) -> f.configurations)
   |> Jsont.Object.mem "clock" Jsont.string ~enc:(fun (f : family) -> f.clock)
+  |> Jsont.Object.opt_mem "reset" reset ~enc:(fun (f : family) -> f.reset)
   |> Jsont.Object.mem "sample" sample ~enc:(fun (f : family) -> f.sample)
-  |> Jsont.Object.mem "blocks" blocks ~enc:(fun (f : family) -> f.blocks)
+  |> Jsont.Object.mem "blocks" blocks_codec ~enc:(fun (f : family) -> f.blocks)
   |> finish
 
-let of_string ?file s = Jsont_bytesrw.decode_string ?file jsont s
+(* A description may extend another, built in (a name with no "/" that does not end in ".json") or a
+   file (relative to the extending one). Its members are applied over the base's as a JSON merge
+   patch: objects merge member by member, any other value replaces, null removes. *)
+let rec merge base patch =
+  match (base, patch) with
+  | Jsont.Object (bm, _), Jsont.Object (pm, meta) ->
+      let step acc (((n, _) as name), v) =
+        let same ((n', _), _) = String.equal n' n in
+        match v with
+        | Jsont.Null _ -> List.filter (fun m -> not (same m)) acc
+        | _ -> (
+            match List.find_opt same acc with
+            | Some (_, bv) -> List.map (fun m -> if same m then (name, merge bv v) else m) acc
+            | None -> acc @ [ (name, merge (Jsont.Object ([], Jsont.Meta.none)) v) ])
+      in
+      Jsont.Object (List.fold_left step bm pm, meta)
+  | _, patch -> patch
+
+let normalize path =
+  let rec go acc = function
+    | [] -> List.rev acc
+    | ("" | ".") :: rest -> go acc rest
+    | ".." :: rest -> (
+        match acc with p :: acc' when p <> ".." -> go acc' rest | _ -> go (".." :: acc) rest)
+    | p :: rest -> go (p :: acc) rest
+  in
+  let body = String.concat "/" (go [] (String.split_on_char '/' path)) in
+  if String.starts_with ~prefix:"/" path then "/" ^ body else if body = "" then "." else body
+
+let is_builtin_name n = (not (String.contains n '/')) && not (Filename.check_suffix n ".json")
+
+(* The identity of the base, the name its locations carry, and its text. *)
+let resolve ?file name =
+  if is_builtin_name name then
+    match List.assoc_opt name Builtin_platforms.all with
+    | Some text -> Ok ("built-in " ^ name, name ^ ".json", text)
+    | None ->
+        Error
+          (Printf.sprintf "extends: no built-in description %s (a file is a path ending in .json)"
+             name)
+  else
+    let dir = match file with Some f -> Filename.dirname f | None -> "." in
+    let path = normalize (if Filename.is_relative name then Filename.concat dir name else name) in
+    match In_channel.with_open_bin path In_channel.input_all with
+    | text -> Ok (path, path, text)
+    | exception Sys_error _ -> Error (Printf.sprintf "extends: cannot read %s" path)
+
+let rec load ~seen ?file text =
+  match Jsont_bytesrw.decode_string ~locs:true ?file Jsont.json text with
+  | Ok (Jsont.Object (mems, meta)) as parsed -> (
+      match Jsont.Json.find_mem "extends" mems with
+      | None -> parsed
+      | Some (_, ext) -> (
+          let fail at fmt =
+            Format.kasprintf
+              (fun m ->
+                Error (Jsont.Error.to_string (Jsont.Error.make_msg Jsont.Error.Context.empty at m)))
+              fmt
+          in
+          match ext with
+          | Jsont.String (name, at) -> (
+              match resolve ?file name with
+              | Error m -> fail at "%s" m
+              | Ok (id, _, _) when List.mem id seen ->
+                  fail at "extends: a cycle, %s" (String.concat " -> " (List.rev (id :: seen)))
+              | Ok (id, label, base) ->
+                  Result.map
+                    (fun base ->
+                      merge base (Jsont.Object (Jsont.Json.remove_mem "extends" mems, meta)))
+                    (load ~seen:(id :: seen) ~file:label base))
+          | v -> fail (Jsont.Json.meta v) "extends: the name of a description to extend is a string"
+          ))
+  | parsed -> parsed
+
+let of_string ?file s =
+  let seen = match file with Some f -> [ normalize f ] | None -> [] in
+  Result.bind (load ~seen ?file s) (fun json ->
+      Result.map_error Jsont.Error.to_string (Jsont.Json.decode' jsont json))
 
 let configurations f =
   List.map
@@ -688,6 +943,7 @@ let configurations f =
         top_level = c.top_level;
         trace_root = c.trace_root;
         clock = f.clock;
+        reset = f.reset;
         sample = f.sample;
         blocks = f.blocks;
       })
@@ -734,25 +990,7 @@ let root p = Vcd_types.Reference.of_list p.trace_root
 let scope p rel = Vcd_types.Reference.of_list (p.trace_root @ rel)
 
 let blocks p =
-  let b = p.blocks in
-  List.filter_map
-    (fun (name, present) -> if present then Some name else None)
-    [
-      ("dispatch_debug", b.dispatch_debug <> None);
-      ("retirement_debug", b.retirement_debug <> None);
-      ("regfile_writeback", b.regfile_writeback <> None);
-      ("float_writeback", b.float_writeback <> None);
-      ("dispatch", b.dispatch <> None);
-      ("lsu", b.lsu <> None);
-      ("vme", b.vme <> None);
-      ("axi_master", b.axi_master <> None);
-      ("dma", b.dma <> None);
-      ("x_registers", b.x_registers <> None);
-      ("f_registers", b.f_registers <> None);
-      ("v_registers", b.v_registers <> None);
-      ("v_dispatch", b.v_dispatch <> None);
-      ("traps", b.traps <> None);
-    ]
+  List.filter_map (fun (Block b) -> if b.get p.blocks <> None then Some b.name else None) registry
 
 let name_of pattern n =
   match String.index_opt pattern '%' with

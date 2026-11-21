@@ -6,7 +6,10 @@ let addr = [ "TOP"; "core"; "lsu"; "io_dbus_addr" ]
 
 let samples tr =
   let c = Option.get (Trace.find tr clock) and a = Option.get (Trace.find tr addr) in
-  let s = Sampler.create tr [| { Trace.clock = c.slot; rule = After_falling; enable = None } |] in
+  let s =
+    Sampler.create tr
+      [| { Trace.clock = c.slot; rule = After_falling; enable = None; reset = None } |]
+  in
   let rec go acc =
     match Sampler.next s with
     | None -> List.rev acc

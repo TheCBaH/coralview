@@ -31,7 +31,10 @@ let env () =
   let tr = Hwfrp_vcd.of_string vcd in
   let net = Net.create () in
   let clk = Option.get (Trace.track_path tr "top.clk") in
-  match Clock.define net ~name:"clk" { clock = clk.slot; rule = Before_rising; enable = None } with
+  match
+    Clock.define net ~name:"clk"
+      { clock = clk.slot; rule = Before_rising; enable = None; reset = None }
+  with
   | Clock.Any c ->
       let d =
         Source.value c
@@ -288,7 +291,8 @@ let ends text =
   let net = Net.create () in
   let clk = Option.get (Trace.track_path tr "top.clk") in
   let (Clock.Any c) =
-    Clock.define net ~name:"clk" { clock = clk.slot; rule = After_rising; enable = None }
+    Clock.define net ~name:"clk"
+      { clock = clk.slot; rule = After_rising; enable = None; reset = None }
   in
   let d =
     Source.value c
@@ -360,7 +364,9 @@ let%expect_test "finish does not cross clock domains" =
   let tr = Hwfrp_vcd.of_string (ending "") in
   let net = Net.create () in
   let clk = Option.get (Trace.track_path tr "top.clk") in
-  let define name rule = Clock.define net ~name { clock = clk.slot; rule; enable = None } in
+  let define name rule =
+    Clock.define net ~name { clock = clk.slot; rule; enable = None; reset = None }
+  in
   let (Clock.Any c0) = define "rising" After_rising in
   let (Clock.Any c1) = define "falling" After_falling in
   let flushed = Sig.hold ~init:0 (Ev.at_finish c0 (fun () -> 7)) in
@@ -401,3 +407,87 @@ let%expect_test "a finisher that raises runs once" =
     flush
     sink closed
     sink closed |}]
+
+(* rst is unknown until #2, high until #6, low after; d is unknown until #4. *)
+let reset_vcd =
+  {|$timescale 1ps $end
+$scope module top $end
+$var wire 1 ! clk $end
+$var wire 1 " rst $end
+$var wire 4 # d $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+0!
+x"
+bx #
+$end
+#1
+1!
+#2
+0!
+1"
+#3
+1!
+#4
+0!
+b1 #
+#5
+1!
+#6
+0!
+0"
+#7
+1!
+b10 #
+#8
+0!
+#9
+1!
+#10
+0!
+bx #
+|}
+
+let%expect_test "a reset marks its samples and silences unknown bits in them" =
+  let tr = Hwfrp_vcd.of_string reset_vcd in
+  let net = Net.create () in
+  let at n = Vcd_types.Reference.of_list [ "top"; n ] in
+  let (Clock.Any c) =
+    Bind.clock net tr ~model:"m" ~name:"clk" ~reset:(at "rst", true) After_falling (at "clk")
+  in
+  let d =
+    Bind.signal
+      (Bind.root net tr c ~model:"m" (Vcd_types.Reference.of_list [ "top" ]))
+      "d" Bind.uint
+  in
+  let rst = Sig.in_reset c and cycle = Sig.cycle c in
+  Ev.subscribe
+    (Ev.when_ (Sig.const c true) (Sig.map2 (fun r d -> (r, d)) rst d))
+    (fun (r, d) -> Printf.printf "cycle %d in_reset %b d %d\n" (Sig.peek cycle) r d);
+  let st = Sched.run (Result.get_ok (Sched.compile net)) (Sampler.create tr (Net.domains net)) in
+  Printf.printf "ticks %d in_reset %d\n" st.ticks.(0) st.in_reset.(0);
+  Seq.iter (Format.printf "%a@." Diag.pp) (Diag.stream net);
+  [%expect
+    {|
+    cycle 0 in_reset true d 0
+    cycle 1 in_reset true d 1
+    cycle 2 in_reset false d 1
+    cycle 3 in_reset false d 2
+    cycle 4 in_reset false d 0
+    ticks 5 in_reset 2
+    warning[bind.unknown-bits] m cycle 4 time 10: uint of xxxx
+    top.d |}]
+
+let%expect_test "a run that never leaves reset says so" =
+  let tr = Hwfrp_vcd.of_string reset_vcd in
+  let net = Net.create () in
+  let at n = Vcd_types.Reference.of_list [ "top"; n ] in
+  let (Clock.Any _) =
+    Bind.clock net tr ~model:"m" ~name:"clk" ~reset:(at "clk", false) After_falling (at "clk")
+  in
+  ignore (Sched.run (Result.get_ok (Sched.compile net)) (Sampler.create tr (Net.domains net)));
+  Seq.iter (Format.printf "%a@." Diag.pp) (Diag.stream net);
+  [%expect
+    {| warning[clock.always-in-reset] clk cycle 4 time 10: the reset was asserted at all 5 clock samples |}]
