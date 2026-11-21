@@ -326,6 +326,35 @@ however the input is split into pieces and however often the run is paused
 (`hwfrp/test/test_live.ml`). `Port.seq` is for a source that is never starved; it raises
 on `Starved` and `Paused`.
 
+### End of input
+
+What a model sees when the trace ends is one contract, tested in `hwfrp/test/test_run.ml`:
+
+- **The last sample is taken.** The changes of the last timestamp are flushed when the source ends,
+  so a trace cut inside it, or ending with or without a newline, gives the samples of one that went
+  on to an empty `#t`.
+- **Changes after the last sample are applied but not sampled.** There is no sample to put them in, so
+  the finishers read the state of the last sample; the final `d` of a trace that changes `d` after
+  its last clock edge is not seen. `Sampler.activity` (`unknown_at_end`) does include them.
+- **The finishers always run, once.** After the last sample, also when there was none (the clock
+  never ticked: the finishers see the initial state and `clock.no-edges` is reported), and never
+  when the run is not read to its end (`Port.seq` stopped early, `Run.finish` on a starved or
+  paused run). They run once: if one raises, `Run.finish` raises the same exception again and does
+  not call them again.
+- **Nothing steps.** A machine's `step` is not called, nothing is latched, and the `every-sample`
+  nodes do not run; the tick is the last one of the domain.
+- **What they emit propagates in node order.** `Machine.finish` and `Ev.at_finish` outputs flow
+  through the events, signals, `Track`s and subscribers downstream of them, in one pass per domain
+  in domain order, and nothing crosses a clock domain (`Clock_cross.resample` is an every-sample
+  node).
+- **A machine fed by another machine's finish output** ignores it unless it is given a
+  `finish_input`: `Machine.run ~finish_input:(fun s i -> (s', outs)) spec input` calls it once,
+  after everything upstream has finished and before the machine's own `finish`, with the input as
+  it then stands, but only when the input signal changed during the finish (by `==`, as any signal
+  does). `step` is not re-run for that, as it would replay the other sampled inputs of the machine
+  and count a cycle more. A chain of machines each with a `finish_input` therefore settles end to
+  end, under both schedulers.
+
 ### Outcomes known later: Track
 
 Many outcomes are known later than they start: a request and its
@@ -462,8 +491,8 @@ FST blocks ──ocaml-fst──> value changes ──Vcd_fst──> Timestamp /
       changed (or event that fired) marks its successors;
    6. runs d's subscribers in registration order.
 
-   At the end of the trace, each machine's `finish` output propagates
-   through the graph once more (machines do not step then).
+   At the end of the trace the finishers run once more, in node order
+   (see [End of input](#end-of-input)); machines do not step then.
 4. **Equivalence.** `Sched.Sweep` is a second strategy that scans every
    node of the domain for a changed input instead of using the heap. The
    property test compares three things on 1,000 random programs over random

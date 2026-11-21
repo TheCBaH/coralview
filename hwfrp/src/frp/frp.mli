@@ -144,7 +144,17 @@ module Machine : sig
   (** A machine that is a function of the previous state and the input alone, not of the tick. [every_tick]
       is false and [finish] emits nothing unless given. *)
 
-  val run : ('s, 'i, 'o) spec -> ('i, 'c) Sig.t -> ('o list, 'c) Ev.t * ('s, 'c) Sig.t
+  val run :
+    ?finish_input:('s -> 'i -> 's * 'o list) ->
+    ('s, 'i, 'o) spec ->
+    ('i, 'c) Sig.t ->
+    ('o list, 'c) Ev.t * ('s, 'c) Sig.t
+  (** At the end of the trace the finishers run in node order, so a machine fed by another machine's
+      [finish] output, or by an event of {!Ev.at_finish}, can take it. A machine does not step then; with
+      [finish_input] it is called once, before [finish] (which gets the state it returns), if the input signal
+      changed (by [==], as for any signal) while the nodes upstream of it finished. Its output is emitted
+      before [finish]'s. Without it the machine ignores what arrives at the end: [finish] reads the state
+      of the last sample. *)
 end
 
 module Source : sig
@@ -303,7 +313,15 @@ end
 
 module Run : sig
   (** A run of a compiled net that the caller advances. {!Sched.run} is {!start}, {!step} until it
-      returns [Ended], then {!finish}. *)
+      returns [Ended], then {!finish}.
+
+      End of input. A sample is final once the next timestamp or the end is seen, so the last timestamp's
+      sample is taken at the end whatever cut the source; changes after the last sample are applied but
+      never sampled, so the finishers read the state of the last sample. The finishers run once, after
+      the last sample and in every case, even when no sample was taken; they do not step the machines,
+      and what they emit reaches the events, signals and subscribers downstream of them, in node order,
+      on the last tick of their domain (see {!Machine.run} for a machine fed by one). Nothing crosses
+      clock domains then. A run that is not read to its end ({!Port.seq} stopped early) never runs them. *)
 
   type t
 
@@ -327,7 +345,8 @@ module Run : sig
 
   val finish : t -> Sched.run_stats
   (** Evaluates the remaining samples, then runs the finishers and delivers the events they fire. Later
-      calls return the same statistics. Raises [Invalid_argument] while the run is paused or the source
+      calls return the same statistics, or raise what a finisher raised: they run once. Raises
+      [Invalid_argument] while the run is paused or the source
       has not ended. *)
 end
 
