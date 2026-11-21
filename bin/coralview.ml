@@ -4,15 +4,8 @@
 
 open Coralview
 
-(* Set by --no-select, which comes with every FILE. *)
-let select = ref true
-
-(* Where the status of a trace producer started by --exec is written, set by the commands that print
-   their results: the standard output in their format, or else the standard error. *)
-let producer_status : Driver.format ref = ref `Stderr
-
 (* Every exit says how the producer ended. *)
-let exit code = Stdlib.exit (Driver.finish ~format:!producer_status code)
+let exit code = Stdlib.exit (Driver.finish code)
 
 let probe path =
   let { Vcd.header; simulation } = Hwfrp_native.parse_file path in
@@ -45,34 +38,54 @@ let guard (p : Platform.t) f =
   | exception Core.No_block (platform, block) ->
       fail ~code:2 (Printf.sprintf "platform %s describes no %s block" platform block)
 
+(* [--between-pc A,B --nth N]: the window from the Nth retirement of PC A to the next retirement of PC B,
+   found by a first pass over the trace with [commits]. *)
+type marker = Between of int * int | Around of string | Entry of string
+type elf = { file : string; symbols : Symbols.t }
+
+(* What the options of a command say. The terms of a command return changes to the defaults; they are
+   applied once every term is evaluated, and the result is passed down. *)
+type options = {
+  select : bool;  (** [--no-select] clears it. *)
+  plan : (string * Hwfrp.Capture.plan Lazy.t) option;  (** [--plan FILE], read at the first run. *)
+  origins : string list option;  (** The models a [run] builds, which the plan must have. *)
+  elf : elf option;
+      (** [--elf FILE]: the functions of the program, to name PCs and to find a function. *)
+  between : (marker * int) option;
+      (** The window [--between-pc], [--around-symbol] or [--entry] names. *)
+  manifest : string option;  (** [--manifest FILE], for the platform's instruction set. *)
+  annotate : string option;  (** [--annotate FILE]: labels for addresses, joined into the rows. *)
+  profile_by : Text.profile_by;
+  simulator : string option ref;
+      (** What the trace's own header says of the simulator; set as a trace is opened, and shared by the
+          copies of the options. *)
+}
+
+type setting = options -> options
+
+let defaults () =
+  {
+    select = true;
+    plan = None;
+    origins = None;
+    elf = None;
+    between = None;
+    manifest = None;
+    annotate = None;
+    profile_by = Text.Pc;
+    simulator = ref None;
+  }
+
 (* [--plan FILE]: before the first sample, the signals a run tracks must be the plan's, for the origins it
    builds: the model of the command, or the models of [run]. *)
-let plan_path : string option ref = ref None
-let run_origins : string list option ref = ref None
-
-let () =
-  let loaded = ref None in
-  Core.gate :=
-    fun tr ~model ->
-      match !plan_path with
-      | None -> ()
-      | Some file -> (
-          let plan =
-            match !loaded with
-            | Some plan -> plan
-            | None ->
-                let plan =
-                  match
-                    Hwfrp.Capture.of_file (In_channel.with_open_bin file In_channel.input_all)
-                  with
-                  | Ok plan -> plan
-                  | Error e -> fail ~code:2 (Printf.sprintf "%s: %s" file e)
-                  | exception Sys_error e -> fail ~code:2 e
-                in
-                loaded := Some plan;
-                plan
-          in
-          let origins = Option.value !run_origins ~default:[ model ] in
+let gate env =
+  match env.plan with
+  | None -> None
+  | Some (file, plan) ->
+      Some
+        (fun tr ~model ->
+          let plan = Lazy.force plan in
+          let origins = Option.value env.origins ~default:[ model ] in
           let planned = Hwfrp.Capture.origins plan in
           (match List.filter (fun o -> not (List.mem o planned)) origins with
           | [] -> ()
@@ -88,6 +101,18 @@ let () =
                 (String.concat "\n"
                    (Printf.sprintf "the trace does not match the plan %s:" file
                    :: List.map (fun e -> "  " ^ e) l)))
+
+let load_plan file =
+  lazy
+    (match Hwfrp.Capture.of_file (In_channel.with_open_bin file In_channel.input_all) with
+    | Ok plan -> plan
+    | Error e -> fail ~code:2 (Printf.sprintf "%s: %s" file e)
+    | exception Sys_error e -> fail ~code:2 e)
+
+let pull env (type k e s)
+    (module A : Analysis.S with type Config.t = k and type Event.t = e and type Summary.t = s)
+    (cfg : k) p tr =
+  Analysis.pull ?gate:(gate env) (module A) cfg p tr
 
 let decoder features =
   match Coral_isa.Rivet_decode.create ?features () with
@@ -136,8 +161,6 @@ let tree ~depth ~vars path scope =
       else show "" 0 s)
     here
 
-let selected = Text.selected
-
 let jsonl_window (w : Text.window) =
   if Text.windowed w then
     Some
@@ -148,47 +171,39 @@ let jsonl_window (w : Text.window) =
       }
   else None
 
-(* [--between-pc A,B --nth N]: the window from the Nth retirement of PC A to the next retirement of PC B,
-   found by a first pass over the trace with [commits]. *)
-type marker = Between of int * int | Around of string | Entry of string
-
-let between_pc : (marker * int) option ref = ref None
-
-(* [--elf FILE]: the functions of the program, to name PCs and to find a function. *)
-let elf_symbols : Symbols.t option ref = ref None
-let elf_path : string option ref = ref None
-
 (* The simulator is only what the trace's own header says; nothing is assumed. *)
-let simulator = ref None
-
-let note_simulator tr =
-  simulator :=
+let note_simulator env tr =
+  env.simulator :=
     Option.map String.trim (Hwfrp.Trace.header tr).version
     |> Option.map (fun v -> if v = "" then None else Some v)
     |> Option.join
 
 (* A trace read to its end closes itself; a reader that may stop early scopes it with [with_trace]. *)
-let open_trace path =
-  let tr = Hwfrp_native.open_input ~select:!select path in
-  note_simulator tr;
+let open_trace env path =
+  let tr = Hwfrp_native.open_input ~select:env.select path in
+  note_simulator env tr;
   tr
 
-let with_trace path f =
-  Hwfrp_native.with_input ~select:!select path (fun tr ->
-      note_simulator tr;
+let with_trace env path f =
+  Hwfrp_native.with_input ~select:env.select path (fun tr ->
+      note_simulator env tr;
       f tr)
 
 let banner_line ~platform ~simulator =
   Printf.sprintf "platform %s%s\n" platform
     (match simulator with Some v -> ", simulator " ^ v | None -> "")
 
-let banner (p : Platform.t) = print_string (banner_line ~platform:p.name ~simulator:!simulator)
+let banner env (p : Platform.t) =
+  print_string (banner_line ~platform:p.name ~simulator:!(env.simulator))
 
-let jsonl_header ~model ~platform ~trace =
-  { (Jsonl.header ~model ~platform ~trace) with simulator = !simulator }
+let print_banner env ppf (p : Platform.t) =
+  Format.pp_print_string ppf (banner_line ~platform:p.name ~simulator:!(env.simulator))
 
-let resolve_between (p : Platform.t) path (ctx : Text.ctx) =
-  match !between_pc with
+let jsonl_header env ~model ~platform ~trace =
+  { (Jsonl.header ~model ~platform ~trace) with simulator = !(env.simulator) }
+
+let resolve_between env (p : Platform.t) path (ctx : Text.ctx) =
+  match env.between with
   | None -> ctx
   | Some (marker, nth) ->
       let flag =
@@ -207,9 +222,9 @@ let resolve_between (p : Platform.t) path (ctx : Text.ctx) =
               Printf.sprintf "pc %08x" a,
               Printf.sprintf "pc %08x" b )
         | Around name | Entry name -> (
-            match !elf_symbols with
+            match env.elf with
             | None -> fail ~code:2 (flag ^ " needs --elf")
-            | Some t -> (
+            | Some { symbols = t; _ } -> (
                 match Symbols.find t name with
                 | [] -> fail ~code:2 (Printf.sprintf "%s: no function %s in the ELF" flag name)
                 | _ :: _ :: _ ->
@@ -243,8 +258,8 @@ let resolve_between (p : Platform.t) path (ctx : Text.ctx) =
                       "a ret of " ^ name )))
       in
       let seen = ref 0 and first = ref None and last = ref None in
-      with_trace path (fun tr ->
-          let pulled = guard p (fun () -> Analysis.pull (module Commits) () p tr) in
+      with_trace env path (fun tr ->
+          let pulled = guard p (fun () -> pull env (module Commits) () p tr) in
           try
             Seq.iter
               (function
@@ -282,26 +297,43 @@ let resolve_between (p : Platform.t) path (ctx : Text.ctx) =
           { ctx.window with first = max first ctx.window.first; last = min last ctx.window.last };
       }
 
+(* [k] prints to the standard output for "-", else to the file [path]. *)
+let with_ppf path k =
+  if path = "-" then begin
+    let ppf = Format.formatter_of_out_channel stdout in
+    Fun.protect (fun () -> k ppf) ~finally:(fun () -> Format.pp_print_flush ppf ())
+  end
+  else begin
+    let oc = open_out path in
+    Fun.protect
+      (fun () ->
+        let ppf = Format.formatter_of_out_channel oc in
+        Fun.protect (fun () -> k ppf) ~finally:(fun () -> Format.pp_print_flush ppf ()))
+      ~finally:(fun () -> close_out oc)
+  end
+
 (* A converted analysis: text through its own view, or JSON lines with the rows the window and the
    limit select; the summary always covers the whole trace. *)
-let analyze (type k e s)
+let analyze env (type k e s)
     (module A : Analysis.S with type Config.t = k and type Event.t = e and type Summary.t = s)
     (cfg : k) (p : Platform.t) ?(status = fun _ -> 0) ~format ~(ctx : Text.ctx)
-    (text : Text.ctx -> e list -> s -> unit) path =
-  let ctx = resolve_between p path ctx in
-  producer_status := if format = `Jsonl then `Jsonl else `Text;
-  let pulled = guard p (fun () -> Analysis.pull (module A) cfg p (open_trace path)) in
+    (text : Text.ctx -> Format.formatter -> (unit -> s) -> e Text.sink) path =
+  let ctx = resolve_between env p path ctx in
+  Driver.report_to (if format = `Jsonl then `Jsonl else `Text);
+  let pulled = guard p (fun () -> pull env (module A) cfg p (open_trace env path)) in
   (match format with
   | `Text ->
-      banner p;
-      text ctx (List.of_seq pulled.events) (pulled.summary ())
+      with_ppf "-" (fun ppf ->
+          print_banner env ppf p;
+          Text.drain (text ctx ppf pulled.summary) pulled.events)
   | `Jsonl ->
+      let selected = Text.selected ctx.window in
       let keep e =
-        selected ctx.window ~cycle:(A.Event.cycle e) ~pc:(Option.value (A.Event.pc e) ~default:(-1))
+        selected ~cycle:(A.Event.cycle e) ~pc:(Option.value (A.Event.pc e) ~default:(-1))
       in
       Jsonl.write stdout
         {
-          (jsonl_header ~model:A.name ~platform:p.name ~trace:path) with
+          (jsonl_header env ~model:A.name ~platform:p.name ~trace:path) with
           window = jsonl_window ctx.window;
         }
         (module A)
@@ -309,35 +341,28 @@ let analyze (type k e s)
         ~diags:pulled.diags pulled.summary);
   match status (pulled.summary ()) with 0 -> () | n -> exit n
 
-let profile_by = ref Text.Pc
-
-(* [--manifest FILE], read by [ctx] for the platform's instruction set. *)
-let manifest_file : string option ref = ref None
-
-(* [--annotate FILE]: labels for addresses, joined into the rows. *)
-let annotate_file : string option ref = ref None
-
-let annotation_labels ~functions =
-  match !annotate_file with
+let annotation_labels env ~functions =
+  match env.annotate with
   | None -> fun _ -> []
   | Some file -> (
       match Annotate.load ~functions file with
       | Ok a -> Annotate.labels a
       | Error e -> fail ~code:2 ("--annotate: " ^ e))
 
-let elf_functions name =
-  match !elf_symbols with
+let elf_functions env name =
+  match env.elf with
   | None when Annotate.is_hex8 name -> []
   | None -> fail ~code:2 ("--annotate: " ^ name ^ " needs --elf")
-  | Some t -> List.map (fun (f : Symbols.func) -> (f.address, f.size)) (Symbols.find t name)
+  | Some { symbols = t; _ } ->
+      List.map (fun (f : Symbols.func) -> (f.address, f.size)) (Symbols.find t name)
 
-let ctx (p : Platform.t) ?(features = None) ?(region = Region.none) ?(window = Text.everything)
+let ctx env (p : Platform.t) ?(features = None) ?(region = Region.none) ?(window = Text.everything)
     ?(limit = max_int) ?(profile = 0) ?(legend = false) ?(note = fun ~pc:_ ~cycle:_ -> None) () =
-  if !profile_by = Text.Function && !elf_symbols = None then
+  if env.profile_by = Text.Function && env.elf = None then
     fail ~code:2 "--profile-by function needs --elf";
   (* Without --features, the manifest's configuration of the platform says which instructions exist. *)
   let features, configuration =
-    match (features, !manifest_file) with
+    match (features, env.manifest) with
     | Some _, _ | None, None -> (features, None)
     | None, Some file -> (
         let m = match Manifest.load file with Ok m -> m | Error e -> fail ~code:2 e in
@@ -366,7 +391,7 @@ let ctx (p : Platform.t) ?(features = None) ?(region = Region.none) ?(window = T
       | _ -> s
   in
   let note =
-    let labels = annotation_labels ~functions:elf_functions in
+    let labels = annotation_labels env ~functions:(elf_functions env) in
     fun ~pc ~cycle ->
       match (note ~pc ~cycle, labels pc) with
       | n, [] -> n
@@ -383,12 +408,12 @@ let ctx (p : Platform.t) ?(features = None) ?(region = Region.none) ?(window = T
          | Ok i -> Coral_isa.Iclass.(name (of_instruction i))
          | Error _ -> "unknown");
     symbol =
-      (match !elf_symbols with
+      (match env.elf with
       | None -> fun _ -> None
-      | Some t ->
+      | Some { symbols = t; _ } ->
           fun pc ->
             Option.map (fun ((f : Symbols.func), off) -> (f.name, off)) (Symbols.lookup t pc));
-    profile_by = !profile_by;
+    profile_by = env.profile_by;
     region;
     window;
     limit;
@@ -397,13 +422,13 @@ let ctx (p : Platform.t) ?(features = None) ?(region = Region.none) ?(window = T
     note;
   }
 
-let signals platform ~raw ~format ~changes ~cycles:(from_cycle, to_cycle)
+let signals env platform ~raw ~format ~changes ~cycles:(from_cycle, to_cycle)
     ~times:(from_time, to_time) path paths =
   let jsonl = format = `Jsonl in
-  producer_status := if jsonl then `Jsonl else `Text;
-  if raw && !plan_path <> None then
+  Driver.report_to (if jsonl then `Jsonl else `Text);
+  if raw && Option.is_some env.plan then
     fail ~code:2 "--plan checks the sampled signals, which --raw does not build: drop --raw";
-  with_trace path @@ fun tr ->
+  with_trace env path @@ fun tr ->
   (try Signals.require tr paths
    with Signals.Missing p -> fail ~code:3 ("no signal " ^ p ^ " in the trace"));
   let phase, run =
@@ -418,12 +443,14 @@ let signals platform ~raw ~format ~changes ~cycles:(from_cycle, to_cycle)
     else begin
       if from_time <> None || to_time <> None then
         fail ~code:2 "--from-time and --to-time select raw timestamps: add --raw";
-      let (p : Platform.t) = platform () in
+      let (p : Platform.t) =
+        match platform with Some p -> p | None -> invalid_arg "signals: no platform"
+      in
       if not jsonl then Signals.header p;
       ( Signals.sample_rule_name p.sample,
         fun ~changes f ->
           guard p (fun () ->
-              Signals.sampled p tr paths
+              Signals.sampled ?gate:(gate env) p tr paths
                 ~from:(Option.value from_cycle ~default:0)
                 ~until:(Option.value to_cycle ~default:max_int)
                 ~changes f) )
@@ -433,8 +460,9 @@ let signals platform ~raw ~format ~changes ~cycles:(from_cycle, to_cycle)
   if jsonl then
     print_endline
       (Codec.to_line Jsonl.header_jsont
-         (jsonl_header ~model:Signals.model
-            ~platform:(if raw then "-" else (platform ()).name)
+         (jsonl_header env ~model:Signals.model
+            ~platform:
+              (match platform with Some (p : Platform.t) when not raw -> p.name | _ -> "-")
             ~trace:path));
   let print (r : Signals.record) =
     incr samples;
@@ -573,17 +601,18 @@ let select_models (p : Platform.t) = function
           | None -> fail ~code:2 (Printf.sprintf "no model %s" n))
         names
 
-let check p names ~format path =
+let check env p names ~format path =
   let selected = select_models p names in
   let jsonl = format = `Jsonl and bound = ref 0 and failed = ref 0 in
-  with_trace path ignore;
-  if not jsonl then banner p;
+  with_trace env path ignore;
+  if not jsonl then banner env p;
   if jsonl then
     print_endline
-      (Codec.to_line Jsonl.header_jsont (jsonl_header ~model:"check" ~platform:p.name ~trace:path));
+      (Codec.to_line Jsonl.header_jsont
+         (jsonl_header env ~model:"check" ~platform:p.name ~trace:path));
   List.iter
     (fun m ->
-      with_trace path @@ fun tr ->
+      with_trace env path @@ fun tr ->
       guard p (fun () ->
           let (Core.Any c) = Core.bind ~collect:true p tr ~model:m.name in
           m.build c;
@@ -608,7 +637,7 @@ let check p names ~format path =
 (* The signals the models need of a catalog trace, to be recorded by a producer and checked by [--plan].
    Several catalogs (say, the FST and VCD builds of one simulator) must agree; the first is the one the
    producer's names are taken from. *)
-let plan_command (p : Platform.t) names signal_paths catalogs dir producer ~format =
+let plan_command env (p : Platform.t) names signal_paths catalogs dir producer ~format =
   if catalogs = [] then fail ~code:2 "plan needs --catalog";
   let models = if names = [] && signal_paths <> [] then [] else select_models p names in
   let with_catalog file f =
@@ -679,7 +708,7 @@ let plan_command (p : Platform.t) names signal_paths catalogs dir producer ~form
   | `Jsonl ->
       print_endline
         (Codec.to_line Jsonl.header_jsont
-           (jsonl_header ~model:"plan" ~platform:p.name ~trace:(List.hd catalogs)));
+           (jsonl_header env ~model:"plan" ~platform:p.name ~trace:(List.hd catalogs)));
       List.iter
         (fun e -> print_endline (Codec.to_line Plan_view.signal_jsont (Plan_view.of_entry e)))
         entries;
@@ -699,11 +728,11 @@ let platform =
     const load
     $ Arg.(required & opt (some string) None & info [ "platform"; "p" ] ~docv:"P" ~doc:platform_doc))
 
-let file =
+(* A trace file, and the effect of [--no-select], which comes with every one. *)
+let file : (string * setting) Term.t =
   Term.(
     const (fun no_select path ->
-        if no_select then select := false;
-        path)
+        (path, fun o -> if no_select then { o with select = false } else o))
     $ Arg.(
         value & flag
         & info [ "no-select" ]
@@ -732,18 +761,28 @@ let exec_opt =
            whether the stream was read to its end, is written after the results; a producer that \
            failed makes the exit status 4. Its output is the command's own, so redirect it.")
 
-(* The trace, and the plan it must satisfy. *)
+(* The trace, the plan it must satisfy and the command that produces it: started by [produce], once
+   every term of the command is evaluated. *)
+type source = { path : string; exec : string option; set : setting }
+
 let traced =
   Term.(
-    const (fun path plan exec ->
-        plan_path := plan;
-        Option.iter
-          (fun command ->
-            if path <> "-" then fail ~code:2 "--exec produces the trace: give - as the trace";
-            Driver.start command)
-          exec;
-        path)
+    const (fun (path, select) plan exec ->
+        if Option.is_some exec && path <> "-" then
+          fail ~code:2 "--exec produces the trace: give - as the trace";
+        let plan o =
+          match plan with None -> o | Some f -> { o with plan = Some (f, load_plan f) }
+        in
+        { path; exec; set = (fun o -> plan (select o)) })
     $ file $ plan_opt $ exec_opt)
+
+let produce src = Option.iter Driver.start src.exec
+
+(* The settings of the terms of a command, applied in the order of the list. *)
+let all (settings : setting Term.t list) : setting Term.t =
+  List.fold_right
+    (fun t rest -> Term.(const (fun set rest o -> rest (set o)) $ t $ rest))
+    settings (Term.const Fun.id)
 
 let limit =
   Term.(
@@ -776,16 +815,16 @@ let pc_of s =
   | Some pc -> pc
   | None -> fail ~code:2 ("--pc: not a hex PC: " ^ s)
 
-let elf =
+let elf : setting Term.t =
   let load file =
     match Symbols.load file with
-    | Ok t ->
-        elf_symbols := Some t;
-        elf_path := Some file
+    | Ok symbols -> Some { file; symbols }
     | Error e -> fail ~code:2 ("--elf: " ^ e)
   in
   Term.(
-    const (Option.iter load)
+    const (fun f ->
+        let elf = Option.bind f load in
+        fun o -> { o with elf })
     $ Arg.(
         value
         & opt (some file) None
@@ -795,19 +834,31 @@ let elf =
                $(b,--profile-by function) groups by function."))
 
 let window =
-  let make first last pcs between around entry nth =
-    (between_pc :=
-       match (between, around, entry) with
-       | None, None, None -> None
-       | Some (a, b), None, None -> Some (Between (a, b), nth)
-       | None, Some name, None -> Some (Around name, nth)
-       | None, None, Some name -> Some (Entry name, nth)
-       | _ -> fail ~code:2 "--between-pc, --around-symbol and --entry are alternatives");
-    {
-      Text.first = Option.value first ~default:0;
-      last = Option.value last ~default:max_int;
-      pcs = List.map pc_of pcs;
-    }
+  Term.(
+    const (fun first last pcs ->
+        {
+          Text.first = Option.value first ~default:0;
+          last = Option.value last ~default:max_int;
+          pcs = List.map pc_of pcs;
+        })
+    $ from_cycle $ to_cycle
+    $ Arg.(
+        value & opt_all string []
+        & info [ "pc" ] ~docv:"HEX"
+            ~doc:"Print only rows of this PC; repeatable. The whole trace is still processed."))
+
+(* The window [--between-pc], [--around-symbol] or [--entry] names, found by a first pass. *)
+let between : setting Term.t =
+  let make between around entry nth =
+    let between =
+      match (between, around, entry) with
+      | None, None, None -> None
+      | Some (a, b), None, None -> Some (Between (a, b), nth)
+      | None, Some name, None -> Some (Around name, nth)
+      | None, None, Some name -> Some (Entry name, nth)
+      | _ -> fail ~code:2 "--between-pc, --around-symbol and --entry are alternatives"
+    in
+    fun o -> { o with between }
   in
   let between =
     let pc_pair =
@@ -855,14 +906,7 @@ let window =
             "With $(b,--between-pc) or $(b,--entry), start at the $(docv)th retirement of the \
              start.")
   in
-  Term.(
-    const (fun () -> make)
-    $ elf $ from_cycle $ to_cycle
-    $ Arg.(
-        value & opt_all string []
-        & info [ "pc" ] ~docv:"HEX"
-            ~doc:"Print only rows of this PC; repeatable. The whole trace is still processed.")
-    $ between $ around $ entry $ nth)
+  Term.(const make $ between $ around $ entry $ nth)
 
 let features =
   Arg.(
@@ -873,11 +917,9 @@ let features =
           "Rivet target features for disassembly; Rivet's default set plus \
            $(b,+xcoralzvt,+xcoralsys) when absent.")
 
-let manifest =
+let manifest : setting Term.t =
   Term.(
-    const (fun f ->
-        manifest_file := f;
-        f)
+    const (fun manifest o -> { o with manifest })
     $ Arg.(
         value
         & opt (some file) None
@@ -887,41 +929,36 @@ let manifest =
                $(b,--features) it also gives the instruction set: the platform's configuration \
                lists the extensions, and a word that needs another is an error naming it."))
 
-let profile =
-  let by =
-    Arg.(
-      value
-      & opt (enum [ ("pc", Text.Pc); ("class", Text.Class); ("function", Text.Function) ]) Text.Pc
-      & info [ "profile-by" ] ~docv:"KEY"
-          ~doc:
-            "Group the $(b,--profile) of $(b,commits) by $(b,pc) (the default), instruction \
-             $(b,class) (alu, fp, mem, branch, vector, vector-mem, tile or system) or \
-             $(b,function) (needs $(b,--elf)).")
-  in
+let profile_by : setting Term.t =
   Term.(
-    const (fun n by ->
-        profile_by := by;
-        n)
-    $ Arg.(
-        value & opt int 0
-        & info [ "profile" ] ~docv:"N"
-            ~doc:"Print the $(docv) PCs (or classes, or functions) with the most cycles charged.")
-    $ by)
-
-let annotate =
-  Term.(
-    const (fun f ->
-        annotate_file := f;
-        f)
+    const (fun profile_by o -> { o with profile_by })
     $ Arg.(
         value
-        & opt (some file) None
-        & info [ "annotate" ] ~docv:"FILE"
+        & opt (enum [ ("pc", Text.Pc); ("class", Text.Class); ("function", Text.Function) ]) Text.Pc
+        & info [ "profile-by" ] ~docv:"KEY"
             ~doc:
-              "Labels for addresses, one $(i,LOCATION LABEL) a line, joined into the rows as a \
-               trailing comment. A location is $(b,NAME) (a whole function), $(b,NAME+OFF), \
-               $(b,NAME+OFF-OFF) (offsets, the end exclusive) or $(b,0xADDR[-0xADDR]); names need \
-               an ELF. Lines starting with # are skipped."))
+              "Group the $(b,--profile) of $(b,commits) by $(b,pc) (the default), instruction \
+               $(b,class) (alu, fp, mem, branch, vector, vector-mem, tile or system) or \
+               $(b,function) (needs $(b,--elf))."))
+
+let profile =
+  Arg.(
+    value & opt int 0
+    & info [ "profile" ] ~docv:"N"
+        ~doc:"Print the $(docv) PCs (or classes, or functions) with the most cycles charged.")
+
+let annotate_file =
+  Arg.(
+    value
+    & opt (some file) None
+    & info [ "annotate" ] ~docv:"FILE"
+        ~doc:
+          "Labels for addresses, one $(i,LOCATION LABEL) a line, joined into the rows as a \
+           trailing comment. A location is $(b,NAME) (a whole function), $(b,NAME+OFF), \
+           $(b,NAME+OFF-OFF) (offsets, the end exclusive) or $(b,0xADDR[-0xADDR]); names need an \
+           ELF. Lines starting with # are skipped.")
+
+let annotate : setting Term.t = Term.(const (fun annotate o -> { o with annotate }) $ annotate_file)
 
 let legend =
   Arg.(
@@ -930,13 +967,12 @@ let legend =
         ~doc:
           "Explain the columns of the row listing before it. The listing always has a header line.")
 
-let regions p = function
+let regions env p =
+  match env.manifest with
   | None -> Region.none
   | Some f -> (
       let m = match Manifest.load f with Ok m -> m | Error e -> fail ~code:2 e in
       match Manifest.validate m p with Error e -> fail ~code:3 e | Ok c -> Region.of_manifest c)
-
-let region p m = Region.suffix (regions p m)
 
 let format =
   Arg.(
@@ -985,10 +1021,16 @@ let error_kind : Vcd.Error.error -> string = function
 
 let cmd name doc term = Cmd.v (Cmd.info name ~doc ~exits) term
 
-(* A model command: bind the platform, run, and turn binding errors into exit codes. *)
-let model name doc term =
+(* A model command: bind the platform, run, and turn binding errors into exit codes. [opts] are the
+   settings its terms return; the producer, if any, starts after they are all evaluated. *)
+let model ?(opts = []) name doc term =
   cmd name doc
-    Term.(const (fun p f path -> guard p (fun () -> f p path)) $ platform $ term $ traced)
+    Term.(
+      const (fun p set f src ->
+          let env = src.set (set (defaults ())) in
+          produce src;
+          guard p (fun () -> f env p src.path))
+      $ platform $ all opts $ term $ traced)
 
 (* What [coralview run] needs of an analysis: its config and text view from the common options. *)
 type opts = {
@@ -1005,10 +1047,10 @@ type entry =
   | E : {
       a : (module Analysis.S with type Config.t = 'k and type Event.t = 'e and type Summary.t = 's);
       cfg : opts -> 'k;
-      text : opts -> Text.ctx -> 'e list -> 's -> unit;
+      text : opts -> Text.ctx -> Format.formatter -> (unit -> 's) -> 'e Text.sink;
       status : 's -> int;
-      profile : (Text.ctx -> 'e list -> 's -> unit) option;
-      perfetto : (Text.ctx -> 'e list -> 's -> Perfetto.process) option;
+      profile : (Text.ctx -> Format.formatter -> (unit -> 's) -> 'e Text.sink) option;
+      perfetto : (Text.ctx -> 'e Seq.t -> 's -> Perfetto.process) option;
     }
       -> entry
 
@@ -1117,24 +1159,58 @@ let entries =
         } );
   ]
 
-(* Prints of [f] go to [path], or to the standard output for "-". *)
-let printing_to path f =
-  if path = "-" then f ()
-  else begin
-    flush stdout;
-    let saved = Unix.dup Unix.stdout in
-    let fd = Unix.openfile path [ O_WRONLY; O_CREAT; O_TRUNC ] 0o644 in
-    Unix.dup2 fd Unix.stdout;
-    Unix.close fd;
-    Fun.protect f ~finally:(fun () ->
-        flush stdout;
-        Unix.dup2 saved Unix.stdout;
-        Unix.close saved)
-  end
+(* A text view's destination in [run]. The standard output is written as the views go only when one
+   view alone prints to it: otherwise the text is held until the view ends, so that the views do not
+   interleave. *)
+type text_out = {
+  ppf : Format.formatter;
+  finish : unit -> unit;  (** Flushes and releases it; the held text goes out. *)
+  abandon : unit -> unit;  (** The same without the held text, after an error. *)
+}
+
+let text_out path ~hold =
+  let finished = ref false in
+  let make ppf ~flush ~release ~abandon =
+    {
+      ppf;
+      finish =
+        (fun () ->
+          if not !finished then begin
+            finished := true;
+            Format.pp_print_flush ppf ();
+            flush ();
+            release ()
+          end);
+      abandon =
+        (fun () ->
+          if not !finished then begin
+            finished := true;
+            Format.pp_print_flush ppf ();
+            abandon ()
+          end);
+    }
+  in
+  if path <> "-" then
+    let oc = open_out path in
+    make
+      (Format.formatter_of_out_channel oc)
+      ~flush:ignore
+      ~release:(fun () -> close_out oc)
+      ~abandon:(fun () -> close_out_noerr oc)
+  else if hold then
+    let buf = Buffer.create 4096 in
+    make (Format.formatter_of_buffer buf) ~flush:ignore
+      ~release:(fun () -> print_string (Buffer.contents buf))
+      ~abandon:ignore
+  else
+    make
+      (Format.formatter_of_out_channel stdout)
+      ~flush:(fun () -> flush stdout)
+      ~release:ignore ~abandon:ignore
 
 (* Several analyses in one pass: each is built in the same net, and its events are pushed to its
    sinks as they come. A model without a sink prints its text to the standard output. *)
-let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
+let run_models env (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
   let sinks =
     List.map
       (fun s ->
@@ -1150,20 +1226,33 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
   in
   if models = [] then fail ~code:2 "run needs --model or --sink";
   (let on_stdout = List.filter (fun (_, _, f) -> f = "-") sinks in
-   producer_status :=
-     match on_stdout with
+   Driver.report_to
+     (match on_stdout with
      | (_, "jsonl", _) :: _ -> `Jsonl
      | (_, _, _) :: _ -> `Text
      | [] ->
-         if sinks = [] && perfetto = None && kanata = None && report = None then `Text else `Stderr);
+         if sinks = [] && perfetto = None && kanata = None && report = None then `Text else `Stderr));
   let ctx =
-    ctx p ~features:o.o_features ~region:o.o_region ~window:o.o_window ~limit:o.o_limit
+    ctx env p ~features:o.o_features ~region:o.o_region ~window:o.o_window ~limit:o.o_limit
       ~profile:o.o_profile ()
   in
-  let ctx = resolve_between p path ctx in
-  run_origins := Some models;
-  let tr = open_trace path in
+  let ctx = resolve_between env p path ctx in
+  let env = { env with origins = Some models } in
+  let tr = open_trace env path in
   let (Core.Any c) = Core.bind p tr ~model:"run" in
+  let targets m =
+    match List.filter (fun (m', _, _) -> m' = m) sinks with
+    | [] when perfetto <> None || kanata <> None || report <> None -> []
+    | [] -> [ ("text", "-") ]
+    | l -> List.map (fun (_, k, f) -> (k, f)) l
+  in
+  let on_stdout k =
+    List.concat_map (fun m -> List.filter (fun (k', f) -> k' = k && f = "-") (targets m)) models
+  in
+  let hold = List.length (on_stdout "text") > 1 || on_stdout "jsonl" <> [] in
+  let outs = ref [] in
+  let diags_written = ref false in
+  Fun.protect ~finally:(fun () -> List.iter (fun o -> o.abandon ()) !outs) @@ fun () ->
   let finishers =
     guard p (fun () ->
         List.map
@@ -1171,15 +1260,10 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
             match List.assoc_opt m entries with
             | None -> fail ~code:2 ("run: no analysis " ^ m)
             | Some (E { a = (module A); cfg; text; status; perfetto = view; _ }) ->
-                let mine =
-                  match List.filter (fun (m', _, _) -> m' = m) sinks with
-                  | [] when perfetto <> None || kanata <> None || report <> None -> []
-                  | [] -> [ ("text", "-") ]
-                  | l -> List.map (fun (_, k, f) -> (k, f)) l
-                in
+                let mine = targets m in
+                let selected = Text.selected ctx.window in
                 let keep e =
-                  selected ctx.window ~cycle:(A.Event.cycle e)
-                    ~pc:(Option.value (A.Event.pc e) ~default:(-1))
+                  selected ~cycle:(A.Event.cycle e) ~pc:(Option.value (A.Event.pc e) ~default:(-1))
                 in
                 let jsonl =
                   List.filter_map
@@ -1190,7 +1274,7 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
                         output_string oc
                           (Codec.to_line Jsonl.header_jsont
                              {
-                               (jsonl_header ~model:A.name ~platform:p.name ~trace:path) with
+                               (jsonl_header env ~model:A.name ~platform:p.name ~trace:path) with
                                window = jsonl_window ctx.window;
                              });
                         output_char oc '\n';
@@ -1198,17 +1282,47 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
                       end)
                     mine
                 in
+                let summary_of =
+                  ref (fun () -> failwith "run: the summary is read after the run")
+                in
+                let late () = !summary_of () in
                 let texts =
-                  List.filter_map (fun (k, f) -> if k = "text" then Some f else None) mine
+                  List.filter_map
+                    (fun (k, f) ->
+                      if k <> "text" then None
+                      else begin
+                        let out = text_out f ~hold in
+                        outs := out :: !outs;
+                        print_banner env out.ppf p;
+                        Some (out, text o ctx out.ppf late)
+                      end)
+                    mine
+                in
+                let section =
+                  Option.map
+                    (fun _ ->
+                      let ctx =
+                        {
+                          ctx with
+                          limit = 0;
+                          profile = (if ctx.profile = 0 then 10 else ctx.profile);
+                        }
+                      in
+                      let buf = Buffer.create 1024 in
+                      let ppf = Format.formatter_of_buffer buf in
+                      (buf, ppf, text o ctx ppf late))
+                    report
                 in
                 let events = ref [] in
+                let collect = perfetto <> None && view <> None in
                 let summary =
                   Analysis.subscribe
                     (module A)
                     (cfg o) c
                     (fun e ->
-                      if texts <> [] || report <> None || (perfetto <> None && view <> None) then
-                        events := e :: !events;
+                      if collect then events := e :: !events;
+                      List.iter (fun (_, (sink : _ Text.sink)) -> sink.add e) texts;
+                      Option.iter (fun (_, _, (sink : _ Text.sink)) -> sink.add e) section;
                       if keep e then
                         List.iter
                           (fun (oc, n) ->
@@ -1221,71 +1335,75 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
                 in
                 fun stats ->
                   let s = summary stats in
+                  (summary_of := fun () -> s);
                   List.iter
                     (fun (oc, _) ->
-                      Seq.iter
-                        (fun d ->
-                          output_string oc (Codec.to_line Codec.diag d);
-                          output_char oc '\n')
-                        (Hwfrp.Diag.stream c.net);
+                      if not !diags_written then begin
+                        diags_written := true;
+                        Seq.iter
+                          (fun d ->
+                            output_string oc (Codec.to_line Codec.diag d);
+                            output_char oc '\n')
+                          (Hwfrp.Diag.stream c.net)
+                      end;
                       output_string oc (Codec.to_line A.Summary.jsont s);
                       output_char oc '\n';
                       if oc == stdout then flush oc else close_out oc)
                     jsonl;
-                  let events = List.rev !events in
                   List.iter
-                    (fun f ->
-                      printing_to f (fun () ->
-                          banner p;
-                          text o ctx events s))
+                    (fun ((out : text_out), (sink : _ Text.sink)) ->
+                      sink.finish ();
+                      out.finish ())
                     texts;
                   let section =
                     Option.map
-                      (fun _ ->
-                        let tmp = Filename.temp_file "coralview" ".txt" in
-                        let ctx =
-                          {
-                            ctx with
-                            limit = 0;
-                            profile = (if ctx.profile = 0 then 10 else ctx.profile);
-                          }
-                        in
-                        printing_to tmp (fun () -> text o ctx events s);
-                        let body = In_channel.with_open_text tmp In_channel.input_all in
-                        Sys.remove tmp;
-                        (A.name, A.doc, body))
-                      report
+                      (fun (buf, ppf, (sink : _ Text.sink)) ->
+                        sink.finish ();
+                        Format.pp_print_flush ppf ();
+                        (A.name, A.doc, Buffer.contents buf))
+                      section
                   in
                   ( status s,
-                    (match (perfetto, view) with Some _, Some v -> [ v ctx events s ] | _ -> []),
+                    (match (perfetto, view) with
+                    | Some _, Some v -> [ v ctx (List.to_seq (List.rev !events)) s ]
+                    | _ -> []),
                     section ))
           models)
   in
-  let kanata_events =
+  let kanata_out =
     Option.map
-      (fun _ ->
-        let commits = ref [] and stalls = ref [] in
+      (fun f ->
+        (* Written as the run goes, to the standard output too unless something else prints there. *)
+        let hold =
+          f = "-"
+          && (on_stdout "text" <> []
+             || on_stdout "jsonl" <> []
+             || perfetto = Some "-" || report = Some "-")
+        in
+        let buf = Buffer.create 4096 in
+        let oc = if f = "-" || hold then stdout else open_out f in
+        let put = if hold then Buffer.add_string buf else output_string oc in
+        let builder = Kanata.Builder.create ~disasm:ctx.disasm (Kanata.Writer.create put) in
         guard p (fun () ->
             let (_ : Hwfrp.Sched.run_stats -> _) =
-              Analysis.subscribe (module Commits) () c (fun e -> commits := e :: !commits)
+              Analysis.subscribe (module Commits) () c (Kanata.Builder.commit builder)
             in
             if List.mem "dispatch" (Platform.blocks p) then
               let (_ : Hwfrp.Sched.run_stats -> _) =
-                Analysis.subscribe (module Stalls) () c (fun e -> stalls := e :: !stalls)
+                Analysis.subscribe (module Stalls) () c (Kanata.Builder.stall builder)
               in
               ());
-        (commits, stalls))
+        (builder, oc, buf, hold))
       kanata
   in
-  let stats = Core.run c in
+  let stats = Core.run ?gate:(gate env) c in
   let results = List.map (fun f -> f stats) finishers in
   Option.iter
-    (fun f ->
-      let commits, stalls = Option.get kanata_events in
-      let oc = if f = "-" then stdout else open_out f in
-      Kanata.write oc (Kanata.of_run ~disasm:ctx.disasm (List.rev !commits) (List.rev !stalls));
-      if oc != stdout then close_out oc)
-    kanata;
+    (fun (builder, oc, buf, hold) ->
+      Kanata.Builder.finish builder;
+      if hold then output_string oc (Buffer.contents buf);
+      if oc != stdout then close_out oc else flush oc)
+    kanata_out;
   Option.iter
     (fun f ->
       let oc = if f = "-" then stdout else open_out f in
@@ -1328,47 +1446,62 @@ let read_jsonl file =
   in
   match first with Ok h -> h | Error e -> fail ~code:2 (file ^ ": " ^ e)
 
-(* The events and summary of a saved JSONL, decoded with the model's codecs. *)
-let decode_jsonl (type e s) (module A : Analysis.S with type Event.t = e and type Summary.t = s)
-    file =
-  let events = ref [] and summary = ref None in
+(* The events of a saved JSONL, decoded with the model's codecs, and its summary, which follows them:
+   it is read once the events are exhausted. *)
+let with_jsonl (type e s) (module A : Analysis.S with type Event.t = e and type Summary.t = s) file
+    k =
   In_channel.with_open_text file (fun ic ->
-      Seq.iteri
-        (fun i -> function
-          | Ok (Jsonl.Event e) -> events := e :: !events
-          | Ok (Summary s) -> summary := Some s
-          | Ok (Header _ | Diag _) -> ()
-          | Error e -> fail ~code:2 (Printf.sprintf "%s:%d: %s" file (i + 1) e))
-        (Jsonl.read (module A) ic));
-  match !summary with
-  | None -> fail ~code:2 (file ^ ": no summary")
-  | Some s -> (List.rev !events, s)
+      let summary = ref None in
+      let events =
+        Seq.filter_map
+          (fun (i, line) ->
+            match line with
+            | Ok (Jsonl.Event e) -> Some e
+            | Ok (Summary s) ->
+                summary := Some s;
+                None
+            | Ok (Header _ | Diag _) -> None
+            | Error e -> fail ~code:2 (Printf.sprintf "%s:%d: %s" file (i + 1) e))
+          (Seq.mapi (fun i l -> (i, l)) (Jsonl.read (module A) ic))
+      in
+      k events (fun () ->
+          match !summary with None -> fail ~code:2 (file ^ ": no summary") | Some s -> s))
 
 let entry file (h : Jsonl.header) =
   match List.assoc_opt h.model entries with
   | Some e -> e
   | None -> fail ~code:2 (file ^ ": no analysis " ^ h.model)
 
-let opts_ctx p o =
-  ctx p ~features:o.o_features ~region:o.o_region ~window:o.o_window ~limit:o.o_limit
+let opts_ctx env p o =
+  ctx env p ~features:o.o_features ~region:o.o_region ~window:o.o_window ~limit:o.o_limit
     ~profile:o.o_profile ()
 
 (* A saved JSONL back to the text its model prints. *)
-let render p o file =
+let render env p o file =
   let h = read_jsonl file in
   let (E { a = (module A); text; status; _ }) = entry file h in
-  let events, s = decode_jsonl (module A) file in
-  print_string (banner_line ~platform:h.platform ~simulator:h.simulator);
-  text o (opts_ctx p o) events s;
+  let s =
+    with_jsonl
+      (module A)
+      file
+      (fun events summary ->
+        with_ppf "-" (fun ppf ->
+            Format.pp_print_string ppf (banner_line ~platform:h.platform ~simulator:h.simulator);
+            Text.drain (text o (opts_ctx env p o) ppf summary) events);
+        summary ())
+  in
   match status s with 0 -> () | n -> exit n
 
 (* The profile of a saved JSONL, as its model's --profile prints it. *)
-let profile_of p o file =
+let profile_of env p o file =
   let h = read_jsonl file in
   match entry file h with
   | E { a = (module A); profile = Some profile; _ } ->
-      let events, s = decode_jsonl (module A) file in
-      profile (opts_ctx p o) events s
+      with_jsonl
+        (module A)
+        file
+        (fun events summary ->
+          with_ppf "-" (fun ppf -> Text.drain (profile (opts_ctx env p o) ppf summary) events))
   | E _ -> fail ~code:2 (file ^ ": " ^ h.model ^ " has no profile")
 
 let saved_platform =
@@ -1436,10 +1569,10 @@ let beats =
 
 (* [commits --vector]: the vsetvli configuration each vector instruction ran under, from [ops], with the
    static one of [disasm --vconfig] when there is an --elf. *)
-let vector_note p path =
+let vector_note env p path =
   if path = "-" then fail ~code:2 "--vector reads the trace twice: name a file, not -";
   let commits =
-    let pulled = guard p (fun () -> Analysis.pull (module Commits) () p (open_trace path)) in
+    let pulled = guard p (fun () -> pull env (module Commits) () p (open_trace env path)) in
     List.of_seq
       (Seq.filter_map
          (function Commits.Event.Commit c -> Some c | In_flight _ -> None)
@@ -1447,15 +1580,15 @@ let vector_note p path =
   in
   let ops =
     let pulled =
-      guard p (fun () -> Analysis.pull (module Ops) Ops.Config.default p (open_trace path))
+      guard p (fun () -> pull env (module Ops) Ops.Config.default p (open_trace env path))
     in
     List.of_seq
       (Seq.filter_map (function Ops.Event.Op o -> Some o | Burst _ -> None) pulled.events)
   in
   let static =
-    match !elf_path with
+    match env.elf with
     | None -> fun _ -> None
-    | Some file -> (
+    | Some { file; _ } -> (
         let data =
           try In_channel.with_open_bin file In_channel.input_all
           with Sys_error e -> fail ~code:2 e
@@ -1493,10 +1626,11 @@ let nonneg =
 
 let commands =
   [
-    cmd "probe" "Count the signals, timestamps and changes of a trace." Term.(const probe $ file);
+    cmd "probe" "Count the signals, timestamps and changes of a trace."
+      Term.(const (fun (path, _) -> probe path) $ file);
     cmd "tree" "Print a trace's scopes, or one scope's variables."
       Term.(
-        const (fun depth vars path scope -> tree ~depth ~vars path scope)
+        const (fun depth vars (path, _) scope -> tree ~depth ~vars path scope)
         $ Arg.(value & opt int 2 & info [ "depth" ] ~docv:"N" ~doc:"Scope levels to print.")
         $ Arg.(value & flag & info [ "vars" ] ~doc:"Print the scope's variables and widths.")
         $ file
@@ -1542,7 +1676,7 @@ let commands =
                 ~doc:
                   "Print the instruction count by class for each $(b,FUNC) symbol instead of the \
                    listing.")
-        $ annotate
+        $ annotate_file
         $ Arg.(
             value
             & opt (enum [ ("text", `Text); ("jsonl", `Jsonl) ]) `Text
@@ -1564,25 +1698,32 @@ let commands =
             let pick = function Some (x, y) -> (Some x, Some y) | None -> (None, None) in
             let elf_a, elf_b = pick elf in
             let marker_of f = function Some name -> Some (f name, 1) | None -> None in
+            let shared = { (defaults ()) with simulator = ref None } in
             let side trace elf name_of =
-              elf_symbols :=
+              let elf =
                 Option.map
                   (fun f ->
-                    match Symbols.load f with Ok t -> t | Error e -> fail ~code:2 ("--elf: " ^ e))
-                  elf;
-              elf_path := elf;
+                    match Symbols.load f with
+                    | Ok symbols -> { file = f; symbols }
+                    | Error e -> fail ~code:2 ("--elf: " ^ e))
+                  elf
+              in
               let name, entry_only = name_of in
-              (between_pc :=
-                 match around with
-                 | Some _ -> marker_of (fun n -> Around n) name
-                 | None -> if entry_only then marker_of (fun n -> Entry n) name else None);
-              let c = resolve_between p trace (ctx p ()) in
+              let between =
+                match around with
+                | Some _ -> marker_of (fun n -> Around n) name
+                | None -> if entry_only then marker_of (fun n -> Entry n) name else None
+              in
+              let env = { shared with elf; between } in
+              let c = resolve_between env p trace (ctx env p ()) in
               let summary, commits =
-                guard p (fun () -> Window_summary.analyze p ~window:c.window (open_trace trace))
+                guard p (fun () ->
+                    Window_summary.analyze ?gate:(gate env) p ~window:c.window
+                      (open_trace env trace))
               in
               let base =
-                match (name, !elf_symbols) with
-                | Some n, Some t when around <> None || entry_only -> (
+                match (name, elf) with
+                | Some n, Some { symbols = t; _ } when around <> None || entry_only -> (
                     match Symbols.find t n with [ f ] -> f.address | _ -> 0)
                 | _ -> 0
               in
@@ -1598,13 +1739,13 @@ let commands =
             let sb = side b elf_b (snd names, entry_only) in
             match format with
             | `Text ->
-                banner p;
+                banner shared p;
                 Compare.text ~top sa sb;
                 if loops then Compare.text_loops ~top sa sb
             | `Jsonl ->
                 print_endline
                   (Codec.to_line Jsonl.header_jsont
-                     (jsonl_header ~model:"compare" ~platform:p.name ~trace:(a ^ "," ^ b)));
+                     (jsonl_header shared ~model:"compare" ~platform:p.name ~trace:(a ^ "," ^ b)));
                 print_endline (Codec.to_line Compare.summary_jsont (sa.summary, sb.summary));
                 List.iter
                   (fun r -> print_endline (Codec.to_line Compare.row_jsont r))
@@ -1657,9 +1798,9 @@ let commands =
                    be in one of them and match it."));
     cmd "check" "Bind the models of a platform to a trace and report every signal."
       Term.(
-        const (fun p names format output path ->
+        const (fun p names format output (path, select) ->
             redirect output;
-            check p names ~format path)
+            check (select (defaults ())) p names ~format path)
         $ platform
         $ Arg.(
             value & opt_all string []
@@ -1669,7 +1810,7 @@ let commands =
       "Plan the signals some analyses need of a catalog trace, and the names a producer selects."
       Term.(
         const (fun p names signals catalogs dir producer format ->
-            plan_command p names signals catalogs dir producer ~format)
+            plan_command (defaults ()) p names signals catalogs dir producer ~format)
         $ platform
         $ Arg.(
             value & opt_all string []
@@ -1701,16 +1842,20 @@ let commands =
         $ format);
     cmd "signals" "Print named signals over a window, per cycle or as raw value changes."
       Term.(
-        const (fun p raw json format output changes fc tc ft tt path paths ->
-            redirect output;
-            signals
-              (fun () ->
+        const (fun p raw json format output changes fc tc ft tt src paths ->
+            let platform =
+              if raw then None
+              else
                 match p with
-                | Some p -> load p
-                | None -> fail ~code:2 "signals needs --platform, or --raw")
-              ~raw
+                | Some p -> Some (load p)
+                | None -> fail ~code:2 "signals needs --platform, or --raw"
+            in
+            let env = src.set (defaults ()) in
+            produce src;
+            redirect output;
+            signals env platform ~raw
               ~format:(if json then `Jsonl else format)
-              ~changes ~cycles:(fc, tc) ~times:(ft, tt) path paths)
+              ~changes ~cycles:(fc, tc) ~times:(ft, tt) src.path paths)
         $ Arg.(
             value & opt (some string) None & info [ "platform"; "p" ] ~docv:"P" ~doc:platform_doc)
         $ Arg.(
@@ -1732,20 +1877,20 @@ let commands =
         $ Arg.(
             non_empty & pos_right 0 string []
             & info [] ~docv:"PATH" ~doc:"An absolute signal path, components separated by $(b,/)."));
-    model "commits" "Retired instructions with values and per-instruction cycles."
+    model
+      ~opts:[ elf; between; manifest; profile_by; annotate ]
+      "commits" "Retired instructions with values and per-instruction cycles."
       Term.(
-        const
-          (fun
-            features _manifest window limit profile legend vector _annotate format output p path ->
+        const (fun features window limit profile legend vector format output env p path ->
             redirect output;
             if vector && format = `Jsonl then fail ~code:2 "--vector is for the text listing";
-            let note = if vector then Some (vector_note p path) else None in
-            analyze
+            let note = if vector then Some (vector_note env p path) else None in
+            analyze env
               (module Commits)
               () p ~format
-              ~ctx:(ctx p ~features ~window ~limit ~profile ~legend ?note ())
+              ~ctx:(ctx env p ~features ~window ~limit ~profile ~legend ?note ())
               Commits.text path)
-        $ features $ manifest $ window $ limit $ profile $ legend
+        $ features $ window $ limit $ profile $ legend
         $ Arg.(
             value & flag
             & info [ "vector" ]
@@ -1753,40 +1898,45 @@ let commands =
                   "Append to each vector instruction's row the SEW, LMUL and $(b,vl) the RVV \
                    backend ran it under (the $(b,ops) model), and the $(b,disasm --vconfig) one \
                    with $(b,--elf) where they differ. Text only; the trace must be a file.")
-        $ annotate $ format $ output);
-    model "stalls" Stalls.doc
+        $ format $ output);
+    model ~opts:[ elf; between; profile_by ] "stalls" Stalls.doc
       Term.(
-        const (fun window profile format output p path ->
+        const (fun window profile format output env p path ->
             redirect output;
-            analyze (module Stalls) () p ~format ~ctx:(ctx p ~window ~profile ()) Stalls.text path)
+            analyze env
+              (module Stalls)
+              () p ~format ~ctx:(ctx env p ~window ~profile ()) Stalls.text path)
         $ window $ profile $ format $ output);
-    model "memory" Memory.doc
+    model ~opts:[ elf; between; manifest ] "memory" Memory.doc
       Term.(
-        const (fun manifest window limit format output p path ->
-            let region = regions p manifest in
+        const (fun window limit format output env p path ->
+            let region = regions env p in
             redirect output;
-            analyze
+            analyze env
               (module Memory)
-              { region } p ~format ~ctx:(ctx p ~region ~window ~limit ()) Memory.text path)
-        $ manifest $ window $ limit $ format $ output);
-    model "cost" "Retired instructions by class and memory region: commits joined with memory."
+              { region } p ~format
+              ~ctx:(ctx env p ~region ~window ~limit ())
+              Memory.text path)
+        $ window $ limit $ format $ output);
+    model ~opts:[ elf; between; manifest ] "cost"
+      "Retired instructions by class and memory region: commits joined with memory."
       Term.(
-        const (fun manifest window format output p path ->
-            let region = regions p manifest in
+        const (fun window format output env p path ->
+            let region = regions env p in
             redirect output;
             if path = "-" then fail ~code:2 "cost reads the trace twice: name a file, not -";
-            let c = resolve_between p path (ctx p ~region ~window ()) in
+            let c = resolve_between env p path (ctx env p ~region ~window ()) in
             let window = c.window in
-            let open_trace () = open_trace path in
+            let open_trace () = open_trace env path in
             let commits =
-              let pulled = Analysis.pull (module Commits) () p (open_trace ()) in
+              let pulled = pull env (module Commits) () p (open_trace ()) in
               List.of_seq
                 (Seq.filter_map
                    (function Commits.Event.Commit c -> Some c | In_flight _ -> None)
                    pulled.events)
             in
             let accesses =
-              let pulled = Analysis.pull (module Memory) { region } p (open_trace ()) in
+              let pulled = pull env (module Memory) { region } p (open_trace ()) in
               List.of_seq
                 (Seq.filter_map
                    (function Memory.Event.Access a -> Some a | Fault _ | Unmatched _ -> None)
@@ -1795,53 +1945,52 @@ let commands =
             let rows = Cost.join ~classify:c.instruction_class ~window commits accesses in
             match format with
             | `Text ->
-                banner p;
+                banner env p;
                 Cost.text rows
             | `Jsonl ->
                 print_endline
                   (Codec.to_line Jsonl.header_jsont
                      {
-                       (jsonl_header ~model:"cost" ~platform:p.name ~trace:path) with
+                       (jsonl_header env ~model:"cost" ~platform:p.name ~trace:path) with
                        window = jsonl_window window;
                      });
                 List.iter (fun r -> print_endline (Codec.to_line Cost.row_jsont r)) rows)
-        $ manifest $ window $ format $ output);
-    model "summary"
+        $ window $ format $ output);
+    model ~opts:[ elf; between; manifest ] "summary"
       "Instructions, cycles, data requests, vector operations and stall reasons of a window."
       Term.(
-        const (fun manifest window format output p path ->
-            let region = regions p manifest in
+        const (fun window format output env p path ->
+            let region = regions env p in
             redirect output;
             if path = "-" then
               fail ~code:2 "summary reads the trace once a model: name a file, not -";
-            let c = resolve_between p path (ctx p ~region ~window ()) in
+            let c = resolve_between env p path (ctx env p ~region ~window ()) in
             let window = c.window in
             let s =
-              guard p (fun () -> Window_summary.of_trace p ~window ~region (open_trace path))
+              guard p (fun () ->
+                  Window_summary.of_trace ?gate:(gate env) p ~window ~region (open_trace env path))
             in
             match format with
             | `Text ->
-                banner p;
+                banner env p;
                 Window_summary.text s
             | `Jsonl ->
                 print_endline
                   (Codec.to_line Jsonl.header_jsont
                      {
-                       (jsonl_header ~model:"summary" ~platform:p.name ~trace:path) with
+                       (jsonl_header env ~model:"summary" ~platform:p.name ~trace:path) with
                        window = jsonl_window window;
                      });
                 print_endline (Codec.to_line Window_summary.jsont s))
-        $ manifest $ window $ format $ output);
-    model "loops"
+        $ window $ format $ output);
+    model ~opts:[ elf; between; manifest ] "loops"
       "Loops from backward branches: trips, instructions and cycles a trip, cycles by PC."
       Term.(
-        const (fun features _manifest window format output p path ->
+        const (fun features window format output env p path ->
             redirect output;
-            let c = resolve_between p path (ctx p ~features ~window ()) in
+            let c = resolve_between env p path (ctx env p ~features ~window ()) in
             let window = c.window in
-            let pulled =
-              guard p (fun () -> Analysis.pull (module Commits) () p (open_trace path))
-            in
+            let pulled = guard p (fun () -> pull env (module Commits) () p (open_trace env path)) in
             (* Only the cycle range: a PC filter would cut the trips apart. *)
             let commits =
               List.of_seq
@@ -1856,53 +2005,58 @@ let commands =
             let loops = Loops.detect commits in
             match format with
             | `Text ->
-                banner p;
+                banner env p;
                 Loops.text ~disasm:c.disasm ~symbol:c.symbol loops
             | `Jsonl ->
                 print_endline
                   (Codec.to_line Jsonl.header_jsont
                      {
-                       (jsonl_header ~model:"loops" ~platform:p.name ~trace:path) with
+                       (jsonl_header env ~model:"loops" ~platform:p.name ~trace:path) with
                        window = jsonl_window window;
                      });
                 List.iter (fun l -> print_endline (Codec.to_line Loops.loop_jsont l)) loops)
-        $ features $ manifest $ window $ format $ output);
-    model "axi" Axi.doc
+        $ features $ window $ format $ output);
+    model
+      ~opts:[ elf; between; manifest; profile_by ]
+      "axi" Axi.doc
       Term.(
-        const (fun features manifest window limit profile format output p path ->
-            let region = regions p manifest in
+        const (fun features window limit profile format output env p path ->
+            let region = regions env p in
             redirect output;
-            analyze
+            analyze env
               (module Axi)
               { region } p ~format
-              ~ctx:(ctx p ~features ~region ~window ~limit ~profile ())
+              ~ctx:(ctx env p ~features ~region ~window ~limit ~profile ())
               Axi.text path)
-        $ features $ manifest $ window $ limit $ profile $ format $ output);
-    model "dma" Dma.doc
+        $ features $ window $ limit $ profile $ format $ output);
+    model ~opts:[ manifest ] "dma" Dma.doc
       Term.(
-        const (fun manifest beats format output p path ->
-            let region = regions p manifest in
+        const (fun beats format output env p path ->
+            let region = regions env p in
             redirect output;
-            analyze (module Dma) { region } p ~format ~ctx:(ctx p ~region ()) (Dma.text ~beats) path)
-        $ manifest
+            analyze env
+              (module Dma)
+              { region } p ~format ~ctx:(ctx env p ~region ()) (Dma.text ~beats) path)
         $ Arg.(
             value & opt int 0
             & info [ "beats" ] ~docv:"N" ~doc:"Print the first $(docv) beats of each job.")
         $ format $ output);
-    model "tiles" Tiles.doc
+    model ~opts:[ elf; between ] "tiles" Tiles.doc
       Term.(
-        const (fun window limit format output p path ->
+        const (fun window limit format output env p path ->
             redirect output;
-            analyze (module Tiles) () p ~format ~ctx:(ctx p ~window ~limit ()) Tiles.text path)
+            analyze env
+              (module Tiles)
+              () p ~format ~ctx:(ctx env p ~window ~limit ()) Tiles.text path)
         $ window $ limit $ format $ output);
-    model "ops" Ops.doc
+    model ~opts:[ elf; between; profile_by ] "ops" Ops.doc
       Term.(
-        const (fun features gap peak_window window limit profile format output p path ->
+        const (fun features gap peak_window window limit profile format output env p path ->
             redirect output;
-            analyze
+            analyze env
               (module Ops)
               { gap; peak_window; features } p ~format
-              ~ctx:(ctx p ~window ~limit ~profile ())
+              ~ctx:(ctx env p ~window ~limit ~profile ())
               Ops.text path)
         $ features
         $ Arg.(
@@ -1916,48 +2070,37 @@ let commands =
         $ window $ limit $ profile $ format $ output);
     model "registers" Registers.doc
       Term.(
-        const (fun at limit format output p path ->
+        const (fun at limit format output env p path ->
             redirect output;
-            analyze
+            analyze env
               (module Registers)
-              { at } p ~status:Registers.status ~format ~ctx:(ctx p ~limit ()) Registers.text path)
+              { at } p ~status:Registers.status ~format ~ctx:(ctx env p ~limit ()) Registers.text
+              path)
         $ at $ limit $ format $ output);
     model "vectors" Vectors.doc
       Term.(
-        const (fun at limit format output p path ->
+        const (fun at limit format output env p path ->
             redirect output;
-            analyze
+            analyze env
               (module Vectors)
-              { at } p ~status:Vectors.status ~format ~ctx:(ctx p ~limit ()) Vectors.text path)
+              { at } p ~status:Vectors.status ~format ~ctx:(ctx env p ~limit ()) Vectors.text path)
         $ at $ limit $ format $ output);
     model "traps" Traps.doc
       Term.(
-        const (fun format output p path ->
+        const (fun format output env p path ->
             redirect output;
-            analyze (module Traps) () p ~format ~ctx:(ctx p ()) Traps.text path)
+            analyze env (module Traps) () p ~format ~ctx:(ctx env p ()) Traps.text path)
         $ format $ output);
     cmd "run" "Run several analyses in one pass over a trace, each to its own text or JSONL sinks."
       Term.(
         const
           (fun
-            p
-            models
-            sinks
-            perfetto
-            kanata
-            report
-            features
-            manifest
-            window
-            limit
-            profile
-            at
-            beats
-            path
-          ->
-            run_models p ?perfetto ?kanata ?report
+            p models sinks perfetto kanata report features set window limit profile at beats src ->
+            let env = src.set (set (defaults ())) in
+            produce src;
+            run_models env p ?perfetto ?kanata ?report
               {
-                o_region = regions p manifest;
+                o_region = regions env p;
                 o_features = features;
                 o_window = window;
                 o_limit = limit;
@@ -1965,7 +2108,7 @@ let commands =
                 o_at = at;
                 o_beats = beats;
               }
-              models sinks path)
+              models sinks src.path)
         $ platform
         $ Arg.(
             value & opt_all string []
@@ -1976,7 +2119,8 @@ let commands =
             & info [ "sink" ] ~docv:"M:KIND:PATH"
                 ~doc:
                   "Send analysis $(i,M) as $(b,text) or $(b,jsonl) to $(i,PATH), $(b,-) for the \
-                   standard output; repeatable.")
+                   standard output; repeatable. The diagnostics of the shared net go into the \
+                   first $(b,jsonl) sink only.")
         $ Arg.(
             value
             & opt (some string) None
@@ -1998,14 +2142,17 @@ let commands =
                 ~doc:
                   "Also write a Markdown report: each analysis' summary and profile (10 rows \
                    unless $(b,--profile)), without its rows.")
-        $ features $ manifest $ window $ limit $ profile $ at $ beats $ traced);
+        $ features
+        $ all [ elf; between; manifest; profile_by ]
+        $ window $ limit $ profile $ at $ beats $ traced);
     cmd "render" "Print a saved JSONL of an analysis as the text its command prints."
       Term.(
-        const (fun platform features manifest window limit profile at beats file ->
+        const (fun platform features set window limit profile at beats file ->
             let p = load (Option.value platform ~default:(read_jsonl file).platform) in
-            render p
+            let env = set (defaults ()) in
+            render env p
               {
-                o_region = regions p manifest;
+                o_region = regions env p;
                 o_features = features;
                 o_window = window;
                 o_limit = limit;
@@ -2014,12 +2161,14 @@ let commands =
                 o_beats = beats;
               }
               file)
-        $ saved_platform $ features $ manifest $ window $ limit $ profile $ at $ beats $ jsonl_file);
+        $ saved_platform $ features
+        $ all [ elf; between; manifest; profile_by ]
+        $ window $ limit $ profile $ at $ beats $ jsonl_file);
     cmd "profile" "Print the profile of a saved JSONL of commits, stalls or axi."
       Term.(
         const (fun platform features n file ->
             let p = load (Option.value platform ~default:(read_jsonl file).platform) in
-            profile_of p
+            profile_of (defaults ()) p
               {
                 o_region = Region.none;
                 o_features = features;
@@ -2036,7 +2185,7 @@ let commands =
         $ jsonl_file);
     model "bench" "Time opening, decoding and sampling a trace."
       Term.(
-        const (fun nodes p path -> Bench.run p ~select:!select ~nodes path)
+        const (fun nodes env p path -> Bench.run p ~select:env.select ~nodes path)
         $ Arg.(
             value & opt int 300 & info [ "nodes" ] ~docv:"N" ~doc:"Nodes in the synthetic graph."));
   ]

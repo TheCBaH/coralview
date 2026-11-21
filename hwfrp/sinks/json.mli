@@ -7,6 +7,10 @@
 
 type t =
   | Int of int
+  | Float of float
+      (** The shortest of 15, 16 or 17 significant digits that reads back to the same float, with
+          [.0] added when it would otherwise look like an integer; [-0.] is [-0.0]. NaN and the
+          infinities have no JSON form and are written as [null]. *)
   | Str of string
   | Bool of bool
   | Null

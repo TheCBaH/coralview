@@ -129,14 +129,17 @@ val throughput : Event.transaction -> float option
 
 val resp_name : int -> string
 
-val profile : Text.ctx -> Event.t list -> Summary.t -> unit
+val profile : Text.ctx -> Format.formatter -> (unit -> Summary.t) -> Event.t Text.sink
 (** The external traffic by instruction, the [ctx.profile] heaviest PCs. *)
 
-val text : Text.ctx -> Event.t list -> Summary.t -> unit
-(** The rows the context selects, the unmatched ones, the summary and the profile by instruction. *)
+val text : Text.ctx -> Format.formatter -> (unit -> Summary.t) -> Event.t Text.sink
+(** The rows the context selects, the unmatched ones, the summary and the profile by instruction. The
+    rows to show are held until the summary, which names their instructions: memory for the limit's
+    transactions. *)
 
-val perfetto : Text.ctx -> Event.t list -> Summary.t -> Perfetto.process
-(** A track per AXI ID with a slice per transaction, and the outstanding count. *)
+val perfetto : Text.ctx -> Event.t Seq.t -> Summary.t -> Perfetto.process
+(** A track per AXI ID with a slice per transaction, and the outstanding count.
+    The events are traversed more than once: give a sequence that can be replayed. *)
 
 (** The totals of the transactions and unmatched responses received. Every transaction counts, whether
     complete or emitted at the end of the trace; only a complete one adds a latency. A transaction is

@@ -83,12 +83,13 @@ val build :
   Config.t -> 'c Core.t -> (Event.t list, 'c) Hwfrp.Ev.t * (Hwfrp.Sched.run_stats -> Summary.t)
 (** Raises {!Hwfrp.Bind.Unbound} and {!Core.No_block}. *)
 
-val text : Text.ctx -> Event.t list -> Summary.t -> unit
+val text : Text.ctx -> Format.formatter -> (unit -> Summary.t) -> Event.t Text.sink
 (** Totals by unit, the rates, and the bursts up to the context's limit. *)
 
-val profile : Text.ctx -> Event.t list -> Summary.t -> unit
+val profile : Text.ctx -> Format.formatter -> (unit -> Summary.t) -> Event.t Text.sink
 (** Operations by instruction. *)
 
-val perfetto : Text.ctx -> Event.t list -> Summary.t -> Perfetto.process
+val perfetto : Text.ctx -> Event.t Seq.t -> Summary.t -> Perfetto.process
 (** The bursts, each instruction on its unit's track, and the operations of each peak window as a
-    counter. *)
+    counter.
+    The events are traversed more than once: give a sequence that can be replayed. *)

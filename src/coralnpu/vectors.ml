@@ -229,41 +229,47 @@ module Pcs = Map.Make (struct
   let compare = Option.compare Int.compare
 end)
 
-let text (ctx : Text.ctx) events (s : summary) =
-  let shown = ref 0 in
-  let by_pc =
-    List.fold_left
-      (fun m (Event.Vreg_write w) ->
-        if !shown < ctx.limit then begin
-          incr shown;
-          Printf.printf "%8d port%d %s %-3s strobe %s %s\n" w.cycle w.port
-            (match w.pc with Some pc -> Printf.sprintf "pc %08x" pc | None -> "-")
-            (Core.reg_name w.reg) (Bits.to_hex w.strobe) (Bits.to_hex w.data)
-        end;
-        let c, regs, first, _ =
-          Option.value (Pcs.find_opt w.pc m) ~default:(0, [], w.cycle, w.cycle)
-        in
-        Pcs.add w.pc (c + 1, List.sort_uniq Int.compare (w.reg :: regs), first, w.cycle) m)
-      Pcs.empty events
+let text (ctx : Text.ctx) ppf summary : Event.t Text.sink =
+  let shown = ref 0 and total = ref 0 and by_pc = ref Pcs.empty in
+  let add (Event.Vreg_write w) =
+    incr total;
+    if !shown < ctx.limit then begin
+      incr shown;
+      Format.fprintf ppf "%8d port%d %s %-3s strobe %s %s\n" w.cycle w.port
+        (match w.pc with Some pc -> Printf.sprintf "pc %08x" pc | None -> "-")
+        (Core.reg_name w.reg) (Bits.to_hex w.strobe) (Bits.to_hex w.data)
+    end;
+    let c, regs, first, _ =
+      Option.value (Pcs.find_opt w.pc !by_pc) ~default:(0, [], w.cycle, w.cycle)
+    in
+    by_pc := Pcs.add w.pc (c + 1, List.sort_uniq Int.compare (w.reg :: regs), first, w.cycle) !by_pc
   in
-  Printf.printf "root %s: %d cycles, %d vector register writes from %d PCs\n" ctx.root s.cycles
-    (List.length events) (Pcs.cardinal by_pc);
-  Pcs.bindings by_pc
-  |> List.iter (fun (pc, (c, regs, first, last)) ->
-      Printf.printf "  %s: %d writes to %s, cycles %d-%d\n"
-        (match pc with Some pc -> Printf.sprintf "pc %08x" pc | None -> "-")
-        c
-        (String.concat " " (List.map Core.reg_name regs))
-        first last);
-  List.iter
-    (fun (code, checks, n) -> Printf.printf "%-26s %8d comparisons, %d failures\n" code checks n)
-    s.relations;
-  let table title regs =
-    Printf.printf "%s:\n" title;
-    List.iter (fun (r, v) -> Printf.printf "  %-4s %s\n" (Core.reg_name r) (Bits.to_hex v)) regs
+  let finish () =
+    let s : summary = summary () in
+    Format.fprintf ppf "root %s: %d cycles, %d vector register writes from %d PCs\n" ctx.root
+      s.cycles !total (Pcs.cardinal !by_pc);
+    Pcs.iter
+      (fun pc (c, regs, first, last) ->
+        Format.fprintf ppf "  %s: %d writes to %s, cycles %d-%d\n"
+          (match pc with Some pc -> Printf.sprintf "pc %08x" pc | None -> "-")
+          c
+          (String.concat " " (List.map Core.reg_name regs))
+          first last)
+      !by_pc;
+    List.iter
+      (fun (code, checks, n) ->
+        Format.fprintf ppf "%-26s %8d comparisons, %d failures\n" code checks n)
+      s.relations;
+    let table title regs =
+      Format.fprintf ppf "%s:\n" title;
+      List.iter
+        (fun (r, v) -> Format.fprintf ppf "  %-4s %s\n" (Core.reg_name r) (Bits.to_hex v))
+        regs
+    in
+    Option.iter
+      (fun (cycle, regs) -> table (Printf.sprintf "storage at cycle %d" cycle) regs)
+      s.storage_at;
+    table "storage at the end" s.storage;
+    List.iter (Format.fprintf ppf "%a@." Diag.pp) s.failures
   in
-  Option.iter
-    (fun (cycle, regs) -> table (Printf.sprintf "storage at cycle %d" cycle) regs)
-    s.storage_at;
-  table "storage at the end" s.storage;
-  List.iter (Format.printf "%a@." Diag.pp) s.failures
+  { add; finish }

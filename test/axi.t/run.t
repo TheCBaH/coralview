@@ -90,6 +90,23 @@ Several analyses in one pass, each to its own sinks, give what their own command
   platform axi-core describes no lsu block
   [2]
 
+The net's diagnostics belong to the run, not to a model, so `run` writes each once, into the first
+JSONL sink in model order, and not again into the others. Two bound signals here carry unknown bits,
+and both analyses read them:
+
+  $ sed -e '154s/.*/bxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ra/' -e '198s/.*/b0000000000000000000000x100000000 tp/' axi.vcd > unknown.vcd
+  $ coralview run --platform axi-core.json --sink commits:jsonl:commits.x --sink axi:jsonl:axi.x unknown.vcd
+  $ jq -c 'select(.type == "diag") | [.code, .cycle, .paths]' axi.x
+  ["bind.unknown-bits",2,["TOP.core.io_axi_master_read_addr_bits_addr"]]
+  ["bind.unknown-bits",7,["TOP.core.io_debug_rb_inst_0_bits_pc"]]
+  $ jq -c 'select(.type == "diag")' commits.x
+
+Views that print to the standard output come one after the other, each whole, as the sorted
+models go:
+
+  $ coralview run --platform axi-core.json --model commits --model axi --limit 2 axi.vcd > both.txt
+  $ (coralview axi --platform axi-core.json --limit 2 axi.vcd; coralview commits --platform axi-core.json --limit 2 axi.vcd) | cmp - both.txt
+
 The transactions as a Chrome trace for ui.perfetto.dev: a track per AXI ID, a slice per
 transaction from its start to its completion, and the outstanding count:
 

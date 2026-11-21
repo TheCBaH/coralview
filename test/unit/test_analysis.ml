@@ -140,6 +140,28 @@ let%expect_test "pull = subscribe; a dependency is shared" =
     pulled 1:10 2:14 4:18; summary 3
     pushed equal true; even 2:14 4:18; builds 1; summary 3 |}]
 
+let%expect_test "gate: called once per start, with the model, before the first event" =
+  let calls = ref [] in
+  let gate _ ~model = calls := model :: !calls in
+  let p = Analysis.pull ~gate (module Toy) () platform (Hwfrp_vcd.of_string vcd) in
+  Printf.printf "after pull: %s\n" (String.concat "," !calls);
+  ignore (List.of_seq p.events);
+  Printf.printf "after events: %s\n" (String.concat "," !calls);
+  calls := [];
+  let p = Analysis.pull (module Toy) () platform (Hwfrp_vcd.of_string vcd) in
+  ignore (List.of_seq p.events);
+  Printf.printf "without a gate: %d calls\n" (List.length !calls);
+  let refuse _ ~model = failwith ("refused " ^ model) in
+  (match Analysis.pull ~gate:refuse (module Toy) () platform (Hwfrp_vcd.of_string vcd) with
+  | _ -> print_endline "started"
+  | exception Failure e -> print_endline e);
+  [%expect
+    {|
+    after pull: toy
+    after events: toy
+    without a gate: 0 calls
+    refused toy |}]
+
 let%expect_test "JSONL" =
   let p = Analysis.pull (module Toy) () platform (Hwfrp_vcd.of_string vcd) in
   let file = Filename.temp_file "toy" ".jsonl" in

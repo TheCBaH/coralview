@@ -37,14 +37,12 @@ val signal : 'c t -> string list -> string -> 'a Hwfrp.Bind.decoder -> ('a, 'c) 
 (** [signal c scope name d] binds [name] in [scope]. A [name] of the form [a/b/n] is signal [n] in the
     sub-scope [a.b] of [scope]. *)
 
-val gate : (Hwfrp.Trace.t -> model:string -> unit) ref
-(** Called by {!start} with the trace and the model name, after the net is built and before the first sample:
-    the place for a check of the tracked signals. Does nothing by default. *)
+val start : ?gate:(Hwfrp.Trace.t -> model:string -> unit) -> 'c t -> Hwfrp.Run.t
+(** Compiles the net and starts a run over the whole trace. [gate] is called first, with the trace and the
+    model name, after the net is built and before the first sample: the place for a check of the tracked
+    signals. It does nothing by default. *)
 
-val start : 'c t -> Hwfrp.Run.t
-(** Compiles the net and starts a run over the whole trace, after {!gate}. *)
-
-val run : 'c t -> Hwfrp.Sched.run_stats
+val run : ?gate:(Hwfrp.Trace.t -> model:string -> unit) -> 'c t -> Hwfrp.Sched.run_stats
 
 type dispatched = { d_lane : int; d_pc : int; d_word : int }
 

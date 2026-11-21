@@ -3,7 +3,7 @@ DUNE = $(OPAM_EXEC) dune
 CORALNPU ?= /opt/coralnpu
 export RIVET_EXTERNAL_DEPS = true
 
-.PHONY: deps versions build test fmt fmt-check hwfrp-boundary isa-check rivet-pin-check smoke zvt-check integration ci clean
+.PHONY: deps versions build test fmt fmt-check hwfrp-boundary isa-check rivet-pin-check smoke zvt-check integration long ci clean
 
 # rivet is a dependency of the package, for installs from opam. In this tree dune builds the vendored copy,
 # and an installed one next to it makes dune fail with "rivet.fmt is already defined".
@@ -132,6 +132,10 @@ integration: build
 	for mode in selection stream selected-stream; do \
 	  tools/integration.sh $$mode $$(pwd)/_build/default/bin/coralview.exe $(CORALNPU) || exit 1; \
 	done
+
+# A multi-million-cycle trace read by the streamed views, with their peak memory (not part of ci; LONG_CYCLES, LONG_RSS_KB).
+long:
+	$(DUNE) build @long
 
 ci: fmt-check build test hwfrp-boundary rivet-pin-check isa-check zvt-check smoke integration
 

@@ -55,9 +55,10 @@ let join ~classify ~(window : Text.window) (commits : Commits.commit list)
       | None -> ())
     accesses;
   let m = ref SM.empty in
+  let selected = Text.selected window in
   Array.iteri
     (fun i (c : Commits.commit) ->
-      if Text.selected window ~cycle:c.retired ~pc:c.pc then begin
+      if selected ~cycle:c.retired ~pc:c.pc then begin
         let key =
           ( (match c.word with Some w -> classify w | None -> "unknown"),
             Option.value region.(i) ~default:"-" )

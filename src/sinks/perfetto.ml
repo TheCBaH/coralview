@@ -13,21 +13,22 @@ type slice = {
 }
 
 type counter = { c_track : string; cycle : int; value : int }
-type process = { process : string; slices : slice list; counters : counter list }
+type process = { process : string; slices : slice Seq.t; counters : counter Seq.t }
 
 let to_events p =
-  List.map
-    (fun s ->
-      C.Span
-        {
-          lane = s.track;
-          name = s.name;
-          start = s.start;
-          stop = s.stop;
-          args = List.map (fun (k, v) -> (k, Hwfrp_sinks.Json.Str v)) s.args;
-        })
-    p.slices
-  @ List.map (fun c -> C.Counter { name = c.c_track; at = c.cycle; value = c.value }) p.counters
+  Seq.append
+    (Seq.map
+       (fun s ->
+         C.Span
+           {
+             lane = s.track;
+             name = s.name;
+             start = s.start;
+             stop = s.stop;
+             args = List.map (fun (k, v) -> (k, Hwfrp_sinks.Json.Str v)) s.args;
+           })
+       p.slices)
+    (Seq.map (fun c -> C.Counter { name = c.c_track; at = c.cycle; value = c.value }) p.counters)
 
 let write oc processes =
   C.output oc

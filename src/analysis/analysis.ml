@@ -41,13 +41,13 @@ type ('e, 's) pulled = {
   stats : unit -> Sched.run_stats;
 }
 
-let pull (type k e s)
+let pull (type k e s) ?gate
     (module A : S with type Config.t = k and type Event.t = e and type Summary.t = s) (cfg : k) p tr
     : (e, s) pulled =
   let (Core.Any c) = Core.bind p tr ~model:A.name in
   let ev, summary = A.build cfg c in
   let port = Port.create ev in
-  let run = Core.start c in
+  let run = Core.start ?gate c in
   let summary = lazy (summary (Run.finish run)) in
   {
     events = Seq.concat_map List.to_seq (Port.seq run port);
@@ -80,13 +80,13 @@ type ('e, 's) stream = {
   finish : unit -> unit;
 }
 
-let stream (type k e s)
+let stream (type k e s) ?gate
     (module A : S with type Config.t = k and type Event.t = e and type Summary.t = s) (cfg : k) p tr
     : (e, s) stream =
   let (Core.Any c) = Core.bind p tr ~model:A.name in
   let ev, summary = A.build cfg c in
   let port = Port.create ev in
-  let run = Core.start c in
+  let run = Core.start ?gate c in
   let next = Seq.to_dispenser (Seq.concat_map List.to_seq (Port.seq run port)) in
   let finished = ref false in
   let finish () =

@@ -52,3 +52,38 @@ The producer makes the trace, so no other trace is named:
   $ coralview signals $args --exec "cat $t/sig.vcd >&3" $t/sig.vcd TOP.sim/core/count
   --exec produces the trace: give - as the trace
   [2]
+
+The producer starts once the whole command line is evaluated, so a command that fails on its
+platform never runs it, and no status is written for it:
+
+  $ coralview signals --platform nosuch.json --exec "touch started; cat $t/sig.vcd >&3" - TOP.sim/core/count
+  no platform nosuch.json: give a configuration (coralview platforms) or a JSON file
+  [2]
+  $ test -e started
+  [1]
+  $ coralview signals --platform nosuch.json --raw --exec "cat $t/sig.vcd >&3" - TOP.sim/core/count | tail -n 2
+         -         10    4 TOP.sim/core/count 0x4
+  # producer: complete, exited with status 0
+
+Descriptor 3 of the producer is the write end of the stream, a pipe, whatever the caller had there;
+its other descriptors are the caller's. The caller's descriptor 3 is not written to:
+
+  $ coralview signals $args --exec "test -p /dev/fd/3 && echo pipe >&2; echo kept >&4; cat $t/sig.vcd >&3" - TOP.sim/core/count 3>caller3.txt 4>caller4.txt > fds.txt
+  pipe
+  $ tail -n 1 fds.txt
+  # producer: complete, exited with status 0
+  $ test -s caller3.txt
+  [1]
+  $ cat caller4.txt
+  kept
+
+The same when the pipe is allocated descriptor 3 itself, with the standard input closed, and the
+producer's standard input is the caller's:
+
+  $ coralview signals $args --exec "test -p /dev/fd/3 && echo pipe >&2; cat $t/sig.vcd >&3" - TOP.sim/core/count 0<&- | tail -n 2
+  pipe
+         4         10    4 TOP.sim/core/count 0x4
+  # producer: complete, exited with status 0
+  $ echo caller | coralview signals $args --exec "read line; echo \$line >&2; cat $t/sig.vcd >&3" - TOP.sim/core/count | tail -n 1
+  caller
+  # producer: complete, exited with status 0

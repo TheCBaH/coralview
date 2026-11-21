@@ -28,6 +28,7 @@ val net : Platform.t -> Hwfrp.Trace.t -> string list -> Hwfrp.Net.t
     {!Hwfrp.Bind.Unbound} when the trace lacks the platform's clock. *)
 
 val sampled :
+  ?gate:(Hwfrp.Trace.t -> model:string -> unit) ->
   Platform.t ->
   Hwfrp.Trace.t ->
   string list ->

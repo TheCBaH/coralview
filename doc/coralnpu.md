@@ -878,6 +878,9 @@ text, or JSONL, its own command gives (`KIND` is `text` or `jsonl`,
 1.8 s together, against about 10 s for each alone, as opening the trace
 dominates. The common options (`--manifest`, `--profile`, `--at`,
 `--beats`, the window) apply to every analysis they concern.
+The analyses share one net, so its diagnostics (unknown bits, a signal that
+does not bind) are written once, into the first JSONL sink in model order
+(models are sorted by name); the other JSONL files have none.
 
 Three views come only from `run`:
 
@@ -893,6 +896,17 @@ Three views come only from `run`:
   platform has a `dispatch` block.
 - `--report FILE`: Markdown with the platform, trace and cycles, then each
   analysis' summary and profile, without its rows.
+
+Memory: the text and profile views, `render`, `profile`, the JSONL sinks,
+the report and `--kanata` read the trace in one pass and hold no list of
+its events, so their memory does not grow with the trace. What they keep
+is bounded by what they show: `--limit` rows for `memory` and `axi`, the
+faults of `traps`, the strays of `dma`, and for `--kanata` the lines of
+the instructions in flight. `--perfetto` still keeps the events of the
+models it draws until the run ends; the file is then written event by
+event. `cost`, `loops`, `compare` and `commits --vector` also collect.
+`make long` (the `@long` alias, outside `make ci`) generates a 3,000,000-cycle
+trace and fails if any of the other views passes 256 MB (they take about 70 MB).
 
 ```
 $ coralview run --platform vme-core-mini-axi --model axi --model stalls --perfetto vme.json --report vme.md vme_external_matmul.fst

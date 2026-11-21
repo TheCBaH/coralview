@@ -5,14 +5,25 @@
 type outcome = Complete | Cancelled | Failed
 type format = [ `Text | `Jsonl | `Stderr ]
 type record = { command : string; outcome : outcome; status : int option; signal : string option }
+type running = { cmd : string; pid : int; mutable report : format }
 
-let current : (string * int) option ref = ref None
+let current : running option ref = ref None
 let active () = !current <> None
+let report_to format = Option.iter (fun r -> r.report <- format) !current
+let trace_fd_number = 3
 
-(* The descriptor number the producer writes the trace to. *)
-let trace_fd : Unix.file_descr = Obj.magic 3
+(* [Unix.file_descr] is abstract, and the number is the only way to name descriptor 3. The standard
+   three prove the conversion, so that a platform where it does not hold fails here, not in the
+   producer. *)
+external of_number : int -> Unix.file_descr = "%identity"
+
+let descriptor n =
+  if of_number 0 <> Unix.stdin || of_number 1 <> Unix.stdout || of_number 2 <> Unix.stderr then
+    failwith "Driver: a Unix.file_descr is not a descriptor number on this platform";
+  of_number n
 
 let start command =
+  let trace_fd = descriptor trace_fd_number in
   let read_end, write_end = Unix.pipe ~cloexec:true () in
   flush_all ();
   match Unix.fork () with
@@ -28,7 +39,7 @@ let start command =
         Unix.dup2 read_end Unix.stdin;
         Unix.close read_end
       end;
-      current := Some (command, pid)
+      current := Some { cmd = command; pid; report = `Stderr }
 
 let signal_name n =
   List.assoc_opt n
@@ -92,10 +103,10 @@ let record_jsont =
   |> Codec.opt (fun r -> r.signal) "signal" Jsont.string
   |> Jsont.Object.finish
 
-let finish ~format code =
+let finish code =
   match !current with
   | None -> code
-  | Some (command, pid) ->
+  | Some { cmd = command; pid; report = format } ->
       current := None;
       let complete = at_end () in
       (* The producer sees the closed pipe at its next write. *)

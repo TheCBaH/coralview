@@ -178,38 +178,44 @@ module Accumulator = struct
   let snapshot t = { Summary.writes = t.writes; file = TM.bindings t.file }
 end
 
-let text (ctx : Text.ctx) events (s : Summary.t) =
-  let events =
-    List.filter
-      (fun (Event.Tile_write w) ->
-        Text.selected ctx.window ~cycle:w.cycle ~pc:(Option.value w.pc ~default:(-1)))
-      events
+module Pcs = Map.Make (struct
+  type t = int option
+
+  let compare = Option.compare Int.compare
+end)
+
+let text (ctx : Text.ctx) ppf summary : Event.t Text.sink =
+  let shown = ref 0 and by_pc = ref Pcs.empty in
+  let acc = Accumulator.create () in
+  let selected = Text.selected ctx.window in
+  let add (Event.Tile_write w as e) =
+    if selected ~cycle:w.cycle ~pc:(Option.value w.pc ~default:(-1)) then begin
+      if !shown < ctx.limit then begin
+        incr shown;
+        Format.fprintf ppf "%8d blk%d port%d %s tile %2d sub %2d mask %04x %s\n" w.cycle w.block
+          w.port
+          (match w.pc with Some pc -> Printf.sprintf "pc %08x" pc | None -> "load       ")
+          w.tile w.sub w.mask (Bits.to_hex w.data)
+      end;
+      let c, first, _ = Option.value (Pcs.find_opt w.pc !by_pc) ~default:(0, w.cycle, w.cycle) in
+      by_pc := Pcs.add w.pc (c + 1, first, w.cycle) !by_pc;
+      Accumulator.add acc e
+    end
   in
-  let shown = ref 0 in
-  let by_pc =
-    List.fold_left
-      (fun m (Event.Tile_write w) ->
-        if !shown < ctx.limit then begin
-          incr shown;
-          Printf.printf "%8d blk%d port%d %s tile %2d sub %2d mask %04x %s\n" w.cycle w.block w.port
-            (match w.pc with Some pc -> Printf.sprintf "pc %08x" pc | None -> "load       ")
-            w.tile w.sub w.mask (Bits.to_hex w.data)
-        end;
-        let c, first, _ = Option.value (List.assoc_opt w.pc m) ~default:(0, w.cycle, w.cycle) in
-        (w.pc, (c + 1, first, w.cycle)) :: List.remove_assoc w.pc m)
-      [] events
+  let finish () =
+    let s : Summary.t = summary () in
+    Format.fprintf ppf "root %s: %d sub-tile writes; %d of 256 sub-tiles written\n" ctx.root
+      s.writes (List.length s.file);
+    if Text.windowed ctx.window then begin
+      let w = Accumulator.snapshot acc in
+      Format.fprintf ppf "%s: %d sub-tile writes; %d of 256 sub-tiles written\n"
+        (Text.describe ctx.window) w.writes (List.length w.file)
+    end;
+    Pcs.iter
+      (fun pc (c, first, last) ->
+        Format.fprintf ppf "  %s: %d writes, cycles %d-%d\n"
+          (match pc with Some pc -> Printf.sprintf "pc %08x" pc | None -> "tile loads ")
+          c first last)
+      !by_pc
   in
-  Printf.printf "root %s: %d sub-tile writes; %d of 256 sub-tiles written\n" ctx.root s.writes
-    (List.length s.file);
-  if Text.windowed ctx.window then begin
-    let acc = Accumulator.create () in
-    List.iter (Accumulator.add acc) events;
-    let w = Accumulator.snapshot acc in
-    Printf.printf "%s: %d sub-tile writes; %d of 256 sub-tiles written\n" (Text.describe ctx.window)
-      w.writes (List.length w.file)
-  end;
-  List.sort compare by_pc
-  |> List.iter (fun (pc, (c, first, last)) ->
-      Printf.printf "  %s: %d writes, cycles %d-%d\n"
-        (match pc with Some pc -> Printf.sprintf "pc %08x" pc | None -> "tile loads ")
-        c first last)
+  { add; finish }

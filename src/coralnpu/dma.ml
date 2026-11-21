@@ -469,7 +469,7 @@ let build (cfg : Config.t) (c : _ Core.t) =
   in
   (out, summary)
 
-let text (ctx : Text.ctx) ~beats events (s : Summary.t) =
+let text (ctx : Text.ctx) ~beats ppf summary : Event.t Text.sink =
   let region = Region.suffix ctx.region in
   let at = function Some c -> string_of_int c | None -> "-" in
   let pc = function Some pc -> Printf.sprintf " by pc %08x" pc | None -> "" in
@@ -483,82 +483,93 @@ let text (ctx : Text.ctx) ~beats events (s : Summary.t) =
   in
   let lat (t : Transaction.t) = Transaction.latency t in
   let rate b c = if c <= 0 then 0. else float_of_int b /. float_of_int c in
-  let jobs = List.filter_map (function Event.Job j -> Some j | Stray _ -> None) events in
-  List.iteri
-    (fun i (j : Event.job) ->
-      Printf.printf "job %d: started %d%s, descriptor %08x%s\n" (i + 1) j.span.start (pc j.pc)
-        j.first
-        (if j.aborted then ", ABORTED" else if j.error then ", ERROR" else "");
-      List.iter
-        (fun (x : Descriptor.t) ->
-          Printf.printf
-            "  descriptor %08x fetched %d-%d: %08x%s%s -> %08x%s%s, %d bytes in %d-byte beats%s%s\n"
-            x.at x.fetch.start
-            (Option.value x.fetch.stop ~default:x.fetch.start)
-            x.src.address (region x.src.address)
-            (if x.src_fixed then " fixed" else "")
-            x.dst.address (region x.dst.address)
-            (if x.dst_fixed then " fixed" else "")
-            x.len x.beat
-            (match x.poll with
-            | Some (a, m, v) -> Printf.sprintf ", polls %08x & %08x = %08x" a m v
-            | None -> "")
-            (if x.next <> 0 then Printf.sprintf ", next %08x" x.next else ""))
-        j.descriptors;
-      let reads = List.filter_map (fun (b : Event.beat) -> lat b.read) j.beats
-      and writes = List.filter_map (fun (b : Event.beat) -> Option.bind b.write lat) j.beats in
-      (match j.beats with
-      | [] -> Printf.printf "  no data beats\n"
-      | first :: _ ->
-          let last = List.nth j.beats (List.length j.beats - 1) in
-          let ends = match last.write with Some w -> w.completed | None -> last.read.completed in
-          let data_cycles = Option.map (fun e -> e - first.read.requested + 1) ends in
-          let n = List.length j.beats in
-          Printf.printf
-            "  beats %d, cycles %d-%s%s: latency, request accepted to response, min/mean/max reads \
-             %s, writes %s; %.3f bytes/cycle%s\n"
-            n first.read.requested (at ends)
-            (if n > 1 then
-               Printf.sprintf ", one every %.1f cycles"
-                 (float_of_int (last.read.accepted - first.read.accepted) /. float_of_int (n - 1))
-             else "")
-            (stats reads) (stats writes)
-            (rate (bytes j) (Option.value data_cycles ~default:0))
-            (if j.polls > 0 then Printf.sprintf ", %d polls" j.polls else ""));
-      List.iteri
-        (fun k (b : Event.beat) ->
-          if k < beats then
-            Printf.printf "    %8d read %08x %d bytes, response %s%s\n" b.read.accepted
-              b.read.address b.read.bytes (at b.read.completed)
-              (match b.write with
-              | Some w ->
-                  Printf.sprintf "; write %08x accepted %d, response %s" w.address w.accepted
-                    (at w.completed)
-              | None -> "; no write"))
-        j.beats;
-      (match j.span.stop with
-      | Some f ->
-          Printf.printf "  finished %d: %d bytes, %d cycles from start, %.3f bytes/cycle\n" f
-            (bytes j)
-            (f - j.span.start + 1)
-            (rate (bytes j) (f - j.span.start + 1))
-      | None -> Printf.printf "  not finished when the trace ends: %d bytes moved\n" (bytes j));
-      match j.observed with
-      | Some o ->
-          Printf.printf "  software saw done at %d%s, %d cycles after the start, %d STATUS reads\n"
-            o.cycle (pc o.pc) (o.cycle - j.span.start) j.status_reads
-      | None -> Printf.printf "  software never saw done; %d STATUS reads\n" j.status_reads)
-    jobs;
-  List.iter
-    (function Event.Stray x -> Printf.printf "%8d stray: %s\n" x.cycle x.what | Job _ -> ())
-    events;
-  Printf.printf
-    "root %s: jobs %d, %d bytes in %d cycles, host port at most %d outstanding, %d stray\n" ctx.root
-    s.jobs s.bytes s.cycles s.max_outstanding s.stray
+  let job i (j : Event.job) =
+    Format.fprintf ppf "job %d: started %d%s, descriptor %08x%s\n" (i + 1) j.span.start (pc j.pc)
+      j.first
+      (if j.aborted then ", ABORTED" else if j.error then ", ERROR" else "");
+    List.iter
+      (fun (x : Descriptor.t) ->
+        Format.fprintf ppf
+          "  descriptor %08x fetched %d-%d: %08x%s%s -> %08x%s%s, %d bytes in %d-byte beats%s%s\n"
+          x.at x.fetch.start
+          (Option.value x.fetch.stop ~default:x.fetch.start)
+          x.src.address (region x.src.address)
+          (if x.src_fixed then " fixed" else "")
+          x.dst.address (region x.dst.address)
+          (if x.dst_fixed then " fixed" else "")
+          x.len x.beat
+          (match x.poll with
+          | Some (a, m, v) -> Printf.sprintf ", polls %08x & %08x = %08x" a m v
+          | None -> "")
+          (if x.next <> 0 then Printf.sprintf ", next %08x" x.next else ""))
+      j.descriptors;
+    let reads = List.filter_map (fun (b : Event.beat) -> lat b.read) j.beats
+    and writes = List.filter_map (fun (b : Event.beat) -> Option.bind b.write lat) j.beats in
+    (match j.beats with
+    | [] -> Format.fprintf ppf "  no data beats\n"
+    | first :: _ ->
+        let last = List.nth j.beats (List.length j.beats - 1) in
+        let ends = match last.write with Some w -> w.completed | None -> last.read.completed in
+        let data_cycles = Option.map (fun e -> e - first.read.requested + 1) ends in
+        let n = List.length j.beats in
+        Format.fprintf ppf
+          "  beats %d, cycles %d-%s%s: latency, request accepted to response, min/mean/max reads \
+           %s, writes %s; %.3f bytes/cycle%s\n"
+          n first.read.requested (at ends)
+          (if n > 1 then
+             Printf.sprintf ", one every %.1f cycles"
+               (float_of_int (last.read.accepted - first.read.accepted) /. float_of_int (n - 1))
+           else "")
+          (stats reads) (stats writes)
+          (rate (bytes j) (Option.value data_cycles ~default:0))
+          (if j.polls > 0 then Printf.sprintf ", %d polls" j.polls else ""));
+    List.iteri
+      (fun k (b : Event.beat) ->
+        if k < beats then
+          Format.fprintf ppf "    %8d read %08x %d bytes, response %s%s\n" b.read.accepted
+            b.read.address b.read.bytes (at b.read.completed)
+            (match b.write with
+            | Some w ->
+                Printf.sprintf "; write %08x accepted %d, response %s" w.address w.accepted
+                  (at w.completed)
+            | None -> "; no write"))
+      j.beats;
+    (match j.span.stop with
+    | Some f ->
+        Format.fprintf ppf "  finished %d: %d bytes, %d cycles from start, %.3f bytes/cycle\n" f
+          (bytes j)
+          (f - j.span.start + 1)
+          (rate (bytes j) (f - j.span.start + 1))
+    | None -> Format.fprintf ppf "  not finished when the trace ends: %d bytes moved\n" (bytes j));
+    match j.observed with
+    | Some o ->
+        Format.fprintf ppf
+          "  software saw done at %d%s, %d cycles after the start, %d STATUS reads\n" o.cycle
+          (pc o.pc) (o.cycle - j.span.start) j.status_reads
+    | None -> Format.fprintf ppf "  software never saw done; %d STATUS reads\n" j.status_reads
+  in
+  let n = ref 0 and strays = ref [] in
+  {
+    add =
+      (function
+      | Event.Job j ->
+          job !n j;
+          incr n
+      | Stray x -> strays := x :: !strays);
+    finish =
+      (fun () ->
+        let s : Summary.t = summary () in
+        List.iter
+          (fun (x : Event.stray) -> Format.fprintf ppf "%8d stray: %s\n" x.cycle x.what)
+          (List.rev !strays);
+        Format.fprintf ppf
+          "root %s: jobs %d, %d bytes in %d cycles, host port at most %d outstanding, %d stray\n"
+          ctx.root s.jobs s.bytes s.cycles s.max_outstanding s.stray);
+  }
 
 let perfetto (ctx : Text.ctx) events (s : Summary.t) =
   let last = s.cycles - 1 in
-  let jobs = List.filter_map (function Event.Job j -> Some j | Stray _ -> None) events in
+  let jobs = Seq.filter_map (function Event.Job j -> Some j | Stray _ -> None) events in
   let beat track (t : Transaction.t) =
     {
       Perfetto.track;
@@ -571,20 +582,21 @@ let perfetto (ctx : Text.ctx) events (s : Summary.t) =
   {
     Perfetto.process = "dma " ^ ctx.root;
     slices =
-      List.concat
-        (List.mapi
-           (fun i (j : Event.job) ->
-             {
-               Perfetto.track = "jobs";
-               name = Printf.sprintf "job %d" (i + 1);
-               start = j.span.start;
-               stop = Option.value j.span.stop ~default:last;
-               args =
-                 [
-                   ("bytes", string_of_int (bytes j)); ("descriptor", Printf.sprintf "%08x" j.first);
-                 ];
-             }
-             :: List.map
+      Seq.concat_map
+        (fun (i, (j : Event.job)) ->
+          Seq.cons
+            {
+              Perfetto.track = "jobs";
+              name = Printf.sprintf "job %d" (i + 1);
+              start = j.span.start;
+              stop = Option.value j.span.stop ~default:last;
+              args =
+                [
+                  ("bytes", string_of_int (bytes j)); ("descriptor", Printf.sprintf "%08x" j.first);
+                ];
+            }
+            (Seq.append
+               (Seq.map
                   (fun (x : Descriptor.t) ->
                     {
                       Perfetto.track = "descriptor fetch";
@@ -593,12 +605,12 @@ let perfetto (ctx : Text.ctx) events (s : Summary.t) =
                       stop = Option.value x.fetch.stop ~default:last;
                       args = [ ("len", string_of_int x.len) ];
                     })
-                  j.descriptors
-             @ List.concat_map
-                 (fun (b : Event.beat) ->
-                   beat "host reads" b.read
-                   :: Option.to_list (Option.map (beat "host writes") b.write))
-                 j.beats)
-           jobs);
-    counters = [];
+                  (List.to_seq j.descriptors))
+               (Seq.concat_map
+                  (fun (b : Event.beat) ->
+                    Seq.cons (beat "host reads" b.read)
+                      (Seq.map (beat "host writes") (Option.to_seq b.write)))
+                  (List.to_seq j.beats))))
+        (Seq.mapi (fun i j -> (i, j)) jobs);
+    counters = Seq.empty;
   }

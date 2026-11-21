@@ -87,8 +87,9 @@ end
 val build :
   Config.t -> 'c Core.t -> (Event.t list, 'c) Hwfrp.Ev.t * (Hwfrp.Sched.run_stats -> Summary.t)
 
-val text : Text.ctx -> beats:int -> Event.t list -> Summary.t -> unit
+val text : Text.ctx -> beats:int -> Format.formatter -> (unit -> Summary.t) -> Event.t Text.sink
 (** Each job with its first [beats] beats, then the stray activity and the summary. *)
 
-val perfetto : Text.ctx -> Event.t list -> Summary.t -> Perfetto.process
-(** Tracks of the jobs, descriptor fetches, host reads and host writes. *)
+val perfetto : Text.ctx -> Event.t Seq.t -> Summary.t -> Perfetto.process
+(** Tracks of the jobs, descriptor fetches, host reads and host writes.
+    The events are traversed more than once: give a sequence that can be replayed. *)

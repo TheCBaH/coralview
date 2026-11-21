@@ -12,7 +12,17 @@ let describe w =
     (if w.last = max_int then "end" else string_of_int w.last)
     (if w.pcs = [] then "" else " pc " ^ String.concat "," (List.map (Printf.sprintf "%08x") w.pcs))
 
-let selected w ~cycle ~pc = cycle >= w.first && cycle <= w.last && (w.pcs = [] || List.mem pc w.pcs)
+let pc_selected w =
+  match w.pcs with
+  | [] -> fun _ -> true
+  | pcs ->
+      let set = Hashtbl.create (List.length pcs) in
+      List.iter (fun pc -> Hashtbl.replace set pc ()) pcs;
+      Hashtbl.mem set
+
+let selected w =
+  let pc_ok = pc_selected w in
+  fun ~cycle ~pc -> cycle >= w.first && cycle <= w.last && pc_ok pc
 
 type profile_by = Pc | Class | Function
 
@@ -29,6 +39,12 @@ type ctx = {
   legend : bool;
   note : pc:int -> cycle:int -> string option;  (** Explain the columns of a row listing. *)
 }
+
+type 'e sink = { add : 'e -> unit; finish : unit -> unit }
+
+let drain sink events =
+  Seq.iter sink.add events;
+  sink.finish ()
 
 let stats (s : Hwfrp.Reduce.Stats.t) =
   if s.n = 0 then "-" else Printf.sprintf "%d/%.1f/%d" s.min (Hwfrp.Reduce.Stats.mean s) s.max

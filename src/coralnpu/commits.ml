@@ -323,58 +323,71 @@ let events c =
   let out, summary = shared c in
   (Ev.filter (( <> ) []) (Ev.map commits out), summary)
 
-let in_window (ctx : Text.ctx) =
-  List.filter (fun (c : commit) -> Text.selected ctx.window ~cycle:c.retired ~pc:c.pc)
+let selected (ctx : Text.ctx) =
+  let selected = Text.selected ctx.window in
+  fun (c : commit) -> selected ~cycle:c.retired ~pc:c.pc
 
-let grouped_profile (ctx : Text.ctx) ~title ~key commits total_cycles =
-  Printf.printf "%-24s %6s %7s %6s %8s\n" title "count" "cycles" "share" "d->r";
-  Profile.by
-    ~key:(fun c -> Some (key c))
-    ~weight:(fun (c : commit) -> c.charged)
-    ~total:(fun (c : commit) -> match c.dispatched with Some x -> c.retired - x | None -> 0)
-    (List.to_seq commits)
-  |> List.iteri (fun i (r : string Profile.row) ->
+let print_grouped ppf (ctx : Text.ctx) ~title rows total_cycles =
+  Format.fprintf ppf "%-24s %6s %7s %6s %8s\n" title "count" "cycles" "share" "d->r";
+  List.iteri
+    (fun i (r : string Profile.row) ->
       if i < ctx.profile then
-        Printf.printf "%-24s %6d %7d %5.1f%% %8.2f\n" r.key r.count r.weight
+        Format.fprintf ppf "%-24s %6d %7d %5.1f%% %8.2f\n" r.key r.count r.weight
           (100. *. float r.weight /. float (max 1 total_cycles))
           (float r.total /. float r.count))
+    rows
 
-let profile (ctx : Text.ctx) events (s : Summary.t) =
+(* What [profile] needs of each commit the window selects, and how it prints once the summary is
+   known. *)
+let profile_state (ctx : Text.ctx) =
   let disasm w = match w with Some w -> ctx.disasm w | None -> "?" in
-  let commits = in_window ctx (commits events) in
-  let total_cycles =
-    if Text.windowed ctx.window then List.fold_left (fun n (c : commit) -> n + c.charged) 0 commits
-    else s.cycles
+  let charged = ref 0 in
+  let weight (c : commit) = c.charged
+  and total (c : commit) = match c.dispatched with Some x -> c.retired - x | None -> 0 in
+  let total_cycles (s : Summary.t) = if Text.windowed ctx.window then !charged else s.cycles in
+  let grouped ~title ~key =
+    let acc = Profile.Acc.create ~key:(fun c -> Some (key c)) ~weight ~total () in
+    ( (fun (c : commit) ->
+        charged := !charged + c.charged;
+        Profile.Acc.add acc c),
+      fun ppf s -> print_grouped ppf ctx ~title (Profile.Acc.rows acc) (total_cycles s) )
   in
   match ctx.profile_by with
   | Class ->
-      grouped_profile ctx ~title:"class"
-        ~key:(fun (c : commit) ->
+      grouped ~title:"class" ~key:(fun (c : commit) ->
           match c.word with Some w -> ctx.instruction_class w | None -> "unknown")
-        commits total_cycles
   | Function ->
-      grouped_profile ctx ~title:"function"
-        ~key:(fun (c : commit) -> match ctx.symbol c.pc with Some (name, _) -> name | None -> "?")
-        commits total_cycles
+      grouped ~title:"function" ~key:(fun (c : commit) ->
+          match ctx.symbol c.pc with Some (name, _) -> name | None -> "?")
   | Pc ->
       (* The word of a PC is its first retirement's. *)
-      let words =
-        List.fold_left
-          (fun m (c : commit) -> if IM.mem c.pc m then m else IM.add c.pc c.word m)
-          IM.empty commits
+      let words = ref IM.empty in
+      let acc =
+        Profile.Acc.create ~buckets:256 ~key:(fun (c : commit) -> Some c.pc) ~weight ~total ()
       in
-      Printf.printf "%8s %6s %7s %6s %8s  %s\n" "pc" "count" "cycles" "share" "d->r" "instruction";
-      Profile.by_pc ~buckets:256
-        ~pc:(fun (c : commit) -> Some c.pc)
-        ~weight:(fun (c : commit) -> c.charged)
-        ~total:(fun (c : commit) -> match c.dispatched with Some x -> c.retired - x | None -> 0)
-        (List.to_seq commits)
-      |> List.iteri (fun i (r : int Profile.row) ->
-          if i < ctx.profile then
-            Printf.printf "%08x %6d %7d %5.1f%% %8.2f  %s\n" r.key r.count r.weight
-              (100. *. float r.weight /. float (max 1 total_cycles))
-              (float r.total /. float r.count)
-              (disasm (IM.find r.key words)))
+      ( (fun (c : commit) ->
+          charged := !charged + c.charged;
+          if not (IM.mem c.pc !words) then words := IM.add c.pc c.word !words;
+          Profile.Acc.add acc c),
+        fun ppf s ->
+          Format.fprintf ppf "%8s %6s %7s %6s %8s  %s\n" "pc" "count" "cycles" "share" "d->r"
+            "instruction";
+          List.iteri
+            (fun i (r : int Profile.row) ->
+              if i < ctx.profile then
+                Format.fprintf ppf "%08x %6d %7d %5.1f%% %8.2f  %s\n" r.key r.count r.weight
+                  (100. *. float r.weight /. float (max 1 (total_cycles s)))
+                  (float r.total /. float r.count)
+                  (disasm (IM.find r.key !words)))
+            (Profile.Acc.rows acc) )
+
+let profile (ctx : Text.ctx) ppf summary : Event.t Text.sink =
+  let add, print = profile_state ctx in
+  let selected = selected ctx in
+  {
+    add = (function Event.Commit c when selected c -> add c | _ -> ());
+    finish = (fun () -> print ppf (summary ()));
+  }
 
 let legend =
   [
@@ -390,51 +403,62 @@ let legend =
      the idle cycles they sum to the run's cycles";
   ]
 
-let text (ctx : Text.ctx) events (s : Summary.t) =
+let text (ctx : Text.ctx) ppf summary : Event.t Text.sink =
   let shown = ref 0 in
-  if ctx.legend then List.iter (fun l -> Printf.printf "  %s\n" l) legend;
-  Printf.printf "%8s %s %-8s %-8s %-32s %-16s %3s %3s %3s\n" "cycle" "L" "pc" "word" "instruction"
-    "dest" "d>r" "d>w" "chg";
+  if ctx.legend then List.iter (fun l -> Format.fprintf ppf "  %s\n" l) legend;
+  Format.fprintf ppf "%8s %s %-8s %-8s %-32s %-16s %3s %3s %3s\n" "cycle" "L" "pc" "word"
+    "instruction" "dest" "d>r" "d>w" "chg";
   let disasm w = match w with Some w -> ctx.disasm w | None -> "?" in
   let delta a b = match (a, b) with Some a, Some b -> string_of_int (b - a) | _ -> "-" in
-  let commits = commits events in
-  List.iter
-    (fun (c : commit) ->
-      if Text.selected ctx.window ~cycle:c.retired ~pc:c.pc && !shown < ctx.limit then begin
-        incr shown;
-        Printf.printf "%8d %d %08x%s %s %-32s %-16s %3s %3s %3d%s\n" c.retired c.lane c.pc
-          (match ctx.symbol c.pc with
-          | Some (name, 0) -> Printf.sprintf " <%s>" name
-          | Some (name, off) -> Printf.sprintf " <%s+%d>" name off
-          | None -> "")
-          (match c.word with Some w -> Printf.sprintf "%08x" w | None -> "????????")
-          (disasm c.word)
-          (match c.dest with
-          | Some (r, Some v) -> Printf.sprintf "%s=%08x" (Core.reg_name r) v
-          | Some (r, None) -> Core.reg_name r ^ "=?"
-          | None -> if c.store then "store" else "")
-          (delta c.dispatched (Some c.retired))
-          (delta c.dispatched c.written) c.charged
-          ((if c.trap then "  TRAP" else "")
-          ^ match ctx.note ~pc:c.pc ~cycle:c.retired with Some n -> "  # " ^ n | None -> "")
-      end)
-    commits;
-  Printf.printf
-    "root %s: %d cycles, %d before the first dispatch, %d later with nothing in flight; %d retires \
-     without dispatch, %d dispatches skipped with %d cycles charged, %d values missing, %d in \
-     flight at the end\n"
-    ctx.root s.cycles s.before s.empty s.unmatched_retires s.skipped s.discarded s.missing_values
-    s.in_flight;
-  if Text.windowed ctx.window then begin
-    let w = in_window ctx commits in
-    Printf.printf "%s: %d commits, %d cycles charged\n" (Text.describe ctx.window) (List.length w)
-      (List.fold_left (fun n (c : commit) -> n + c.charged) 0 w)
-  end;
-  if s.pending <> [] then begin
-    Printf.printf "in flight at the end, oldest first:\n";
-    List.iter
-      (fun (pc, word, cycle) ->
-        Printf.printf "  dispatched %8d pc %08x %08x %s\n" cycle pc word (disasm (Some word)))
-      s.pending
-  end;
-  if ctx.profile > 0 then profile ctx events s
+  let in_window = ref 0 and charged = ref 0 in
+  let selected = selected ctx in
+  let padd, pprint = if ctx.profile > 0 then profile_state ctx else (ignore, fun _ _ -> ()) in
+  let row (c : commit) =
+    incr shown;
+    Format.fprintf ppf "%8d %d %08x%s %s %-32s %-16s %3s %3s %3d%s\n" c.retired c.lane c.pc
+      (match ctx.symbol c.pc with
+      | Some (name, 0) -> Printf.sprintf " <%s>" name
+      | Some (name, off) -> Printf.sprintf " <%s+%d>" name off
+      | None -> "")
+      (match c.word with Some w -> Printf.sprintf "%08x" w | None -> "????????")
+      (disasm c.word)
+      (match c.dest with
+      | Some (r, Some v) -> Printf.sprintf "%s=%08x" (Core.reg_name r) v
+      | Some (r, None) -> Core.reg_name r ^ "=?"
+      | None -> if c.store then "store" else "")
+      (delta c.dispatched (Some c.retired))
+      (delta c.dispatched c.written) c.charged
+      ((if c.trap then "  TRAP" else "")
+      ^ match ctx.note ~pc:c.pc ~cycle:c.retired with Some n -> "  # " ^ n | None -> "")
+  in
+  {
+    add =
+      (function
+      | Event.Commit c when selected c ->
+          if !shown < ctx.limit then row c;
+          incr in_window;
+          charged := !charged + c.charged;
+          padd c
+      | _ -> ());
+    finish =
+      (fun () ->
+        let s : Summary.t = summary () in
+        Format.fprintf ppf
+          "root %s: %d cycles, %d before the first dispatch, %d later with nothing in flight; %d \
+           retires without dispatch, %d dispatches skipped with %d cycles charged, %d values \
+           missing, %d in flight at the end\n"
+          ctx.root s.cycles s.before s.empty s.unmatched_retires s.skipped s.discarded
+          s.missing_values s.in_flight;
+        if Text.windowed ctx.window then
+          Format.fprintf ppf "%s: %d commits, %d cycles charged\n" (Text.describe ctx.window)
+            !in_window !charged;
+        if s.pending <> [] then begin
+          Format.fprintf ppf "in flight at the end, oldest first:\n";
+          List.iter
+            (fun (pc, word, cycle) ->
+              Format.fprintf ppf "  dispatched %8d pc %08x %08x %s\n" cycle pc word
+                (disasm (Some word)))
+            s.pending
+        end;
+        if ctx.profile > 0 then pprint ppf s);
+  }

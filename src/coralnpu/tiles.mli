@@ -52,7 +52,7 @@ val build :
   Config.t -> 'c Core.t -> (Event.t list, 'c) Hwfrp.Ev.t * (Hwfrp.Sched.run_stats -> Summary.t)
 (** Raises {!Hwfrp.Bind.Unbound} and {!Core.No_block}. *)
 
-val text : Text.ctx -> Event.t list -> Summary.t -> unit
+val text : Text.ctx -> Format.formatter -> (unit -> Summary.t) -> Event.t Text.sink
 (** The first writes, up to the context's limit, the summary and the writes by PC. *)
 
 (** The totals of the events: the {!Summary}, in full. A sub-tile never written starts as zeros, as in the

@@ -444,106 +444,119 @@ let build (cfg : Config.t) (c : _ Core.t) =
 
 let rate n d = if d = 0 then 0. else float_of_int n /. float_of_int d
 
-let profile (ctx : Text.ctx) events (_ : Summary.t) =
-  let ops =
-    List.filter_map
-      (function
-        | Event.Op o
-          when Text.selected ctx.window ~cycle:o.cycle ~pc:(Option.value o.pc ~default:(-1)) ->
-            Some o
-        | _ -> None)
-      events
-  in
-  Printf.printf "operations by instruction:\n%8s %6s %10s %10s  %s\n" "pc" "count" "ops" "elements"
-    "instruction";
-  let names =
-    List.fold_left
-      (fun m (o : op) ->
-        match o.pc with
-        | Some pc -> IM.add pc (Option.value o.mnemonic ~default:("? " ^ o.unit)) m
-        | None -> m)
-      IM.empty ops
-  in
-  Profile.by_pc
-    ~pc:(fun (o : op) -> o.pc)
-    ~weight:(fun (o : op) -> o.ops)
-    ~total:(fun (o : op) -> o.elements)
-    (List.to_seq ops)
-  |> List.iteri (fun i (r : int Profile.row) ->
-      if i < ctx.profile then
-        Printf.printf "%08x %6d %10d %10d  %s\n" r.key r.count r.weight r.total
-          (Option.value (IM.find_opt r.key names) ~default:"?"))
+let op_selected (ctx : Text.ctx) =
+  let selected = Text.selected ctx.window in
+  fun (o : op) -> selected ~cycle:o.cycle ~pc:(Option.value o.pc ~default:(-1))
 
-let text (ctx : Text.ctx) events (s : Summary.t) =
-  Printf.printf "root %s: %d cycles, %d vector instructions dispatched (%d not decoded)\n" ctx.root
-    s.cycles s.instructions s.undecoded;
-  Printf.printf "  %-6s %12s %12s %12s\n" "unit" "instructions" "elements" "ops";
-  List.iter
-    (fun u ->
-      Printf.printf "  %-6s %12d %12d %12d\n" u.u_unit u.u_instructions u.u_elements u.u_ops)
-    s.units;
-  Printf.printf "%d ops (%d floating point) in %d bursts over %d cycles (%.1f%% of the trace)\n"
-    s.ops s.flops s.bursts s.busy
-    (100. *. rate s.busy s.cycles);
-  Printf.printf "ops/cycle: %.3f over the trace, %.3f in bursts" (rate s.ops s.cycles)
-    (rate s.ops s.busy);
-  (match s.peak with
-  | Some p ->
-      Printf.printf ", peak %.3f over %d cycles to cycle %d\n" (rate p.p_ops p.p_window) p.p_window
-        p.p_last
-  | None -> print_newline ());
-  if Text.windowed ctx.window then begin
-    let ops =
-      List.filter_map
-        (function
-          | Event.Op o
-            when Text.selected ctx.window ~cycle:o.cycle ~pc:(Option.value o.pc ~default:(-1)) ->
-              Some o
-          | _ -> None)
-        events
-    in
-    let sum f = List.fold_left (fun n (o : op) -> n + f o) 0 ops in
-    Printf.printf "%s: %d vector instructions, %d elements, %d ops (%d floating point)\n"
-      (Text.describe ctx.window) (List.length ops)
-      (sum (fun o -> o.elements))
-      (sum (fun o -> o.ops))
-      (sum (fun o -> if o.float then o.ops else 0));
+(* The instruction names, and the operations by instruction, of the ops the window selects. *)
+let profile_state (ctx : Text.ctx) =
+  let names = ref IM.empty in
+  let acc =
+    Profile.Acc.create
+      ~key:(fun (o : op) -> o.pc)
+      ~weight:(fun (o : op) -> o.ops)
+      ~total:(fun (o : op) -> o.elements)
+      ()
+  in
+  let add (o : op) =
+    (match o.pc with
+    | Some pc -> names := IM.add pc (Option.value o.mnemonic ~default:("? " ^ o.unit)) !names
+    | None -> ());
+    Profile.Acc.add acc o
+  in
+  let print ppf =
+    Format.fprintf ppf "operations by instruction:\n%8s %6s %10s %10s  %s\n" "pc" "count" "ops"
+      "elements" "instruction";
+    List.iteri
+      (fun i (r : int Profile.row) ->
+        if i < ctx.profile then
+          Format.fprintf ppf "%08x %6d %10d %10d  %s\n" r.key r.count r.weight r.total
+            (Option.value (IM.find_opt r.key !names) ~default:"?"))
+      (Profile.Acc.rows acc)
+  in
+  (add, print)
+
+let profile (ctx : Text.ctx) ppf _ : Event.t Text.sink =
+  let add, print = profile_state ctx in
+  let op_selected = op_selected ctx in
+  {
+    add = (function Event.Op o when op_selected o -> add o | _ -> ());
+    finish = (fun () -> print ppf);
+  }
+
+let text (ctx : Text.ctx) ppf summary : Event.t Text.sink =
+  let windowed = Text.windowed ctx.window in
+  let op_selected = op_selected ctx in
+  let padd, pprint = if ctx.profile > 0 then profile_state ctx else (ignore, fun _ -> ()) in
+  let n = ref 0 and elements = ref 0 and ops = ref 0 and flops = ref 0 and units = ref SM.empty in
+  let bursts = ref [] and shown = ref 0 and any = ref false in
+  let add = function
+    | Event.Op o when op_selected o ->
+        incr n;
+        elements := !elements + o.elements;
+        ops := !ops + o.ops;
+        if o.float then flops := !flops + o.ops;
+        let c, e, p = Option.value (SM.find_opt o.unit !units) ~default:(0, 0, 0) in
+        units := SM.add o.unit (c + 1, e + o.elements, p + o.ops) !units;
+        padd o
+    | Burst b when b.last >= ctx.window.first && b.first <= ctx.window.last ->
+        any := true;
+        if !shown < ctx.limit then begin
+          incr shown;
+          bursts := b :: !bursts
+        end
+    | _ -> ()
+  in
+  let finish () =
+    let s : Summary.t = summary () in
+    Format.fprintf ppf "root %s: %d cycles, %d vector instructions dispatched (%d not decoded)\n"
+      ctx.root s.cycles s.instructions s.undecoded;
+    Format.fprintf ppf "  %-6s %12s %12s %12s\n" "unit" "instructions" "elements" "ops";
     List.iter
       (fun u ->
-        match List.filter (fun (o : op) -> o.unit = u.u_unit) ops with
-        | [] -> ()
-        | l ->
-            Printf.printf "  %-6s %12d %12d %12d\n" u.u_unit (List.length l)
-              (List.fold_left (fun n (o : op) -> n + o.elements) 0 l)
-              (List.fold_left (fun n (o : op) -> n + o.ops) 0 l))
-      s.units
-  end;
-  let bursts =
-    List.filter_map
-      (function
-        | Event.Burst b when b.last >= ctx.window.first && b.first <= ctx.window.last -> Some b
-        | _ -> None)
-      events
-  in
-  if bursts <> [] then begin
-    Printf.printf "bursts:\n  %10s %10s %8s %8s %10s %9s\n" "first" "last" "cycles" "instrs" "ops"
-      "ops/cycle";
-    List.iteri
-      (fun i b ->
-        if i < ctx.limit then
-          Printf.printf "  %10d %10d %8d %8d %10d %9.3f\n" b.first b.last (length b) b.instructions
-            b.ops
+        Format.fprintf ppf "  %-6s %12d %12d %12d\n" u.u_unit u.u_instructions u.u_elements u.u_ops)
+      s.units;
+    Format.fprintf ppf
+      "%d ops (%d floating point) in %d bursts over %d cycles (%.1f%% of the trace)\n" s.ops s.flops
+      s.bursts s.busy
+      (100. *. rate s.busy s.cycles);
+    Format.fprintf ppf "ops/cycle: %.3f over the trace, %.3f in bursts" (rate s.ops s.cycles)
+      (rate s.ops s.busy);
+    (match s.peak with
+    | Some p ->
+        Format.fprintf ppf ", peak %.3f over %d cycles to cycle %d\n" (rate p.p_ops p.p_window)
+          p.p_window p.p_last
+    | None -> Format.fprintf ppf "\n");
+    if windowed then begin
+      Format.fprintf ppf "%s: %d vector instructions, %d elements, %d ops (%d floating point)\n"
+        (Text.describe ctx.window) !n !elements !ops !flops;
+      List.iter
+        (fun u ->
+          match SM.find_opt u.u_unit !units with
+          | None -> ()
+          | Some (c, e, p) -> Format.fprintf ppf "  %-6s %12d %12d %12d\n" u.u_unit c e p)
+        s.units
+    end;
+    if !any then begin
+      Format.fprintf ppf "bursts:\n  %10s %10s %8s %8s %10s %9s\n" "first" "last" "cycles" "instrs"
+        "ops" "ops/cycle";
+      List.iter
+        (fun b ->
+          Format.fprintf ppf "  %10d %10d %8d %8d %10d %9.3f\n" b.first b.last (length b)
+            b.instructions b.ops
             (rate b.ops (length b)))
-      bursts
-  end;
-  if ctx.profile > 0 then profile ctx events s
+        (List.rev !bursts)
+    end;
+    if ctx.profile > 0 then pprint ppf
+  in
+  { add; finish }
 
 let perfetto (ctx : Text.ctx) events (s : Summary.t) =
   let window = match s.peak with Some p -> p.p_window | None -> Config.default.peak_window in
-  let ops = List.filter_map (function Event.Op o -> Some o | Burst _ -> None) events in
-  let bursts = List.filter_map (function Event.Burst b -> Some b | Op _ -> None) events in
+  let ops = Seq.filter_map (function Event.Op o -> Some o | Burst _ -> None) events in
+  let bursts = Seq.filter_map (function Event.Burst b -> Some b | Op _ -> None) events in
   let per_window =
-    List.fold_left
+    Seq.fold_left
       (fun m (o : op) ->
         if o.ops = 0 then m
         else
@@ -571,32 +584,33 @@ let perfetto (ctx : Text.ctx) events (s : Summary.t) =
   {
     Perfetto.process = "ops " ^ ctx.root;
     slices =
-      List.map
-        (fun (b : burst) ->
-          {
-            Perfetto.track = "bursts";
-            name = Printf.sprintf "%d ops" b.ops;
-            start = b.first;
-            stop = b.last;
-            args =
-              [
-                ("instructions", string_of_int b.instructions);
-                ("flops", string_of_int b.flops);
-                ("ops/cycle", Printf.sprintf "%.3f" (rate b.ops (length b)));
-              ];
-          })
-        bursts
-      @ List.map
-          (fun (o : op) ->
-            {
-              Perfetto.track = o.unit;
-              name = Option.value o.mnemonic ~default:"?";
-              start = o.cycle;
-              stop = o.cycle;
-              args =
-                ([ ("vl", string_of_int o.vl); ("ops", string_of_int o.ops) ]
-                @ match o.pc with Some pc -> [ ("pc", Printf.sprintf "%08x" pc) ] | None -> []);
-            })
-          ops;
-    counters;
+      Seq.append
+        (Seq.map
+           (fun (b : burst) ->
+             {
+               Perfetto.track = "bursts";
+               name = Printf.sprintf "%d ops" b.ops;
+               start = b.first;
+               stop = b.last;
+               args =
+                 [
+                   ("instructions", string_of_int b.instructions);
+                   ("flops", string_of_int b.flops);
+                   ("ops/cycle", Printf.sprintf "%.3f" (rate b.ops (length b)));
+                 ];
+             })
+           bursts)
+        (Seq.map
+           (fun (o : op) ->
+             {
+               Perfetto.track = o.unit;
+               name = Option.value o.mnemonic ~default:"?";
+               start = o.cycle;
+               stop = o.cycle;
+               args =
+                 ([ ("vl", string_of_int o.vl); ("ops", string_of_int o.ops) ]
+                 @ match o.pc with Some pc -> [ ("pc", Printf.sprintf "%08x" pc) ] | None -> []);
+             })
+           ops);
+    counters = List.to_seq counters;
   }

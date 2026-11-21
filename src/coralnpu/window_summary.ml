@@ -18,7 +18,7 @@ type t = {
 }
 
 let make ~(window : Text.window) ~end_cycle ~commits ~accesses ~ops ~stalls =
-  let selected ~cycle ~pc = Text.selected window ~cycle ~pc in
+  let selected = Text.selected window in
   let commits =
     List.filter (fun (c : Commits.commit) -> selected ~cycle:c.retired ~pc:c.pc) commits
   in
@@ -158,7 +158,7 @@ let text (s : t) =
         h.cycles_per_trip
   | None -> ()
 
-let analyze (p : Platform.t) ~window ?(region = Region.none) trace =
+let analyze ?gate (p : Platform.t) ~window ?(region = Region.none) trace =
   let (Core.Any c) = Core.bind p trace ~model:"summary" in
   let has needs = List.for_all (fun b -> List.mem b (Platform.blocks p)) needs in
   let commits = ref [] in
@@ -204,7 +204,7 @@ let analyze (p : Platform.t) ~window ?(region = Region.none) trace =
       Some l
     else None
   in
-  let stats = Core.run c in
+  let stats = Core.run ?gate c in
   let cycles = (commit_summary stats).cycles in
   let rev o = Option.map (fun l -> List.rev !l) o in
   let commits = List.rev !commits in
@@ -212,4 +212,4 @@ let analyze (p : Platform.t) ~window ?(region = Region.none) trace =
       ~stalls:(rev stalls),
     commits )
 
-let of_trace p ~window ?region trace = fst (analyze p ~window ?region trace)
+let of_trace ?gate p ~window ?region trace = fst (analyze ?gate p ~window ?region trace)

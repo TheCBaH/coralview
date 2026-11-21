@@ -98,7 +98,7 @@ let net (p : Platform.t) tr paths =
   ignore (bind_paths c tr paths);
   c.net
 
-let sampled (p : Platform.t) tr paths ~from ~until ~changes f =
+let sampled ?gate (p : Platform.t) tr paths ~from ~until ~changes f =
   require tr paths;
   let (Core.Any c) = Core.bind p tr ~model in
   let values = bind_paths c tr paths in
@@ -122,7 +122,7 @@ let sampled (p : Platform.t) tr paths ~from ~until ~changes f =
           (List.combine paths vs)
       end;
       previous := vs);
-  (try ignore (Core.run c : Sched.run_stats) with Stop -> ());
+  (try ignore (Core.run ?gate c : Sched.run_stats) with Stop -> ());
   Seq.iter
     (fun (d : Diag.t) ->
       if d.code = "signal.undecodable" then

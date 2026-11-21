@@ -54,14 +54,30 @@ let type_of =
   |> Jsont.Object.mem "type" Jsont.string ~enc:Fun.id
   |> Jsont.Object.skip_unknown |> Jsont.Object.finish
 
+(* An event line is decoded once, as an event. Only a line that is not one is looked at again, for
+   its [type]: the header, a diagnostic, the summary. *)
+let classify (type e) (module O : Output.OUTPUT with type Event.t = e) text ~special =
+  match Output.decode_event (module O) text with
+  | Ok e -> `Event e
+  | Error event_error -> (
+      match Codec.of_line type_of text with
+      | Error e -> `Error e
+      | Ok ty -> ( match special ty text with Some r -> r | None -> `Error event_error))
+
 let line (type e s) ((module A) : (e, s) Analysis.t) text =
-  let ( let* ) = Result.bind in
-  let* ty = Codec.of_line type_of text in
-  if ty = "coralview" then Result.map (fun h -> Header h) (Codec.of_line header_jsont text)
-  else if ty = "diag" then Result.map (fun d -> Diag d) (Codec.of_line Codec.diag text)
-  else if ty = A.name ^ ".summary" then
-    Result.map (fun s -> Summary s) (Codec.of_line A.Summary.jsont text)
-  else Result.map (fun e -> Event e) (Codec.of_line A.Event.jsont text)
+  let special ty text =
+    let decode t f =
+      Some (match Codec.of_line t text with Ok v -> `Other (f v) | Error e -> `Error e)
+    in
+    if ty = "coralview" then decode header_jsont (fun h -> Header h)
+    else if ty = "diag" then decode Codec.diag (fun d -> Diag d)
+    else if ty = A.name ^ ".summary" then decode A.Summary.jsont (fun s -> Summary s)
+    else None
+  in
+  match classify (module A) text ~special with
+  | `Event e -> Ok (Event e)
+  | `Other l -> Ok l
+  | `Error e -> Error e
 
 let read a ic = Seq.of_dispenser (fun () -> Option.map (line a) (In_channel.input_line ic))
 
@@ -81,27 +97,23 @@ let reader (type e) (module O : Output.OUTPUT with type Event.t = e) lines =
     errors := e :: !errors;
     Some (Error e)
   in
+  let special ty text =
+    let decode t f =
+      Some (match Codec.of_line t text with Ok v -> `Other (f v) | Error e -> `Error e)
+    in
+    if ty = "coralview" then decode header_jsont (fun h -> if !header = None then header := Some h)
+    else if ty = "diag" then decode Codec.diag (fun d -> diags := d :: !diags)
+    else if ty = summary then Some (`Other ())
+    else None
+  in
   let rec next () =
     match next_line () with
     | None -> None
     | Some text -> (
-        match Codec.of_line type_of text with
-        | Error e -> fail e
-        | Ok "coralview" -> (
-            match Codec.of_line header_jsont text with
-            | Error e -> fail e
-            | Ok h ->
-                if !header = None then header := Some h;
-                next ())
-        | Ok "diag" -> (
-            match Codec.of_line Codec.diag text with
-            | Error e -> fail e
-            | Ok d ->
-                diags := d :: !diags;
-                next ())
-        | Ok ty when ty = summary -> next ()
-        | Ok _ -> (
-            match Output.decode_event (module O) text with Ok e -> Some (Ok e) | Error e -> fail e))
+        match classify (module O) text ~special with
+        | `Event e -> Some (Ok e)
+        | `Other () -> next ()
+        | `Error e -> fail e)
   in
   let finished = ref false in
   let events = Seq.of_dispenser (fun () -> if !finished then None else next ()) in

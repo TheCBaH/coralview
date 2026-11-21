@@ -1,0 +1,8 @@
+; Not part of @runtest: dune build @long (make long). A multi-million-cycle trace from the RVV core
+; simulator, read by the text, profile, JSONL and run views with their peak memory measured.
+
+(rule
+ (alias long)
+ (deps (universe) %{bin:coralview} ../../tools/mkelf.exe rss.py long.sh)
+ (action
+  (run bash long.sh %{bin:coralview} ../../tools/mkelf.exe rss.py)))

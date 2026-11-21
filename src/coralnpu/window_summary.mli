@@ -38,12 +38,23 @@ val make :
     stall span counts the cycles it has inside the window. [end_cycle] closes a span still open at the
     end of the run. *)
 
-val of_trace : Platform.t -> window:Text.window -> ?region:Region.t -> Hwfrp.Trace.t -> t
+val of_trace :
+  ?gate:(Hwfrp.Trace.t -> model:string -> unit) ->
+  Platform.t ->
+  window:Text.window ->
+  ?region:Region.t ->
+  Hwfrp.Trace.t ->
+  t
 (** One pass over the trace, whatever its source: a file, a pipe or {!Hwfrp.In_memory} events. The models are
     those whose blocks the platform describes; [commits] is required. Raises as {!Analysis.S.build}. *)
 
 val analyze :
-  Platform.t -> window:Text.window -> ?region:Region.t -> Hwfrp.Trace.t -> t * Commits.commit list
+  ?gate:(Hwfrp.Trace.t -> model:string -> unit) ->
+  Platform.t ->
+  window:Text.window ->
+  ?region:Region.t ->
+  Hwfrp.Trace.t ->
+  t * Commits.commit list
 (** {!of_trace} and the trace's whole list of retired instructions. *)
 
 val jsont : t Jsont.t

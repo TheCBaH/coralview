@@ -15,8 +15,12 @@ val windowed : window -> bool
 val describe : window -> string
 (** ["window [first, last] pc …"], for the totals of a window; [last] is ["end"] when unbounded. *)
 
+val pc_selected : window -> int -> bool
+(** One of [pcs], unless empty. The set of [pcs] is built when the window is applied: apply it once, and
+    call the result for each row. *)
+
 val selected : window -> cycle:int -> pc:int -> bool
-(** In the cycle range, and of one of [pcs] unless empty. *)
+(** In the cycle range, and {!pc_selected}; apply it once as {!pc_selected}. *)
 
 type profile_by = Pc | Class | Function
 
@@ -38,6 +42,14 @@ type ctx = {
       (** A note to append to the row of the instruction at [pc] retired in [cycle], like the vector
           configuration of [commits --vector]. *)
 }
+
+type 'e sink = { add : 'e -> unit; finish : unit -> unit }
+(** What a text view does with the events of an analysis: [add] sees each in stream order, [finish]
+    follows the last and prints what needs the summary. A view prints to the formatter it was made
+    with, never to the standard output, and does not flush it. A sink is single-use. *)
+
+val drain : 'e sink -> 'e Seq.t -> unit
+(** Adds the events as they are pulled, then finishes. *)
 
 val stats : Hwfrp.Reduce.Stats.t -> string
 (** ["min/mean/max"], the mean with one decimal; ["-"] when empty. *)
