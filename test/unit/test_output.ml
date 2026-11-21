@@ -197,3 +197,28 @@ let%expect_test "from a channel" =
   [%expect {|
     event 5
     header pt; diags ; errors 0 |}]
+
+let%expect_test "a header or diagnostic that does not decode is that line's error" =
+  let r =
+    Jsonl.reader pt
+      (List.to_seq
+         [
+           {|{"type":"coralview","schema_version":"3"}|};
+           {|{"type":"diag","severity":"loud"}|};
+           {|{"type":"pt.p","x":true}|};
+           {|{"type":"pt.p","x":3}|};
+         ])
+  in
+  Seq.iter
+    (function
+      | Error m -> print_endline ("error " ^ List.hd (String.split_on_char (Char.chr 10) m))
+      | ok -> report ok)
+    r.events;
+  dump r;
+  [%expect
+    {|
+    error Missing members in coralview object:
+    error Unexpected severity enum string value: loud. Must be error, warning or info.
+    error Expected OCaml int but found bool
+    event 3
+    header -; diags ; errors 3 |}]
