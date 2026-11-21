@@ -99,6 +99,16 @@ a sample taken while it is asserted, or not yet known to be released, is *in res
 Models that read their own wires (`stalls`, `axi`, `memory`, ...) see the window as it is, apart from
 the unknown bits; `Hwfrp.Sig.in_reset` gives it to a model that wants to handle it.
 
+A description can extend another with `"extends": "core-mini"` (a built-in one, by its name: no `/`,
+not ending in `.json`) or `"extends": "base.json"` (a file, relative to the one that names it), and
+chains of them are followed. The extending description's members are applied over the base's as a
+JSON merge patch (RFC 7396): objects merge member by member, so a block gives only the wires that
+differ; any other value, an array such as a `layout` or `try_dispatch`, replaces the base's whole; and
+`null` removes a member, as `"blocks": { "lsu": null }` removes a block. Everything is inherited,
+`name` and `configurations` too, so an overlay gives its own. A base that cannot be read, a name that is
+not a string and a cycle are errors at the `extends` member; an error in a member the overlay does not
+touch is reported at the file that wrote it.
+
 Per block:
 
 | Block | Members naming wires |
@@ -116,38 +126,27 @@ Three files describe the seven RTL configurations of the release:
 | File | Configurations | Blocks |
 |---|---|---|
 | `core-mini.json` | `core-mini-axi`, `core-mini-highmem-axi`, `core-mini-itcm512kb-dtcm512kb-axi` | dispatch and retirement debug ports, x/f writeback, scalar dispatch, LSU |
-| `rvv-core-mini.json` | `rvv-core-mini-axi`, `-highmem-axi`, `-itcm512kb-dtcm512kb-axi` | the same, with the RVV queue and per-lane float scoreboards |
-| `vme-core-mini.json` | `vme-core-mini-axi` | the same, plus the VME tile register file |
+| `rvv-core-mini.json` | `rvv-core-mini-axi`, `-highmem-axi`, `-itcm512kb-dtcm512kb-axi` | `core-mini` and the RVV queue, per-lane float scoreboards and the vector blocks |
+| `vme-core-mini.json` | `vme-core-mini-axi` | `rvv-core-mini` and the VME tile register file |
 
-An excerpt of `rvv-core-mini.json`:
+`rvv-core-mini.json` is an overlay of `core-mini.json`; this is the whole of
+its dispatch and trap changes (the vector blocks follow):
 
 ```json
 {
   "schema_version": "1.0",
   "name": "rvv-core-mini",
+  "extends": "core-mini",
   "configurations": [
     { "name": "rvv-core-mini-axi", "top_level": "RvvCoreMiniAxi",
       "trace_root": ["VRvvCoreMiniAxi.core", "RvvCoreMiniAxi"] }
   ],
-  "clock": "io_aclk",
-  "sample": "after_falling",
   "blocks": {
-    "retirement_debug": { "scope": [], "lanes": 8, "idx_width": 7,
-      "valid": "io_debug_rb_inst_%d_valid", "pc": "io_debug_rb_inst_%d_bits_pc",
-      "idx": "io_debug_rb_inst_%d_bits_idx", "trap": "io_debug_rb_inst_%d_bits_trap" },
     "dispatch": {
-      "scope": ["core", "score", "dispatch"],
-      "lanes": 4,
-      "lane": { "valid": "io_inst_%d_valid", "ready": "io_inst_%d_ready",
-                "addr": "io_inst_%d_bits_addr", "inst": "io_inst_%d_bits_inst" },
-      "halted": "io_halted", "interlock": "io_interlock", "scoreboard_regd": "io_scoreboard_regd",
-      "rob_space": "io_retirement_buffer_nSpace", "rob_empty": "io_retirement_buffer_empty",
-      "rob_trap_pending": "io_retirement_buffer_trap_pending", "lsu_capacity": "io_lsuQueueCapacity",
-      "try_dispatch": ["tryDispatch", "tryDispatch_1", "tryDispatch_2", "tryDispatch_3"],
-      "comb": ["io_scoreboard_comb", "comb_1", "comb_2", "comb_3"],
       "fcomb": ["io_fscoreboard", "fcomb_1", "fcomb_2", "fcomb_3"],
       "rvv_queue": "io_rvvQueueCapacity"
-    }
+    },
+    "traps": { "rvv": "io_in_rvv_fault_valid" }
   }
 }
 ```

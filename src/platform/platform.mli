@@ -288,9 +288,16 @@ type t = {
 }
 
 val jsont : family Jsont.t
-(** Unknown members are errors, and per-lane wire lists must have one name per lane. *)
+(** Unknown members are errors, and per-lane wire lists must have one name per lane. [extends] is not a
+    member of it: {!of_string} resolves it before decoding. *)
 
 val of_string : ?file:string -> string -> (family, string) result
+(** A description may name one to extend, [extends] being a built-in family ([core-mini]: no ["/"], not
+    ending in [".json"]) or a file relative to [file]. The members it gives are applied over the base's as a
+    JSON merge patch (RFC 7396): objects merge by member, other values replace, [null] removes. A missing
+    base, one that is not a string and a cycle are errors at the [extends] member; any other error is at
+    the member that wrote it, in the file of the description that did. *)
+
 val configurations : family -> t list
 val builtin : t list Lazy.t
 

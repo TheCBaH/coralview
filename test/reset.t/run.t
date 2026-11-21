@@ -69,19 +69,19 @@ Errors in the member are reported at it, with the file and line:
   File "down.json", line 8, characters 37-45: in member active of
   File "down.json", line 8, characters 11-55: reset object
   File "down.json", line 8, characters 2-9: in member reset of
-  File "down.json", lines 1-8, characters 0-55: platform object
+  File "down.json", lines 1-19, characters 0-1: platform object
   [2]
   $ sed 's/"signal": "io_aresetn"/"signal": ""/' reset.json > unnamed.json
   $ coralview check --platform unnamed.json reset.vcd
   reset: the signal has no name
   File "unnamed.json", line 8, characters 11-44:
   File "unnamed.json", line 8, characters 2-9: in member reset of
-  File "unnamed.json", lines 1-8, characters 0-45: platform object
+  File "unnamed.json", lines 1-19, characters 0-1: platform object
   [2]
   $ sed 's/"active": "low"/"level": "low"/' reset.json > level.json
   $ coralview check --platform level.json reset.vcd
   Unexpected member level for reset object
-  File "level.json", line 8, characters 45-46:
+  File "level.json", line 8, characters 11-53:
   File "level.json", line 8, characters 2-9: in member reset of
-  File "level.json", lines 1-8, characters 0-46: platform object
+  File "level.json", lines 1-19, characters 0-1: platform object
   [2]

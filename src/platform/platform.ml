@@ -855,7 +855,84 @@ let jsont =
   |> Jsont.Object.mem "blocks" blocks_codec ~enc:(fun (f : family) -> f.blocks)
   |> finish
 
-let of_string ?file s = Jsont_bytesrw.decode_string ~locs:true ?file jsont s
+(* A description may extend another, built in (a name with no "/" that does not end in ".json") or a
+   file (relative to the extending one). Its members are applied over the base's as a JSON merge
+   patch: objects merge member by member, any other value replaces, null removes. *)
+let rec merge base patch =
+  match (base, patch) with
+  | Jsont.Object (bm, _), Jsont.Object (pm, meta) ->
+      let step acc (((n, _) as name), v) =
+        let same ((n', _), _) = String.equal n' n in
+        match v with
+        | Jsont.Null _ -> List.filter (fun m -> not (same m)) acc
+        | _ -> (
+            match List.find_opt same acc with
+            | Some (_, bv) -> List.map (fun m -> if same m then (name, merge bv v) else m) acc
+            | None -> acc @ [ (name, merge (Jsont.Object ([], Jsont.Meta.none)) v) ])
+      in
+      Jsont.Object (List.fold_left step bm pm, meta)
+  | _, patch -> patch
+
+let normalize path =
+  let rec go acc = function
+    | [] -> List.rev acc
+    | ("" | ".") :: rest -> go acc rest
+    | ".." :: rest -> (
+        match acc with p :: acc' when p <> ".." -> go acc' rest | _ -> go (".." :: acc) rest)
+    | p :: rest -> go (p :: acc) rest
+  in
+  let body = String.concat "/" (go [] (String.split_on_char '/' path)) in
+  if String.starts_with ~prefix:"/" path then "/" ^ body else if body = "" then "." else body
+
+let is_builtin_name n = (not (String.contains n '/')) && not (Filename.check_suffix n ".json")
+
+(* The identity of the base, the name its locations carry, and its text. *)
+let resolve ?file name =
+  if is_builtin_name name then
+    match List.assoc_opt name Builtin_platforms.all with
+    | Some text -> Ok ("built-in " ^ name, name ^ ".json", text)
+    | None ->
+        Error
+          (Printf.sprintf "extends: no built-in description %s (a file is a path ending in .json)"
+             name)
+  else
+    let dir = match file with Some f -> Filename.dirname f | None -> "." in
+    let path = normalize (if Filename.is_relative name then Filename.concat dir name else name) in
+    match In_channel.with_open_bin path In_channel.input_all with
+    | text -> Ok (path, path, text)
+    | exception Sys_error _ -> Error (Printf.sprintf "extends: cannot read %s" path)
+
+let rec load ~seen ?file text =
+  match Jsont_bytesrw.decode_string ~locs:true ?file Jsont.json text with
+  | Ok (Jsont.Object (mems, meta)) as parsed -> (
+      match Jsont.Json.find_mem "extends" mems with
+      | None -> parsed
+      | Some (_, ext) -> (
+          let fail at fmt =
+            Format.kasprintf
+              (fun m ->
+                Error (Jsont.Error.to_string (Jsont.Error.make_msg Jsont.Error.Context.empty at m)))
+              fmt
+          in
+          match ext with
+          | Jsont.String (name, at) -> (
+              match resolve ?file name with
+              | Error m -> fail at "%s" m
+              | Ok (id, _, _) when List.mem id seen ->
+                  fail at "extends: a cycle, %s" (String.concat " -> " (List.rev (id :: seen)))
+              | Ok (id, label, base) ->
+                  Result.map
+                    (fun base ->
+                      merge base (Jsont.Object (Jsont.Json.remove_mem "extends" mems, meta)))
+                    (load ~seen:(id :: seen) ~file:label base))
+          | v -> fail (Jsont.Json.meta v) "extends: the name of a description to extend is a string"
+          ))
+  | parsed -> parsed
+
+let of_string ?file s =
+  let seen = match file with Some f -> [ normalize f ] | None -> [] in
+  Result.bind (load ~seen ?file s) (fun json ->
+      Result.map_error Jsont.Error.to_string (Jsont.Json.decode' jsont json))
 
 let configurations f =
   List.map
