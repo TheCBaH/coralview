@@ -211,11 +211,11 @@ Unknown members in a description are errors:
 
   $ coralview check --platform typo.json core.vcd
   Unexpected member fetch for dispatch_debug object
-  File "typo.json", line 11, characters 137-138:
+  File "typo.json", lines 10-11, characters 22-144:
   File "typo.json", line 10, characters 4-20: in member dispatch_debug of
-  File "typo.json", lines 9-11, characters 12-138: blocks object
+  File "typo.json", lines 9-17, characters 12-3: blocks object
   File "typo.json", line 9, characters 2-10: in member blocks of
-  File "typo.json", lines 1-11, characters 0-138: platform object
+  File "typo.json", lines 1-18, characters 0-1: platform object
   [2]
 
 Command-line errors are cmdliner's, with its exit status:
@@ -398,9 +398,9 @@ A description that does not name one of them is not a description, whichever blo
   Missing member fire in dispatch_debug object
   File "nofire.json", lines 10-11, characters 22-88:
   File "nofire.json", line 10, characters 4-20: in member dispatch_debug of
-  File "nofire.json", lines 9-11, characters 12-88: blocks object
+  File "nofire.json", lines 9-17, characters 12-3: blocks object
   File "nofire.json", line 9, characters 2-10: in member blocks of
-  File "nofire.json", lines 1-11, characters 0-88: platform object
+  File "nofire.json", lines 1-18, characters 0-1: platform object
   [2]
 
 A trace name needs a %d when the block has several lanes, and a retirement buffer that reports no trap bit says

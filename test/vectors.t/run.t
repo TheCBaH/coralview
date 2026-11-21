@@ -47,7 +47,7 @@ A layout without the byte enables is not a vector register file:
   File "no-strobe.json", line 17, characters 4-17: in member v_registers of
   File "no-strobe.json", lines 9-31, characters 12-3: blocks object
   File "no-strobe.json", line 9, characters 2-10: in member blocks of
-  File "no-strobe.json", lines 1-31, characters 0-3: platform object
+  File "no-strobe.json", lines 1-32, characters 0-1: platform object
   [2]
 
 As JSON lines, the writes, then the relation failures as diagnostics, and the exit status the same:

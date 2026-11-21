@@ -599,55 +599,217 @@ let traps =
   |> Jsont.Object.mem "csr" csr ~enc:(fun t -> t.csr)
   |> finish
 
-let blocks =
-  obj "blocks"
-    (fun
-      dispatch_debug
-      retirement_debug
-      regfile_writeback
-      float_writeback
-      dispatch
-      lsu
-      vme
-      axi_master
-      dma
-      x_registers
-      f_registers
-      v_registers
-      v_dispatch
-      traps
-    ->
+type registered =
+  | Block : {
+      name : string;
+      codec : 'a Jsont.t;
+      get : blocks -> 'a option;
+      set : 'a -> blocks -> blocks;
+      needs : string list;
+    }
+      -> registered
+
+let no_blocks =
+  {
+    dispatch_debug = None;
+    retirement_debug = None;
+    regfile_writeback = None;
+    float_writeback = None;
+    dispatch = None;
+    lsu = None;
+    vme = None;
+    axi_master = None;
+    dma = None;
+    x_registers = None;
+    f_registers = None;
+    v_registers = None;
+    v_dispatch = None;
+    traps = None;
+  }
+
+let commits_blocks = [ "dispatch_debug"; "retirement_debug"; "regfile_writeback" ]
+
+(* A block is added with its record field, its [no_blocks] entry and one entry here: its name, codec,
+   accessors and the blocks that must be described with it. *)
+let registry =
+  [
+    Block
       {
-        dispatch_debug;
-        retirement_debug;
-        regfile_writeback;
-        float_writeback;
-        dispatch;
-        lsu;
-        vme;
-        axi_master;
-        dma;
-        x_registers;
-        f_registers;
-        v_registers;
-        v_dispatch;
-        traps;
-      })
-  |> Jsont.Object.opt_mem "dispatch_debug" dispatch_debug ~enc:(fun b -> b.dispatch_debug)
-  |> Jsont.Object.opt_mem "retirement_debug" retirement_debug ~enc:(fun b -> b.retirement_debug)
-  |> Jsont.Object.opt_mem "regfile_writeback" writeback ~enc:(fun b -> b.regfile_writeback)
-  |> Jsont.Object.opt_mem "float_writeback" writeback ~enc:(fun b -> b.float_writeback)
-  |> Jsont.Object.opt_mem "dispatch" dispatch ~enc:(fun b -> b.dispatch)
-  |> Jsont.Object.opt_mem "lsu" lsu ~enc:(fun b -> b.lsu)
-  |> Jsont.Object.opt_mem "vme" vme ~enc:(fun b -> b.vme)
-  |> Jsont.Object.opt_mem "axi_master" axi ~enc:(fun b -> b.axi_master)
-  |> Jsont.Object.opt_mem "dma" dma ~enc:(fun b -> b.dma)
-  |> Jsont.Object.opt_mem "x_registers" register_file ~enc:(fun b -> b.x_registers)
-  |> Jsont.Object.opt_mem "f_registers" register_file ~enc:(fun b -> b.f_registers)
-  |> Jsont.Object.opt_mem "v_registers" vector_registers ~enc:(fun b -> b.v_registers)
-  |> Jsont.Object.opt_mem "v_dispatch" vector_dispatch ~enc:(fun b -> b.v_dispatch)
-  |> Jsont.Object.opt_mem "traps" traps ~enc:(fun b -> b.traps)
-  |> finish
+        name = "dispatch_debug";
+        codec = dispatch_debug;
+        get = (fun b -> b.dispatch_debug);
+        set = (fun v b -> { b with dispatch_debug = Some v });
+        needs = [];
+      };
+    Block
+      {
+        name = "retirement_debug";
+        codec = retirement_debug;
+        get = (fun b -> b.retirement_debug);
+        set = (fun v b -> { b with retirement_debug = Some v });
+        needs = [];
+      };
+    Block
+      {
+        name = "regfile_writeback";
+        codec = writeback;
+        get = (fun b -> b.regfile_writeback);
+        set = (fun v b -> { b with regfile_writeback = Some v });
+        needs = [];
+      };
+    Block
+      {
+        name = "float_writeback";
+        codec = writeback;
+        get = (fun b -> b.float_writeback);
+        set = (fun v b -> { b with float_writeback = Some v });
+        needs = [];
+      };
+    Block
+      {
+        name = "dispatch";
+        codec = dispatch;
+        get = (fun b -> b.dispatch);
+        set = (fun v b -> { b with dispatch = Some v });
+        needs = [];
+      };
+    Block
+      {
+        name = "lsu";
+        codec = lsu;
+        get = (fun b -> b.lsu);
+        set = (fun v b -> { b with lsu = Some v });
+        needs = [];
+      };
+    Block
+      {
+        name = "vme";
+        codec = vme;
+        get = (fun b -> b.vme);
+        set = (fun v b -> { b with vme = Some v });
+        needs = [];
+      };
+    Block
+      {
+        name = "axi_master";
+        codec = axi;
+        get = (fun b -> b.axi_master);
+        set = (fun v b -> { b with axi_master = Some v });
+        needs = commits_blocks;
+      };
+    Block
+      {
+        name = "dma";
+        codec = dma;
+        get = (fun b -> b.dma);
+        set = (fun v b -> { b with dma = Some v });
+        needs = [];
+      };
+    Block
+      {
+        name = "x_registers";
+        codec = register_file;
+        get = (fun b -> b.x_registers);
+        set = (fun v b -> { b with x_registers = Some v });
+        needs = commits_blocks;
+      };
+    Block
+      {
+        name = "f_registers";
+        codec = register_file;
+        get = (fun b -> b.f_registers);
+        set = (fun v b -> { b with f_registers = Some v });
+        needs = commits_blocks;
+      };
+    Block
+      {
+        name = "v_registers";
+        codec = vector_registers;
+        get = (fun b -> b.v_registers);
+        set = (fun v b -> { b with v_registers = Some v });
+        needs = commits_blocks;
+      };
+    Block
+      {
+        name = "v_dispatch";
+        codec = vector_dispatch;
+        get = (fun b -> b.v_dispatch);
+        set = (fun v b -> { b with v_dispatch = Some v });
+        needs = [ "dispatch_debug" ];
+      };
+    Block
+      {
+        name = "traps";
+        codec = traps;
+        get = (fun b -> b.traps);
+        set = (fun v b -> { b with traps = Some v });
+        needs = [ "dispatch_debug"; "retirement_debug" ];
+      };
+  ]
+
+let () =
+  let names = List.map (fun (Block b) -> b.name) registry in
+  List.iter
+    (fun (Block b) ->
+      List.iter
+        (fun n ->
+          if not (List.mem n names) then invalid_arg ("Platform: " ^ b.name ^ " needs " ^ n))
+        b.needs)
+    registry
+
+let known_blocks = List.map (fun (Block b) -> (b.name, b.needs)) registry
+let present blocks n = List.exists (fun (Block b) -> b.name = n && b.get blocks <> None) registry
+
+(* The blocks object is read as generic JSON so that each member can be decoded by name, and a
+   failure reported at the member's own location. *)
+let blocks_codec =
+  let decode json =
+    match json with
+    | Jsont.Object (mems, at) ->
+        let in_member name e = Jsont.Error.push_object ("blocks object", at) name e in
+        let fail (name, name_meta) v fmt =
+          Format.kasprintf
+            (fun m ->
+              in_member (name, name_meta)
+                (Jsont.Error.make_msg Jsont.Error.Context.empty (Jsont.Json.meta v) m))
+            fmt
+        in
+        let decode blocks ((name, name_meta), v) =
+          match List.find_opt (fun (Block b) -> b.name = name) registry with
+          | None ->
+              Jsont.Error.msgf name_meta "Unexpected member %s for blocks object. Known blocks: %s"
+                name
+                (String.concat ", " (List.map fst known_blocks))
+          | Some (Block b) -> (
+              if b.get blocks <> None then fail (name, name_meta) v "%s: given twice" name;
+              match Jsont.Json.decode' b.codec v with
+              | Ok x -> b.set x blocks
+              | Error e -> in_member (name, name_meta) e)
+        in
+        let blocks = List.fold_left decode no_blocks mems in
+        List.iter
+          (fun (Block b) ->
+            if b.get blocks <> None then
+              match List.filter (fun n -> not (present blocks n)) b.needs with
+              | [] -> ()
+              | missing ->
+                  let name, v = List.find (fun ((n, _), _) -> n = b.name) mems in
+                  fail name v "%s: needs %s, which the description does not give" b.name
+                    (String.concat ", " missing))
+          registry;
+        blocks
+    | _ -> Jsont.Json.error_sort ~exp:Jsont.Sort.Object json
+  in
+  let encode blocks =
+    Jsont.Json.object'
+      (List.filter_map
+         (fun (Block b) ->
+           Option.map
+             (fun x -> (Jsont.Json.name b.name, Result.get_ok (Jsont.Json.encode' b.codec x)))
+             (b.get blocks))
+         registry)
+  in
+  Jsont.map ~kind:"blocks" ~dec:decode ~enc:encode Jsont.json
 
 let configuration =
   obj "configuration" (fun config top_level trace_root -> { config; top_level; trace_root })
@@ -676,7 +838,7 @@ let jsont =
        ~enc:(fun (f : family) -> f.configurations)
   |> Jsont.Object.mem "clock" Jsont.string ~enc:(fun (f : family) -> f.clock)
   |> Jsont.Object.mem "sample" sample ~enc:(fun (f : family) -> f.sample)
-  |> Jsont.Object.mem "blocks" blocks ~enc:(fun (f : family) -> f.blocks)
+  |> Jsont.Object.mem "blocks" blocks_codec ~enc:(fun (f : family) -> f.blocks)
   |> finish
 
 let of_string ?file s = Jsont_bytesrw.decode_string ~locs:true ?file jsont s
@@ -736,25 +898,7 @@ let root p = Vcd_types.Reference.of_list p.trace_root
 let scope p rel = Vcd_types.Reference.of_list (p.trace_root @ rel)
 
 let blocks p =
-  let b = p.blocks in
-  List.filter_map
-    (fun (name, present) -> if present then Some name else None)
-    [
-      ("dispatch_debug", b.dispatch_debug <> None);
-      ("retirement_debug", b.retirement_debug <> None);
-      ("regfile_writeback", b.regfile_writeback <> None);
-      ("float_writeback", b.float_writeback <> None);
-      ("dispatch", b.dispatch <> None);
-      ("lsu", b.lsu <> None);
-      ("vme", b.vme <> None);
-      ("axi_master", b.axi_master <> None);
-      ("dma", b.dma <> None);
-      ("x_registers", b.x_registers <> None);
-      ("f_registers", b.f_registers <> None);
-      ("v_registers", b.v_registers <> None);
-      ("v_dispatch", b.v_dispatch <> None);
-      ("traps", b.traps <> None);
-    ]
+  List.filter_map (fun (Block b) -> if b.get p.blocks <> None then Some b.name else None) registry
 
 let name_of pattern n =
   match String.index_opt pattern '%' with

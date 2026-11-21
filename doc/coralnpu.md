@@ -79,7 +79,12 @@ The descriptions are JSON, parsed with `jsont`; unknown members are errors,
 and so are missing ones: a model has no signal names of its own. Every wire
 a block binds is a member of it. A name with `%d` stands for one wire per
 lane or port (`io_debug_rb_inst_%d_valid`), and a block of several lanes
-whose name lacks it is refused. Per block:
+whose name lacks it is refused. An error in a description is reported with
+the file, the line and the members that lead to it. A block is only accepted
+with the blocks the models over it read: `axi_master`, `x_registers`,
+`f_registers` and `v_registers` need `dispatch_debug`, `retirement_debug` and
+`regfile_writeback`, `traps` the first two, `v_dispatch` `dispatch_debug`.
+Per block:
 
 | Block | Members naming wires |
 |---|---|

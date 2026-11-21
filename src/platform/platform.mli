@@ -250,6 +250,8 @@ type blocks = {
   v_dispatch : vector_dispatch option;
   traps : traps option;
 }
+(** A new block is a field here, its [no_blocks] entry and one entry of [registry] in [platform.ml], which
+    gives its name, codec, accessors and {!known_blocks} needs. *)
 
 type configuration = {
   config : string;  (** As named in the archive's [hardware-configurations.json]. *)
@@ -294,6 +296,10 @@ val scope : t -> string list -> Vcd_types.Reference.t
 
 val blocks : t -> string list
 (** The names of the blocks it describes. *)
+
+val known_blocks : (string * string list) list
+(** Every block a description can have, in the order {!blocks} lists them, with the blocks that must be
+    described with it: a description that gives a block without them is an error at the block. *)
 
 val name_of : string -> int -> string
 (** A wire name pattern with [%d] replaced by the number; a name without [%d] as is. *)
