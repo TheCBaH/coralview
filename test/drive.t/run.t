@@ -52,3 +52,15 @@ The producer makes the trace, so no other trace is named:
   $ coralview signals $args --exec "cat $t/sig.vcd >&3" $t/sig.vcd TOP.sim/core/count
   --exec produces the trace: give - as the trace
   [2]
+
+The producer starts once the whole command line is evaluated, so a command that fails on its
+platform never runs it, and no status is written for it:
+
+  $ coralview signals --platform nosuch.json --exec "touch started; cat $t/sig.vcd >&3" - TOP.sim/core/count
+  no platform nosuch.json: give a configuration (coralview platforms) or a JSON file
+  [2]
+  $ test -e started
+  [1]
+  $ coralview signals --platform nosuch.json --raw --exec "cat $t/sig.vcd >&3" - TOP.sim/core/count | tail -n 2
+         -         10    4 TOP.sim/core/count 0x4
+  # producer: complete, exited with status 0

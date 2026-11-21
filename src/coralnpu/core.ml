@@ -44,16 +44,14 @@ let signal c scope name d =
         (String.sub name (i + 1) (String.length name - i - 1))
         d
 
-let gate = ref (fun _ ~model:_ -> ())
-
-let start c =
-  !gate c.trace ~model:c.model;
+let start ?(gate = fun _ ~model:_ -> ()) c =
+  gate c.trace ~model:c.model;
   match Sched.compile c.net with
   | Ok sched ->
       Run.start ~clock:Hwfrp_native.wall_clock sched (Sampler.create c.trace (Net.domains c.net))
   | Error _ -> invalid_arg "Core.start: the net does not compile"
 
-let run c = Run.finish (start c)
+let run ?gate c = Run.finish (start ?gate c)
 
 let lane_sig valid payload =
   let open Sig in

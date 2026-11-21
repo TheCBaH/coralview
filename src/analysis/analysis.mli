@@ -57,12 +57,14 @@ type ('e, 's) pulled = {
 }
 
 val pull :
+  ?gate:(Hwfrp.Trace.t -> model:string -> unit) ->
   (module S with type Config.t = 'k and type Event.t = 'e and type Summary.t = 's) ->
   'k ->
   Platform.t ->
   Hwfrp.Trace.t ->
   ('e, 's) pulled
-(** Binds the platform to the trace, builds the analysis alone and starts the run. Raises as {!S.build}. *)
+(** Binds the platform to the trace, builds the analysis alone and starts the run, after [gate]: see
+    {!Core.start}. Raises as {!S.build}. *)
 
 val subscribe :
   (module S with type Config.t = 'k and type Event.t = 'e and type Summary.t = 's) ->
@@ -102,6 +104,7 @@ type ('e, 's) stream = {
     file until it is collected. An exception of the model is raised by the sequence or by [finish]. *)
 
 val stream :
+  ?gate:(Hwfrp.Trace.t -> model:string -> unit) ->
   (module S with type Config.t = 'k and type Event.t = 'e and type Summary.t = 's) ->
   'k ->
   Platform.t ->

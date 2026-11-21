@@ -15,6 +15,10 @@ type outcome =
 type format = [ `Text | `Jsonl | `Stderr ]
 (** Where {!finish} writes: the standard output in the command's format, or the standard error. *)
 
+val report_to : format -> unit
+(** Sets where {!finish} writes the producer's status, once one is started; the standard error until
+    then. Does nothing when there is no producer. *)
+
 val start : string -> unit
 (** Runs the command with [sh -c]. Its descriptor 3 is the write end of the stream; its other
     descriptors are the caller's. *)
@@ -34,7 +38,7 @@ val record_jsont : record Jsont.t
 val to_text : record -> string
 (** [# producer: …], one line. *)
 
-val finish : format:format -> int -> int
+val finish : int -> int
 (** Closes the stream, waits for the producer (ending it if it does not exit) and writes how it ended.
     Returns the exit code for the given one: [4] if the producer failed and the code was [0]. Does
     nothing, and returns the code, if no producer was started. *)
