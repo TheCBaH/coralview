@@ -37,5 +37,5 @@ x-ai-provider: "Anthropic"
 # None of these are in opam-repository yet; pin-depends is not transitive.
 pin-depends: [
   ["err_trace.0.2.0~dev" "git+https://github.com/TheCBaH/err_trace.git#d7765040d9cc3d024522e204866ac00ff261c4e8"]
-  ["rivet.dev" "git+https://github.com/TheCBaH/rivet.git#7e3f3189b08acc222f3aff92d614bac08f57d4b2"]
+  ["rivet.dev" "git+https://github.com/TheCBaH/rivet.git#0858b3b2fd132fde84b4456465b2a3aee22cf637"]
 ]

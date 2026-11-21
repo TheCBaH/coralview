@@ -51,5 +51,5 @@ pin-depends: [
   ["ovcd.dev" "git+https://github.com/TheCBaH/ovcd.git#d2281b52f624e348809b9ae4c8af1d84439b63a2"]
   ["err_trace.0.2.0~dev" "git+https://github.com/TheCBaH/err_trace.git#d7765040d9cc3d024522e204866ac00ff261c4e8"]
   ["elf.dev" "git+https://github.com/TheCBaH/ocaml-elf.git#bc00b700fe69710af5887e7d4c920a2294c73522"]
-  ["rivet.dev" "git+https://github.com/TheCBaH/rivet.git#7e3f3189b08acc222f3aff92d614bac08f57d4b2"]
+  ["rivet.dev" "git+https://github.com/TheCBaH/rivet.git#0858b3b2fd132fde84b4456465b2a3aee22cf637"]
 ]
