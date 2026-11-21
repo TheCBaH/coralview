@@ -49,12 +49,12 @@ val run : 'c t -> Hwfrp.Sched.run_stats
 type dispatched = { d_lane : int; d_pc : int; d_word : int }
 
 val dispatch : 'c t -> (dispatched option, 'c) Hwfrp.Sig.t list
-(** [io_debug_dispatch_N_inst{Fire,Addr,Inst}] of the [dispatch_debug] block. *)
+(** The lanes of the [dispatch_debug] block, with the wires it names. *)
 
 type retired = { r_lane : int; r_pc : int; r_idx : int; r_trap : bool }
 
 val retire : 'c t -> (retired option, 'c) Hwfrp.Sig.t list
-(** [io_debug_rb_inst_N_{valid,bits_pc,bits_idx,bits_trap}] of the [retirement_debug] block. [r_idx] is the
+(** The lanes of the [retirement_debug] block. [r_idx] is the
     unified destination: x at 0, f at {!float_base}, v at {!vector_base}; {!no_write} and {!store} as the
     retirement buffer encodes them. *)
 
@@ -66,8 +66,8 @@ val store : 'c t -> int
 type write = { reg : int; value : int }
 
 val writes : 'c t -> (write option, 'c) Hwfrp.Sig.t list
-(** [io_debug_regfile_writeData_N_*] and, when the platform has the block, [io_debug_float_writeData_N_*],
-    with unified register numbers. *)
+(** The ports of [regfile_writeback] and, when the platform has the block, [float_writeback], with unified
+    register numbers. *)
 
 val present : 'c t -> ('a option, 'c) Hwfrp.Sig.t list -> ('a list, 'c) Hwfrp.Sig.t
 (** The [Some] lanes. *)

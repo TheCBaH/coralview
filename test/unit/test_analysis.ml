@@ -35,7 +35,9 @@ let platform =
       {|{ "schema_version": "1.0", "name": "toy",
           "configurations": [ { "name": "toy-core", "top_level": "Core", "trace_root": ["TOP", "core"] } ],
           "clock": "io_aclk", "sample": "after_falling",
-          "blocks": { "dispatch_debug": { "scope": [], "lanes": 1 } } }|}
+          "blocks": { "dispatch_debug": { "scope": [], "lanes": 1,
+            "fire": "io_debug_dispatch_%d_instFire", "addr": "io_debug_dispatch_%d_instAddr",
+            "inst": "io_debug_dispatch_%d_instInst" } } }|}
   with
   | Ok f -> List.hd (Platform.configurations f)
   | Error e -> failwith e

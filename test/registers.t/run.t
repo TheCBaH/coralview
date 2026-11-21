@@ -83,4 +83,4 @@ description:
   $ coralview registers --platform small-core.json registers.vcd 2>&1 | head -3
   register file: 3 scoreboard entries for registers up to 3
   File "small-core.json": in member x_registers of
-  File "small-core.json", lines 9-22, characters 12-6: blocks object
+  File "small-core.json", lines 9-26, characters 12-6: blocks object

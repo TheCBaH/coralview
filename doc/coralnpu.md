@@ -75,7 +75,22 @@ but the trace lacks is a hard error: exit status 3, with the path and what
 was expected. That means coralview's understanding of the hardware is
 wrong, not that the trace has less to offer.
 
-The descriptions are JSON, parsed with `jsont`; unknown members are errors.
+The descriptions are JSON, parsed with `jsont`; unknown members are errors,
+and so are missing ones: a model has no signal names of its own. Every wire
+a block binds is a member of it. A name with `%d` stands for one wire per
+lane or port (`io_debug_rb_inst_%d_valid`), and a block of several lanes
+whose name lacks it is refused. Per block:
+
+| Block | Members naming wires |
+|---|---|
+| `dispatch_debug` | `fire`, `addr`, `inst` |
+| `retirement_debug` | `valid`, `pc`, `idx`, and `trap` when the buffer reports it |
+| `regfile_writeback`, `float_writeback` | `valid`, `addr`, `data` |
+| `dispatch` | `lane` (`valid`, `ready`, `addr`, `inst`), `halted`, `interlock`, `scoreboard_regd`, `rob_space`, `rob_empty`, `rob_trap_pending`, `lsu_capacity`, besides `try_dispatch`, `comb`, `fcomb`, `rvv_queue` |
+| `lsu` | `pc` (`slot/io_pc`: signal `io_pc` of scope `slot`), `fault` (`valid`, `write`, `addr`, `epc`), besides the TileLink-UL `port` |
+| `vme` | `writes` (`en`, `pe_en`, `pe_pc`, `mt_idx`, `sub_idx`, `data`) |
+| `x_registers`, `f_registers` | `scoreboard`, `flushed_scoreboard`, `flush`, `marks`, and `scoreboard_entries`, the scoreboard's width in bits |
+
 Three files describe the seven RTL configurations of the release:
 
 | File | Configurations | Blocks |
@@ -97,10 +112,17 @@ An excerpt of `rvv-core-mini.json`:
   "clock": "io_aclk",
   "sample": "after_falling",
   "blocks": {
-    "retirement_debug": { "scope": [], "lanes": 8, "idx_width": 7, "trap": true },
+    "retirement_debug": { "scope": [], "lanes": 8, "idx_width": 7,
+      "valid": "io_debug_rb_inst_%d_valid", "pc": "io_debug_rb_inst_%d_bits_pc",
+      "idx": "io_debug_rb_inst_%d_bits_idx", "trap": "io_debug_rb_inst_%d_bits_trap" },
     "dispatch": {
       "scope": ["core", "score", "dispatch"],
       "lanes": 4,
+      "lane": { "valid": "io_inst_%d_valid", "ready": "io_inst_%d_ready",
+                "addr": "io_inst_%d_bits_addr", "inst": "io_inst_%d_bits_inst" },
+      "halted": "io_halted", "interlock": "io_interlock", "scoreboard_regd": "io_scoreboard_regd",
+      "rob_space": "io_retirement_buffer_nSpace", "rob_empty": "io_retirement_buffer_empty",
+      "rob_trap_pending": "io_retirement_buffer_trap_pending", "lsu_capacity": "io_lsuQueueCapacity",
       "try_dispatch": ["tryDispatch", "tryDispatch_1", "tryDispatch_2", "tryDispatch_3"],
       "comb": ["io_scoreboard_comb", "comb_1", "comb_2", "comb_3"],
       "fcomb": ["io_fscoreboard", "fcomb_1", "fcomb_2", "fcomb_3"],

@@ -7,18 +7,53 @@
     lane and port counts from here rather than discovering them, and a block declared here whose signals
     are not in a trace is a hard error: the description, not the trace, is wrong. *)
 
-type dispatch_debug = { dd_scope : string list; dd_lanes : int }
-type retirement_debug = { rd_scope : string list; rd_lanes : int; idx_width : int; trap : bool }
-type writeback = { wb_scope : string list; ports : int }
+type dispatch_debug = {
+  dd_scope : string list;
+  dd_lanes : int;
+  dd_fire : string;  (** Whether the lane dispatches an instruction. *)
+  dd_addr : string;  (** Its PC. *)
+  dd_inst : string;  (** Its word. *)
+}
+(** The names have [%d] for the lane when there are several, like the other lane and port names. *)
+
+type retirement_debug = {
+  rd_scope : string list;
+  rd_lanes : int;
+  idx_width : int;
+  rd_valid : string;  (** Whether the lane retires an instruction. *)
+  rd_pc : string;
+  rd_idx : string;  (** The unified destination index, [idx_width] bits wide. *)
+  rd_trap : string option;  (** The trap bit; [None] for a buffer that does not report one. *)
+}
+
+type writeback = {
+  wb_scope : string list;
+  ports : int;
+  wb_valid : string;
+  wb_addr : string;  (** The register written, in its file. *)
+  wb_data : string;
+}
+(** Names have [%d] for the port when there are several. *)
+
+type lane = { l_valid : string; l_ready : string; l_addr : string; l_inst : string }
+(** The decoded instruction offered to a dispatch lane, with [%d] for the lane. *)
 
 type dispatch = {
   d_scope : string list;
   d_lanes : int;
+  lane : lane;
   try_dispatch : string list;  (** Per lane: Dispatch.tryDispatch(i). *)
   comb : string list;  (** Per lane: the scalar scoreboard the lane checks, comb(i). *)
   fcomb : string list option;
       (** Per lane: the float scoreboard, fcomb(i); [None] without float. *)
   rvv_queue : string option;  (** The RVV queue capacity input; [None] without RVV. *)
+  halted : string;
+  interlock : string;
+  scoreboard_regd : string;  (** The scoreboard of registers with a write pending. *)
+  rob_space : string;  (** Free entries of the retirement buffer. *)
+  rob_empty : string;
+  rob_trap_pending : string;
+  lsu_capacity : string;  (** Free entries of the LSU queue. *)
 }
 
 type tlul = { tl_prefix : string; tl_data_bytes : int; d_ready : bool }
@@ -27,8 +62,22 @@ type tlul = { tl_prefix : string; tl_data_bytes : int; d_ready : bool }
     [tl_data_bytes]-wide data bus. Without [d_ready] (a device that does not read it), a response is
     taken when it is valid. *)
 
-type lsu = { lsu_scope : string list; port : tlul }
-(** The LSU's TileLink-UL port: its one path to the TCMs and the external bus. *)
+type fault = { f_valid : string; f_write : string; f_addr : string; f_epc : string }
+(** An access fault the LSU reports: its direction, address and the PC of the instruction. *)
+
+type lsu = { lsu_scope : string list; port : tlul; lsu_pc : string; fault : fault }
+(** The LSU's TileLink-UL port: its one path to the TCMs and the external bus. [lsu_pc] is the PC of the
+    instruction whose request is on the port; a name of the form [a/n] is signal [n] in the sub-scope [a]
+    of [lsu_scope], as in {!origin}'s [o_pc]. *)
+
+type vme_writes = {
+  we_en : string;  (** Byte enables of every port's write into a sub-tile. *)
+  we_pe_en : string;  (** The byte enables the PE array drives. *)
+  we_pe_pc : string;  (** The PC of each block's PE write. *)
+  we_mt_idx : string;  (** The tile written. *)
+  we_sub_idx : string;  (** The sub-tile written. *)
+  we_data : string;
+}
 
 type vme = {
   vme_scope : string list;
@@ -37,6 +86,7 @@ type vme = {
   tiles : int;
   subtiles : int;
   subtile_bytes : int;
+  vme_writes : vme_writes;
 }
 
 type port = {

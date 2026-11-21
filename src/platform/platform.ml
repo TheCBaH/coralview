@@ -2,23 +2,65 @@
 [@@@ai_model "claude-opus-5-5"]
 [@@@ai_provider "Anthropic"]
 
-type dispatch_debug = { dd_scope : string list; dd_lanes : int }
-type retirement_debug = { rd_scope : string list; rd_lanes : int; idx_width : int; trap : bool }
-type writeback = { wb_scope : string list; ports : int }
+type dispatch_debug = {
+  dd_scope : string list;
+  dd_lanes : int;
+  dd_fire : string;
+  dd_addr : string;
+  dd_inst : string;
+}
+
+type retirement_debug = {
+  rd_scope : string list;
+  rd_lanes : int;
+  idx_width : int;
+  rd_valid : string;
+  rd_pc : string;
+  rd_idx : string;
+  rd_trap : string option;
+}
+
+type writeback = {
+  wb_scope : string list;
+  ports : int;
+  wb_valid : string;
+  wb_addr : string;
+  wb_data : string;
+}
+
+type lane = { l_valid : string; l_ready : string; l_addr : string; l_inst : string }
 
 type dispatch = {
   d_scope : string list;
   d_lanes : int;
+  lane : lane;
   try_dispatch : string list;
   comb : string list;
   fcomb : string list option;
   rvv_queue : string option;
+  halted : string;
+  interlock : string;
+  scoreboard_regd : string;
+  rob_space : string;
+  rob_empty : string;
+  rob_trap_pending : string;
+  lsu_capacity : string;
 }
 
 type tlul = { tl_prefix : string; tl_data_bytes : int; d_ready : bool }
+type fault = { f_valid : string; f_write : string; f_addr : string; f_epc : string }
 
-type lsu = { lsu_scope : string list; port : tlul }
+type lsu = { lsu_scope : string list; port : tlul; lsu_pc : string; fault : fault }
 (** The LSU's TileLink-UL port: its one path to the TCMs and the external bus. *)
+
+type vme_writes = {
+  we_en : string;
+  we_pe_en : string;
+  we_pe_pc : string;
+  we_mt_idx : string;
+  we_sub_idx : string;
+  we_data : string;
+}
 
 type vme = {
   vme_scope : string list;
@@ -27,6 +69,7 @@ type vme = {
   tiles : int;
   subtiles : int;
   subtile_bytes : int;
+  vme_writes : vme_writes;
 }
 
 type port = {
@@ -174,29 +217,62 @@ type t = {
   blocks : blocks;
 }
 
+let has_lane pattern =
+  match String.index_opt pattern '%' with
+  | Some i -> i + 1 < String.length pattern && pattern.[i + 1] = 'd'
+  | None -> false
+
 let obj kind f = Jsont.Object.map ~kind f
 let finish m = Jsont.Object.(finish (error_unknown m))
 let scope = Jsont.(list string)
 
+let lanes_pattern kind lanes pattern =
+  if lanes > 1 && not (has_lane pattern) then
+    Jsont.Error.msgf Jsont.Meta.none "%s: %S has no %%d for its %d lanes" kind pattern lanes
+
 let dispatch_debug =
-  obj "dispatch_debug" (fun dd_scope dd_lanes -> { dd_scope; dd_lanes })
+  obj "dispatch_debug" (fun dd_scope dd_lanes dd_fire dd_addr dd_inst ->
+      List.iter (lanes_pattern "dispatch_debug" dd_lanes) [ dd_fire; dd_addr; dd_inst ];
+      { dd_scope; dd_lanes; dd_fire; dd_addr; dd_inst })
   |> Jsont.Object.mem "scope" scope ~enc:(fun b -> b.dd_scope)
   |> Jsont.Object.mem "lanes" Jsont.int ~enc:(fun b -> b.dd_lanes)
+  |> Jsont.Object.mem "fire" Jsont.string ~enc:(fun b -> b.dd_fire)
+  |> Jsont.Object.mem "addr" Jsont.string ~enc:(fun b -> b.dd_addr)
+  |> Jsont.Object.mem "inst" Jsont.string ~enc:(fun b -> b.dd_inst)
   |> finish
 
 let retirement_debug =
-  obj "retirement_debug" (fun rd_scope rd_lanes idx_width trap ->
-      { rd_scope; rd_lanes; idx_width; trap })
+  obj "retirement_debug" (fun rd_scope rd_lanes idx_width rd_valid rd_pc rd_idx rd_trap ->
+      List.iter
+        (lanes_pattern "retirement_debug" rd_lanes)
+        ([ rd_valid; rd_pc; rd_idx ] @ Option.to_list rd_trap);
+      { rd_scope; rd_lanes; idx_width; rd_valid; rd_pc; rd_idx; rd_trap })
   |> Jsont.Object.mem "scope" scope ~enc:(fun b -> b.rd_scope)
   |> Jsont.Object.mem "lanes" Jsont.int ~enc:(fun b -> b.rd_lanes)
   |> Jsont.Object.mem "idx_width" Jsont.int ~enc:(fun b -> b.idx_width)
-  |> Jsont.Object.mem "trap" Jsont.bool ~enc:(fun b -> b.trap)
+  |> Jsont.Object.mem "valid" Jsont.string ~enc:(fun b -> b.rd_valid)
+  |> Jsont.Object.mem "pc" Jsont.string ~enc:(fun b -> b.rd_pc)
+  |> Jsont.Object.mem "idx" Jsont.string ~enc:(fun b -> b.rd_idx)
+  |> Jsont.Object.opt_mem "trap" Jsont.string ~enc:(fun b -> b.rd_trap)
   |> finish
 
 let writeback =
-  obj "writeback" (fun wb_scope ports -> { wb_scope; ports })
+  obj "writeback" (fun wb_scope ports wb_valid wb_addr wb_data ->
+      List.iter (lanes_pattern "writeback" ports) [ wb_valid; wb_addr; wb_data ];
+      { wb_scope; ports; wb_valid; wb_addr; wb_data })
   |> Jsont.Object.mem "scope" scope ~enc:(fun b -> b.wb_scope)
   |> Jsont.Object.mem "ports" Jsont.int ~enc:(fun b -> b.ports)
+  |> Jsont.Object.mem "valid" Jsont.string ~enc:(fun b -> b.wb_valid)
+  |> Jsont.Object.mem "addr" Jsont.string ~enc:(fun b -> b.wb_addr)
+  |> Jsont.Object.mem "data" Jsont.string ~enc:(fun b -> b.wb_data)
+  |> finish
+
+let lane =
+  obj "dispatch lane" (fun l_valid l_ready l_addr l_inst -> { l_valid; l_ready; l_addr; l_inst })
+  |> Jsont.Object.mem "valid" Jsont.string ~enc:(fun l -> l.l_valid)
+  |> Jsont.Object.mem "ready" Jsont.string ~enc:(fun l -> l.l_ready)
+  |> Jsont.Object.mem "addr" Jsont.string ~enc:(fun l -> l.l_addr)
+  |> Jsont.Object.mem "inst" Jsont.string ~enc:(fun l -> l.l_inst)
   |> finish
 
 let per_lane name lanes l =
@@ -204,17 +280,59 @@ let per_lane name lanes l =
     Jsont.Error.msgf Jsont.Meta.none "dispatch.%s: %d names for %d lanes" name (List.length l) lanes
 
 let dispatch =
-  obj "dispatch" (fun d_scope d_lanes try_dispatch comb fcomb rvv_queue ->
+  obj "dispatch"
+    (fun
+      d_scope
+      d_lanes
+      lane
+      try_dispatch
+      comb
+      fcomb
+      rvv_queue
+      halted
+      interlock
+      scoreboard_regd
+      rob_space
+      rob_empty
+      rob_trap_pending
+      lsu_capacity
+    ->
       per_lane "try_dispatch" d_lanes try_dispatch;
       per_lane "comb" d_lanes comb;
       Option.iter (per_lane "fcomb" d_lanes) fcomb;
-      { d_scope; d_lanes; try_dispatch; comb; fcomb; rvv_queue })
+      List.iter
+        (lanes_pattern "dispatch.lane" d_lanes)
+        [ lane.l_valid; lane.l_ready; lane.l_addr; lane.l_inst ];
+      {
+        d_scope;
+        d_lanes;
+        lane;
+        try_dispatch;
+        comb;
+        fcomb;
+        rvv_queue;
+        halted;
+        interlock;
+        scoreboard_regd;
+        rob_space;
+        rob_empty;
+        rob_trap_pending;
+        lsu_capacity;
+      })
   |> Jsont.Object.mem "scope" scope ~enc:(fun b -> b.d_scope)
   |> Jsont.Object.mem "lanes" Jsont.int ~enc:(fun b -> b.d_lanes)
+  |> Jsont.Object.mem "lane" lane ~enc:(fun b -> b.lane)
   |> Jsont.Object.mem "try_dispatch" Jsont.(list string) ~enc:(fun b -> b.try_dispatch)
   |> Jsont.Object.mem "comb" Jsont.(list string) ~enc:(fun b -> b.comb)
   |> Jsont.Object.opt_mem "fcomb" Jsont.(list string) ~enc:(fun b -> b.fcomb)
   |> Jsont.Object.opt_mem "rvv_queue" Jsont.string ~enc:(fun b -> b.rvv_queue)
+  |> Jsont.Object.mem "halted" Jsont.string ~enc:(fun b -> b.halted)
+  |> Jsont.Object.mem "interlock" Jsont.string ~enc:(fun b -> b.interlock)
+  |> Jsont.Object.mem "scoreboard_regd" Jsont.string ~enc:(fun b -> b.scoreboard_regd)
+  |> Jsont.Object.mem "rob_space" Jsont.string ~enc:(fun b -> b.rob_space)
+  |> Jsont.Object.mem "rob_empty" Jsont.string ~enc:(fun b -> b.rob_empty)
+  |> Jsont.Object.mem "rob_trap_pending" Jsont.string ~enc:(fun b -> b.rob_trap_pending)
+  |> Jsont.Object.mem "lsu_capacity" Jsont.string ~enc:(fun b -> b.lsu_capacity)
   |> finish
 
 let tlul =
@@ -227,21 +345,43 @@ let tlul =
   |> Jsont.Object.mem "d_ready" Jsont.bool ~enc:(fun t -> t.d_ready)
   |> finish
 
+let fault =
+  obj "fault" (fun f_valid f_write f_addr f_epc -> { f_valid; f_write; f_addr; f_epc })
+  |> Jsont.Object.mem "valid" Jsont.string ~enc:(fun f -> f.f_valid)
+  |> Jsont.Object.mem "write" Jsont.string ~enc:(fun f -> f.f_write)
+  |> Jsont.Object.mem "addr" Jsont.string ~enc:(fun f -> f.f_addr)
+  |> Jsont.Object.mem "epc" Jsont.string ~enc:(fun f -> f.f_epc)
+  |> finish
+
 let lsu =
-  obj "lsu" (fun lsu_scope port -> { lsu_scope; port })
+  obj "lsu" (fun lsu_scope port lsu_pc fault -> { lsu_scope; port; lsu_pc; fault })
   |> Jsont.Object.mem "scope" scope ~enc:(fun b -> b.lsu_scope)
   |> Jsont.Object.mem "port" tlul ~enc:(fun b -> b.port)
+  |> Jsont.Object.mem "pc" Jsont.string ~enc:(fun b -> b.lsu_pc)
+  |> Jsont.Object.mem "fault" fault ~enc:(fun b -> b.fault)
+  |> finish
+
+let vme_writes =
+  obj "vme writes" (fun we_en we_pe_en we_pe_pc we_mt_idx we_sub_idx we_data ->
+      { we_en; we_pe_en; we_pe_pc; we_mt_idx; we_sub_idx; we_data })
+  |> Jsont.Object.mem "en" Jsont.string ~enc:(fun w -> w.we_en)
+  |> Jsont.Object.mem "pe_en" Jsont.string ~enc:(fun w -> w.we_pe_en)
+  |> Jsont.Object.mem "pe_pc" Jsont.string ~enc:(fun w -> w.we_pe_pc)
+  |> Jsont.Object.mem "mt_idx" Jsont.string ~enc:(fun w -> w.we_mt_idx)
+  |> Jsont.Object.mem "sub_idx" Jsont.string ~enc:(fun w -> w.we_sub_idx)
+  |> Jsont.Object.mem "data" Jsont.string ~enc:(fun w -> w.we_data)
   |> finish
 
 let vme =
-  obj "vme" (fun vme_scope blocks ports_per_block tiles subtiles subtile_bytes ->
-      { vme_scope; blocks; ports_per_block; tiles; subtiles; subtile_bytes })
+  obj "vme" (fun vme_scope blocks ports_per_block tiles subtiles subtile_bytes vme_writes ->
+      { vme_scope; blocks; ports_per_block; tiles; subtiles; subtile_bytes; vme_writes })
   |> Jsont.Object.mem "scope" scope ~enc:(fun b -> b.vme_scope)
   |> Jsont.Object.mem "blocks" Jsont.int ~enc:(fun (b : vme) -> b.blocks)
   |> Jsont.Object.mem "ports_per_block" Jsont.int ~enc:(fun b -> b.ports_per_block)
   |> Jsont.Object.mem "tiles" Jsont.int ~enc:(fun b -> b.tiles)
   |> Jsont.Object.mem "subtiles" Jsont.int ~enc:(fun b -> b.subtiles)
   |> Jsont.Object.mem "subtile_bytes" Jsont.int ~enc:(fun b -> b.subtile_bytes)
+  |> Jsont.Object.mem "writes" vme_writes ~enc:(fun b -> b.vme_writes)
   |> finish
 
 let port =

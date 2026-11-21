@@ -28,3 +28,19 @@ first:
   {"type":"tiles.write","cycle":2,"block":0,"port":0,"pc":512,"tile":3,"sub":0,"mask":15,"data":"aabbccdd"}
   {"type":"tiles.write","cycle":3,"block":0,"port":0,"pc":512,"tile":3,"sub":0,"mask":12,"data":"55660000"}
   {"type":"tiles.summary","writes":3,"file":[{"tile":1,"sub":2,"data":"11223344"},{"tile":3,"sub":0,"data":"5566ccdd"}]}
+
+The VME's write ports are named by the description: renamed in both, the listing is the same:
+
+  $ coralview tiles --platform tile-core.json tiles.vcd > before.txt
+  $ cat > rename.sed <<'SED'
+  > s/\bwriteEn\b/we/g
+  > s/\bpeWriteEn\b/pe_we/g
+  > s/\bpeWritePc\b/pe_pc/g
+  > s/\bwriteMtIdx\b/mt/g
+  > s/\bwriteSubIdx\b/sub/g
+  > s/\bwriteData\b/wdata/g
+  > SED
+  $ sed -f rename.sed tile-core.json > renamed-core.json
+  $ sed -f rename.sed tiles.vcd > renamed.vcd
+  $ coralview tiles --platform renamed-core.json renamed.vcd > after.txt
+  $ diff before.txt after.txt

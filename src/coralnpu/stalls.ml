@@ -259,12 +259,12 @@ let make (c : _ Core.t) =
     List.map
       (fun i ->
         let open Sig in
-        let p = Printf.sprintf "io_inst_%d_" i in
-        let+ valid = b (p ^ "valid")
-        and+ ready = b (p ^ "ready")
+        let n = Platform.name_of in
+        let+ valid = b (n d.lane.l_valid i)
+        and+ ready = b (n d.lane.l_ready i)
         and+ try_ = b (List.nth d.try_dispatch i)
-        and+ pc = u (p ^ "bits_addr")
-        and+ word = u (p ^ "bits_inst")
+        and+ pc = u (n d.lane.l_addr i)
+        and+ word = u (n d.lane.l_inst i)
         and+ comb = u (List.nth d.comb i)
         and+ fcomb = match d.fcomb with Some l -> u (List.nth l i) | None -> Sig.const c.clk 0 in
         { valid; ready; try_; pc; word; comb; fcomb })
@@ -272,13 +272,13 @@ let make (c : _ Core.t) =
   in
   let core =
     let open Sig in
-    let+ halted = b "io_halted"
-    and+ interlock = b "io_interlock"
-    and+ regd = u "io_scoreboard_regd"
-    and+ n_space = u "io_retirement_buffer_nSpace"
-    and+ rob_empty = b "io_retirement_buffer_empty"
-    and+ trap_pending = b "io_retirement_buffer_trap_pending"
-    and+ lsu_cap = u "io_lsuQueueCapacity"
+    let+ halted = b d.halted
+    and+ interlock = b d.interlock
+    and+ regd = u d.scoreboard_regd
+    and+ n_space = u d.rob_space
+    and+ rob_empty = b d.rob_empty
+    and+ trap_pending = b d.rob_trap_pending
+    and+ lsu_cap = u d.lsu_capacity
     and+ rvv_cap = match d.rvv_queue with Some w -> u w | None -> Sig.const c.clk max_int in
     { halted; interlock; regd; n_space; rob_empty; trap_pending; lsu_cap; rvv_cap }
   in

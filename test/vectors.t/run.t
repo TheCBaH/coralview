@@ -44,9 +44,9 @@ A layout without the byte enables is not a vector register file:
   $ coralview vectors --platform no-strobe.json vectors.vcd
   v_registers.writes.layout: no rt_strobe
   File "no-strobe.json": in member v_registers of
-  File "no-strobe.json", lines 9-27, characters 12-3: blocks object
+  File "no-strobe.json", lines 9-31, characters 12-3: blocks object
   File "no-strobe.json": in member blocks of
-  File "no-strobe.json", lines 1-27, characters 0-3: platform object
+  File "no-strobe.json", lines 1-31, characters 0-3: platform object
   [2]
 
 As JSON lines, the writes, then the relation failures as diagnostics, and the exit status the same:
