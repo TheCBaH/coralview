@@ -12,6 +12,7 @@
    ../vectors.t/bad.vcd
    ../memory.t/memory.fst
    ../memory.t/memory.vcd
+   ../signals.t/seek.fst
    ../tiles.t/tile-core.json
    ../tiles.t/tiles.vcd
    ../platform.t/test-core.json
@@ -35,6 +36,7 @@
   coralview
   hwfrp
   hwfrp.vcd
+  hwfrp.native
   ovcd
   ovcd.vcd_types
   qcheck-core

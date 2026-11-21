@@ -1,5 +1,6 @@
 /* Converts the subset of VCD the fixtures use (scopes, wire vars, scalar and vector changes) to FST with
-   libfst's writer. Build and run through vcd2fst.sh. */
+   libfst's writer. A "$comment fst-block $end" line ends the current value change block. Build and run
+   through vcd2fst.sh. */
 #include <fstapi.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -83,6 +84,8 @@ int main(int argc, char **argv)
                 v->width = width;
                 v->h = fstWriterCreateVar(w, FST_VT_VCD_WIRE, FST_VD_IMPLICIT, width, d, 0);
             }
+        } else if (!strncmp(line, "$comment fst-block", 18)) {
+            fstWriterFlushContext(w);
         } else if (line[0] == '#') {
             fstWriterEmitTimeChange(w, strtoull(line + 1, NULL, 10));
         } else if (line[0] == 'b' && sscanf(line + 1, "%1099s %63s", a, e) == 2) {

@@ -821,7 +821,9 @@ whole. A path the trace lacks is an error (exit 3), not an omission.
 - **Raw** (`--raw`): every value change at its trace timestamp, with no
   clock. `--from-time`/`--to-time` select timestamps; cycle options are
   rejected, as timestamps are not cycles (the testbench dumps both
-  edges).
+  edges). From an FST file, `--from-time` starts at the block that holds
+  the time, when every requested signal has changed before it; the
+  output is that of the whole file.
 - `--changes` keeps only values that changed; the window's first sample
   shows every value. `--format jsonl` (or `--json`) prints one record
   per value, with a `type`, between a header and a summary. Unknown bits

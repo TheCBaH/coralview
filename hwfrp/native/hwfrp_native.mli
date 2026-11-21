@@ -36,6 +36,17 @@ val parse_file : ?select:(Vcd_types.ID.t -> bool) -> string -> Vcd.parse_result
 val with_parse_file : ?select:(Vcd_types.ID.t -> bool) -> string -> (Vcd.parse_result -> 'a) -> 'a
 (** {!parse_file}, with the file closed when the function returns or raises. *)
 
+val with_seek :
+  ?select:(Vcd_types.ID.t -> bool) ->
+  string ->
+  time:int64 ->
+  (Vcd.Stateful.state -> Vcd_ast.event Seq.t -> 'a) ->
+  'a option
+(** For an FST file, [f state events] where [events] start at the whole timestep that begins the
+    block holding [time] and [state] holds the selected IDs' values before them (see
+    [Vcd_fst.open_at]); the file is closed when [f] returns or raises. [None], without calling [f],
+    for a VCD file and when [time] is not past the first block. *)
+
 val open_string : ?select:bool -> string -> Hwfrp.Trace.t
 (** VCD or FST bytes, by content. Raises {!Vcd.Error.E} as {!open_file} does. *)
 

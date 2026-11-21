@@ -113,13 +113,18 @@ let sampled ?gate (p : Platform.t) tr paths ~from ~until ~changes f =
     (fun (cycle, time, vs) ->
       if cycle > until then raise Stop;
       if cycle >= from then begin
-        let before = if cycle = from then [] else !previous in
-        List.iteri
-          (fun i (path, (v : Logic.t)) ->
-            let same = match List.nth_opt before i with Some b -> same b v | None -> false in
-            if not (changes && same) then
-              f { cycle = Some cycle; time; path; width = Logic.width v; value = v })
-          (List.combine paths vs)
+        let rec emit paths vs before =
+          match (paths, vs) with
+          | path :: paths, (v : Logic.t) :: vs ->
+              let same, before =
+                match before with b :: before -> (same b v, before) | [] -> (false, [])
+              in
+              if not (changes && same) then
+                f { cycle = Some cycle; time; path; width = Logic.width v; value = v };
+              emit paths vs before
+          | _ -> ()
+        in
+        emit paths vs (if cycle = from then [] else !previous)
       end;
       previous := vs);
   (try ignore (Core.run ?gate c : Sched.run_stats) with Stop -> ());
@@ -134,7 +139,11 @@ let sampled ?gate (p : Platform.t) tr paths ~from ~until ~changes f =
         Format.eprintf "%s: %s@." (String.concat "," (List.map name d.paths)) d.message)
     (Diag.stream c.net)
 
-let raw tr paths ~from ~until ~changes f =
+(* Only the selected IDs of the full stream are read. Where the file is an FST, the full scan up to
+   [from] is skipped when every wanted ID has changed before the block that holds [from]: the frame
+   then gives the values the scan would have held. A frame also holds IDs the stream has not assigned
+   yet, which the full scan would print at their first change, so otherwise the scan continues. *)
+let raw ?path tr paths ~from ~until ~changes f =
   let wanted =
     List.map
       (fun path ->
@@ -143,37 +152,97 @@ let raw tr paths ~from ~until ~changes f =
         | None -> raise (Missing path))
       paths
   in
+  let by_id = Hashtbl.create 16 in
+  List.iter
+    (fun ((_, (s : Trace.signal)) as w) ->
+      let k = Vcd_types.ID.to_string s.id in
+      Hashtbl.replace by_id k (w :: Option.value (Hashtbl.find_opt by_id k) ~default:[]))
+    (List.rev wanted);
   let last = Hashtbl.create 16 and undecodable = Hashtbl.create 4 in
   let time = ref 0L in
-  try
-    Seq.iter
-      (function
-        | Vcd_ast.Timestamp t ->
-            time := Vcd_types.Timestamp.to_int64 t;
-            if Int64.compare !time until > 0 then raise Stop
-        | Change (id, v) ->
+  let decode path (s : Trace.signal) v =
+    match Logic.of_value ~width:s.width v with
+    | Ok value -> value
+    | Error e ->
+        if not (Hashtbl.mem undecodable path) then begin
+          Hashtbl.replace undecodable path ();
+          Format.eprintf "%s: %a; read as unknown@." path Logic.pp_decode_error e
+        end;
+        Logic.unknown s.width
+  in
+  let handle = function
+    | Vcd_ast.Timestamp t ->
+        time := Vcd_types.Timestamp.to_int64 t;
+        if Int64.compare !time until > 0 then raise Stop
+    | Change (id, v) -> (
+        match Hashtbl.find_opt by_id (Vcd_types.ID.to_string id) with
+        | None -> ()
+        | Some ws ->
             List.iter
               (fun (path, (s : Trace.signal)) ->
-                if Vcd_types.ID.equal s.id id then (
-                  let value =
-                    match Logic.of_value ~width:s.width v with
-                    | Ok value -> value
-                    | Error e ->
-                        if not (Hashtbl.mem undecodable path) then begin
-                          Hashtbl.replace undecodable path ();
-                          Format.eprintf "%s: %a; read as unknown@." path Logic.pp_decode_error e
-                        end;
-                        Logic.unknown s.width
-                  in
-                  let same =
-                    match Hashtbl.find_opt last path with Some b -> same b value | None -> false
-                  in
-                  Hashtbl.replace last path value;
-                  if Int64.compare !time from >= 0 && not (changes && same) then
-                    f { cycle = None; time = !time; path; width = s.width; value }))
-              wanted
-        | _ -> ())
-      (Trace.events tr)
+                let value = decode path s v in
+                let same =
+                  match Hashtbl.find_opt last path with Some b -> same b value | None -> false
+                in
+                Hashtbl.replace last path value;
+                if Int64.compare !time from >= 0 && not (changes && same) then
+                  f { cycle = None; time = !time; path; width = s.width; value })
+              ws)
+    | _ -> ()
+  in
+  (* The stream stands in for the scan only if it starts before [from]: a block can start at a timestamp
+     whose changes are in the block before, so those changes are in [state] and not in the stream. *)
+  let resume events state resumed =
+    match (Vcd.ID_map.is_empty state, resumed ()) with
+    | false, Seq.Cons ((Vcd_ast.Timestamp t0 as first), rest) ->
+        let t0_ = Vcd_types.Timestamp.to_int64 t0 in
+        if Int64.compare t0_ from >= 0 then `Earlier
+        else begin
+          let unseen = Hashtbl.create 16 in
+          Hashtbl.iter (fun k _ -> Hashtbl.replace unseen k ()) by_id;
+          let rec prefix seq =
+            match seq () with
+            | Seq.Nil -> ()
+            | Cons (Vcd_ast.Timestamp t, _) as node
+              when Int64.compare (Vcd_types.Timestamp.to_int64 t) t0_ >= 0 ->
+                Seq.iter handle (fun () -> node)
+            | Cons (e, seq) ->
+                handle e;
+                (match e with
+                | Change (id, _) -> Hashtbl.remove unseen (Vcd_types.ID.to_string id)
+                | _ -> ());
+                if Hashtbl.length unseen = 0 then begin
+                  List.iter
+                    (fun (path, (s : Trace.signal)) ->
+                      match Vcd.Stateful.find state s.id with
+                      | Some v -> Hashtbl.replace last path (decode path s v)
+                      | None -> ())
+                    wanted;
+                  Seq.iter handle (Seq.cons first rest)
+                end
+                else prefix seq
+          in
+          prefix events;
+          `Done
+        end
+    | _ -> `Full
+  in
+  try
+    let events = Trace.events tr in
+    let rec seek time tries =
+      match path with
+      | Some path when Int64.compare time 0L > 0 && tries > 0 -> (
+          match
+            Hwfrp_native.with_seek
+              ~select:(fun id -> Hashtbl.mem by_id (Vcd_types.ID.to_string id))
+              path ~time (resume events)
+          with
+          | Some `Earlier -> seek (Int64.pred time) (tries - 1)
+          | Some `Done -> ()
+          | Some `Full | None -> Seq.iter handle events)
+      | _ -> Seq.iter handle events
+    in
+    seek from 8
   with Stop -> ()
 
 let header (p : Platform.t) =

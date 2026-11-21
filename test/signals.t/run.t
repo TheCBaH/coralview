@@ -110,3 +110,27 @@ $dumpvars that is still open, is a cut file, and the error names the file:
   $ coralview signals --platform sig.json open.vcd TOP.sim/core/count > /dev/null
   coralview: trace read failed (incomplete): unterminated dump block at end of input at open.vcd line 15 col 0
   [3]
+
+From an FST file, --from-time starts at the block that holds the time instead of at the beginning. seek.fst
+is seek.vcd through tools/vcd2fst.sh, with a block ended after #3 and after #7. Here top/a repeats its value
+at the start of the second and third blocks, and top/d is first assigned in the third, with the value its
+frame holds. The results are those of the whole file; a VCD file is scanned from the start, so a single
+signal prints the same from both:
+
+  $ coralview signals --raw --changes --from-time 5 seek.fst top/a top/b top/d
+         -          5    8 top/b 0x04
+         -          6    8 top/a 0x07
+         -          9    8 top/d 0bxxxxxxxx
+         -         10    8 top/d 0xaa
+         -         11    8 top/a 0x01
+  $ coralview signals --raw --changes --from-time 9 seek.fst top/d
+         -          9    8 top/d 0bxxxxxxxx
+         -         10    8 top/d 0xaa
+  $ for t in 0 3 4 5 7 8 9 10 12; do
+  >   for s in a b d; do
+  >     for c in "" --changes; do
+  >       coralview signals --raw $c --from-time $t seek.fst top/$s > fst.out
+  >       coralview signals --raw $c --from-time $t seek.vcd top/$s | cmp - fst.out || echo "$t $s $c"
+  >     done
+  >   done
+  > done
