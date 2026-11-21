@@ -38,9 +38,6 @@ let guard (p : Platform.t) f =
   | exception Core.No_block (platform, block) ->
       fail ~code:2 (Printf.sprintf "platform %s describes no %s block" platform block)
 
-(* [--between-pc A,B --nth N]: the window from the Nth retirement of PC A to the next retirement of PC B,
-   found by a first pass over the trace with [commits]. *)
-type marker = Between of int * int | Around of string | Entry of string
 type elf = { file : string; symbols : Symbols.t }
 
 (* What the options of a command say. The terms of a command return changes to the defaults; they are
@@ -51,7 +48,7 @@ type options = {
   origins : string list option;  (** The models a [run] builds, which the plan must have. *)
   elf : elf option;
       (** [--elf FILE]: the functions of the program, to name PCs and to find a function. *)
-  between : (marker * int) option;
+  between : (Window_marker.spec * int) option;
       (** The window [--between-pc], [--around-symbol] or [--entry] names. *)
   manifest : string option;  (** [--manifest FILE], for the platform's instruction set. *)
   annotate : string option;  (** [--annotate FILE]: labels for addresses, joined into the rows. *)
@@ -202,100 +199,23 @@ let print_banner env ppf (p : Platform.t) =
 let jsonl_header env ~model ~platform ~trace =
   { (Jsonl.header ~model ~platform ~trace) with simulator = !(env.simulator) }
 
-let resolve_between env (p : Platform.t) path (ctx : Text.ctx) =
-  match env.between with
-  | None -> ctx
-  | Some (marker, nth) ->
-      let flag =
-        match marker with
-        | Between _ -> "--between-pc"
-        | Around _ -> "--around-symbol"
-        | Entry _ -> "--entry"
-      in
-      if path = "-" then fail ~code:2 (flag ^ " reads the trace twice: name a file, not - or --exec");
-      (* The first retirement of the start, the Nth time, and the first end after it. *)
-      let is_start, is_end, start_name, end_name =
-        match marker with
-        | Between (a, b) ->
-            ( (fun (c : Commits.commit) -> c.pc = a),
-              (fun (c : Commits.commit) -> c.pc = b),
-              Printf.sprintf "pc %08x" a,
-              Printf.sprintf "pc %08x" b )
-        | Around name | Entry name -> (
-            match env.elf with
-            | None -> fail ~code:2 (flag ^ " needs --elf")
-            | Some { symbols = t; _ } -> (
-                match Symbols.find t name with
-                | [] -> fail ~code:2 (Printf.sprintf "%s: no function %s in the ELF" flag name)
-                | _ :: _ :: _ ->
-                    fail ~code:2
-                      (Printf.sprintf "%s: %s names several functions; use --between-pc" flag name)
-                | [ f ] when match marker with Entry _ -> true | _ -> false ->
-                    (* The ret that pops the entry's frame: calls (jal/jalr with rd = ra) nest. *)
-                    let depth = ref 0 in
-                    ( (fun c -> c.pc = f.address),
-                      (fun c ->
-                        match c.word with
-                        | Some w when w land 0xfff = 0x0ef || w land 0xfff = 0x0e7 ->
-                            incr depth;
-                            false
-                        | Some 0x00008067 ->
-                            if !depth = 0 then true
-                            else begin
-                              decr depth;
-                              false
-                            end
-                        | _ -> false),
-                      name,
-                      "" )
-                | [ f ] ->
-                    (* ret is jalr x0, 0(ra). *)
-                    ( (fun c -> c.pc = f.address),
-                      (fun c ->
-                        c.word = Some 0x00008067 && c.pc >= f.address
-                        && c.pc < f.address + max f.size 1),
-                      name,
-                      "a ret of " ^ name )))
-      in
-      let seen = ref 0 and first = ref None and last = ref None in
-      with_trace env path (fun tr ->
-          let pulled = guard p (fun () -> pull env (module Commits) () p tr) in
-          try
-            Seq.iter
-              (function
-                | Commits.Event.Commit c -> (
-                    match !first with
-                    | None ->
-                        if is_start c then begin
-                          incr seen;
-                          if !seen = nth then first := Some c.retired
-                        end
-                    | Some f ->
-                        if is_end c && c.retired >= f then begin
-                          last := Some c.retired;
-                          raise Exit
-                        end)
-                | _ -> ())
-              pulled.events
-          with Exit -> ());
-      let first =
-        match !first with
-        | Some c -> c
-        | None ->
-            fail ~code:3 (Printf.sprintf "%s: %s retires fewer than %d times" flag start_name nth)
-      in
-      let last =
-        match (!last, marker) with
-        | Some c, _ -> c
-        | None, Entry _ -> max_int
-        | None, _ ->
-            fail ~code:3 (Printf.sprintf "%s: %s never retires from cycle %d" flag end_name first)
-      in
-      {
-        ctx with
-        window =
-          { ctx.window with first = max first ctx.window.first; last = min last ctx.window.last };
-      }
+(* [--between-pc A,B --nth N] and the other markers: the window is found in the retirements of the run
+   that prints it. What is wrong with the markers is known before the run. *)
+let marker env =
+  Option.map
+    (fun (spec, nth) ->
+      match Window_marker.make spec ~nth (Option.map (fun e -> e.symbols) env.elf) with
+      | Ok m -> m
+      | Error (code, msg) -> fail ~code msg)
+    env.between
+
+let resolve_window marker (window : Text.window) commits =
+  match marker with
+  | None -> window
+  | Some m -> (
+      match Window_marker.resolve m window (Lazy.force commits) with
+      | Ok w -> w
+      | Error (code, msg) -> fail ~code msg)
 
 (* [k] prints to the standard output for "-", else to the file [path]. *)
 let with_ppf path k =
@@ -397,21 +317,95 @@ let opts_ctx env p ?legend ?note (o : Models.opts) =
   ctx env p ~features:o.features ~region:o.region ~window:o.window ~limit:o.limit ~profile:o.profile
     ?legend ?note ()
 
+(* The vsetvli configuration of [disasm --vconfig] for each PC of the --elf, if there is one. *)
+let static_vconfig env =
+  match env.elf with
+  | None -> fun _ -> None
+  | Some { file; _ } -> (
+      let data =
+        try In_channel.with_open_bin file In_channel.input_all with Sys_error e -> fail ~code:2 e
+      in
+      match Disasm.listing (decoder None) Disasm.everything data with
+      | Error _ -> fun _ -> None
+      | Ok items ->
+          let t = Hashtbl.create 256 in
+          List.iter
+            (function
+              | Disasm.Line { address; vconfig = Some v; _ } -> Hashtbl.replace t address v
+              | _ -> ())
+            (Disasm.with_vconfig items);
+          Hashtbl.find_opt t)
+
 (* A converted analysis: text through its own view, or JSON lines with the rows the window and the
-   limit select; the summary always covers the whole trace. *)
-let analyze env name (o : Models.opts) ?legend ?note (p : Platform.t) ~format path =
-  let (Models.M { a = (module A); cfg; text; status; _ }) =
+   limit select; the summary always covers the whole trace. A window that markers name, and the
+   configurations of [--vector], are found in the same run as the rows: they are kept until it ends. *)
+let analyze env name (o : Models.opts) ?legend ?(vector = false) (p : Platform.t) ~format path =
+  let (Models.M { a = (module A); cfg; text; status; commit; _ }) =
     match Models.find name with Some m -> m | None -> fail ~code:2 ("no analysis " ^ name)
   in
+  let notes = ref (fun ~pc:_ ~cycle:_ -> None) in
+  let note = if vector then Some (fun ~pc ~cycle -> !notes ~pc ~cycle) else None in
   let ctx = opts_ctx env p ?legend ?note o in
-  let ctx = resolve_between env p path ctx in
   Driver.report_to (if format = `Jsonl then `Jsonl else `Text);
-  let pulled = guard p (fun () -> pull env (module A) (cfg o) p (open_trace env path)) in
+  let marker = marker env in
+  let events, summary, diags, ctx =
+    if Option.is_none marker && not vector then begin
+      let pulled = guard p (fun () -> pull env (module A) (cfg o) p (open_trace env path)) in
+      (pulled.events, pulled.summary, pulled.diags, ctx)
+    end
+    else begin
+      let more = Option.is_some marker && commit = None in
+      let env =
+        {
+          env with
+          origins =
+            Some
+              ((if more then [ Commits.name ] else [])
+              @ [ A.name ]
+              @ if vector then [ Ops.name ] else []);
+        }
+      in
+      let (events, summary, commits, ops), diags =
+        guard p (fun () ->
+            Pass.run ?gate:(gate env) p (open_trace env path) ~model:A.name
+              {
+                build =
+                  (fun c ->
+                    let commits = if more then Some (Pass.commits c) else None in
+                    let rows = Pass.collect (module A) (cfg o) c in
+                    let ops =
+                      if vector then Some (Pass.collect (module Ops) Ops.Config.default c) else None
+                    in
+                    fun stats ->
+                      let events, summary = rows stats in
+                      ( events,
+                        summary,
+                        Option.map (fun r -> r stats) commits,
+                        Option.map (fun r -> fst (r stats)) ops ));
+              })
+      in
+      let commits =
+        lazy
+          (match (commit, commits) with
+          | Some retirement, _ -> List.filter_map retirement events
+          | None, Some l -> l
+          | None, None -> [])
+      in
+      if vector then
+        notes :=
+          Vector_notes.notes ~static:(static_vconfig env) (Lazy.force commits)
+            (List.filter_map
+               (function Ops.Event.Op o -> Some o | Burst _ -> None)
+               (Option.value ops ~default:[]));
+      let ctx = { ctx with window = resolve_window marker ctx.window commits } in
+      (List.to_seq events, (fun () -> summary), (fun () -> diags), ctx)
+    end
+  in
   (match format with
   | `Text ->
       with_ppf "-" (fun ppf ->
           print_banner env ppf p;
-          Text.drain (text o ctx ppf pulled.summary) pulled.events)
+          Text.drain (text o ctx ppf summary) events)
   | `Jsonl ->
       let selected = Text.selected ctx.window in
       let keep e =
@@ -423,9 +417,9 @@ let analyze env name (o : Models.opts) ?legend ?note (p : Platform.t) ~format pa
           window = jsonl_window ctx.window;
         }
         (module A)
-        (Seq.take ctx.limit (Seq.filter keep pulled.events))
-        ~diags:pulled.diags pulled.summary);
-  match status (pulled.summary ()) with 0 -> () | n -> exit n
+        (Seq.take ctx.limit (Seq.filter keep events))
+        ~diags summary);
+  match status (summary ()) with 0 -> () | n -> exit n
 
 let signals env platform ~raw ~format ~changes ~cycles:(from_cycle, to_cycle)
     ~times:(from_time, to_time) path paths =
@@ -751,15 +745,15 @@ let window =
         & info [ "pc" ] ~docv:"HEX"
             ~doc:"Print only rows of this PC; repeatable. The whole trace is still processed."))
 
-(* The window [--between-pc], [--around-symbol] or [--entry] names, found by a first pass. *)
+(* The window [--between-pc], [--around-symbol] or [--entry] names, found in the run. *)
 let between : setting Term.t =
   let make between around entry nth =
     let between =
       match (between, around, entry) with
       | None, None, None -> None
-      | Some (a, b), None, None -> Some (Between (a, b), nth)
-      | None, Some name, None -> Some (Around name, nth)
-      | None, None, Some name -> Some (Entry name, nth)
+      | Some (a, b), None, None -> Some (Window_marker.Between (a, b), nth)
+      | None, Some name, None -> Some (Window_marker.Around name, nth)
+      | None, None, Some name -> Some (Window_marker.Entry name, nth)
       | _ -> fail ~code:2 "--between-pc, --around-symbol and --entry are alternatives"
     in
     fun o -> { o with between }
@@ -780,7 +774,7 @@ let between : setting Term.t =
           ~doc:
             "Print rows from the retirement of PC $(i,A) to the next retirement of PC $(i,B), both \
              included; they bound the window as $(b,--from-cycle) and $(b,--to-cycle) do, and are \
-             found by a first pass over the trace.")
+             found in the retirements of the run.")
   in
   let around =
     Arg.(
@@ -1010,8 +1004,15 @@ let run_models env (p : Platform.t) (o : Models.opts) models sinks ?perfetto ?ka
      | [] ->
          if sinks = [] && perfetto = None && kanata = None && report = None then `Text else `Stderr));
   let ctx = opts_ctx env p o in
-  let ctx = resolve_between env p path ctx in
-  let env = { env with origins = Some models } in
+  let marker = marker env in
+  let env =
+    {
+      env with
+      origins =
+        Some
+          (if Option.is_none marker then models else List.sort_uniq compare (Commits.name :: models));
+    }
+  in
   let tr = open_trace env path in
   let (Core.Any c) = Core.bind p tr ~model:"run" in
   let targets m =
@@ -1027,6 +1028,7 @@ let run_models env (p : Platform.t) (o : Models.opts) models sinks ?perfetto ?ka
   let outs = ref [] in
   let diags_written = ref false in
   Fun.protect ~finally:(fun () -> List.iter (fun o -> o.abandon ()) !outs) @@ fun () ->
+  let tracked = guard p (fun () -> Option.map (fun _ -> Pass.commits c) marker) in
   let finishers =
     guard p (fun () ->
         List.map
@@ -1035,113 +1037,133 @@ let run_models env (p : Platform.t) (o : Models.opts) models sinks ?perfetto ?ka
             | None -> fail ~code:2 ("run: no analysis " ^ m)
             | Some (M { a = (module A); cfg; text; status; perfetto = view; _ }) ->
                 let mine = targets m in
-                let selected = Text.selected ctx.window in
-                let keep e =
-                  selected ~cycle:(A.Event.cycle e) ~pc:(Option.value (A.Event.pc e) ~default:(-1))
-                in
-                let jsonl =
-                  List.filter_map
-                    (fun (k, f) ->
-                      if k <> "jsonl" then None
-                      else begin
-                        let oc = if f = "-" then stdout else open_out f in
-                        output_string oc
-                          (Codec.to_line Jsonl.header_jsont
-                             {
-                               (jsonl_header env ~model:A.name ~platform:p.name ~trace:path) with
-                               window = jsonl_window ctx.window;
-                             });
+                (* What depends on the window: with markers, after the run has found it. *)
+                let setup (ctx : Text.ctx) =
+                  let selected = Text.selected ctx.window in
+                  let keep e =
+                    selected ~cycle:(A.Event.cycle e)
+                      ~pc:(Option.value (A.Event.pc e) ~default:(-1))
+                  in
+                  let jsonl =
+                    List.filter_map
+                      (fun (k, f) ->
+                        if k <> "jsonl" then None
+                        else begin
+                          let oc = if f = "-" then stdout else open_out f in
+                          output_string oc
+                            (Codec.to_line Jsonl.header_jsont
+                               {
+                                 (jsonl_header env ~model:A.name ~platform:p.name ~trace:path) with
+                                 window = jsonl_window ctx.window;
+                               });
+                          output_char oc '\n';
+                          Some (oc, ref 0)
+                        end)
+                      mine
+                  in
+                  let summary_of =
+                    ref (fun () -> failwith "run: the summary is read after the run")
+                  in
+                  let late () = !summary_of () in
+                  let texts =
+                    List.filter_map
+                      (fun (k, f) ->
+                        if k <> "text" then None
+                        else begin
+                          let out = text_out f ~hold in
+                          outs := out :: !outs;
+                          print_banner env out.ppf p;
+                          Some (out, text o ctx out.ppf late)
+                        end)
+                      mine
+                  in
+                  let section =
+                    Option.map
+                      (fun _ ->
+                        let ctx =
+                          {
+                            ctx with
+                            limit = 0;
+                            profile = (if ctx.profile = 0 then 10 else ctx.profile);
+                          }
+                        in
+                        let buf = Buffer.create 1024 in
+                        let ppf = Format.formatter_of_buffer buf in
+                        (buf, ppf, text o ctx ppf late))
+                      report
+                  in
+                  let events = ref [] in
+                  let collect = perfetto <> None && view <> None in
+                  let add e =
+                    if collect then events := e :: !events;
+                    List.iter (fun (_, (sink : _ Text.sink)) -> sink.add e) texts;
+                    Option.iter (fun (_, _, (sink : _ Text.sink)) -> sink.add e) section;
+                    if keep e then
+                      List.iter
+                        (fun (oc, n) ->
+                          if !n < ctx.limit then begin
+                            incr n;
+                            output_string oc (Codec.to_line A.Event.jsont e);
+                            output_char oc '\n'
+                          end)
+                        jsonl
+                  in
+                  let finish s =
+                    (summary_of := fun () -> s);
+                    List.iter
+                      (fun (oc, _) ->
+                        if not !diags_written then begin
+                          diags_written := true;
+                          Seq.iter
+                            (fun d ->
+                              output_string oc (Codec.to_line Codec.diag d);
+                              output_char oc '\n')
+                            (Hwfrp.Diag.stream c.net)
+                        end;
+                        output_string oc (Codec.to_line A.Summary.jsont s);
                         output_char oc '\n';
-                        Some (oc, ref 0)
-                      end)
-                    mine
+                        if oc == stdout then flush oc else close_out oc)
+                      jsonl;
+                    List.iter
+                      (fun ((out : text_out), (sink : _ Text.sink)) ->
+                        sink.finish ();
+                        out.finish ())
+                      texts;
+                    let section =
+                      Option.map
+                        (fun (buf, ppf, (sink : _ Text.sink)) ->
+                          sink.finish ();
+                          Format.pp_print_flush ppf ();
+                          (A.name, A.doc, Buffer.contents buf))
+                        section
+                    in
+                    ( status s,
+                      (match (perfetto, view) with
+                      | Some _, Some v -> [ v ctx (List.to_seq (List.rev !events)) s ]
+                      | _ -> []),
+                      section )
+                  in
+                  (add, finish)
                 in
-                let summary_of =
-                  ref (fun () -> failwith "run: the summary is read after the run")
-                in
-                let late () = !summary_of () in
-                let texts =
-                  List.filter_map
-                    (fun (k, f) ->
-                      if k <> "text" then None
-                      else begin
-                        let out = text_out f ~hold in
-                        outs := out :: !outs;
-                        print_banner env out.ppf p;
-                        Some (out, text o ctx out.ppf late)
-                      end)
-                    mine
-                in
-                let section =
-                  Option.map
-                    (fun _ ->
-                      let ctx =
-                        {
-                          ctx with
-                          limit = 0;
-                          profile = (if ctx.profile = 0 then 10 else ctx.profile);
-                        }
-                      in
-                      let buf = Buffer.create 1024 in
-                      let ppf = Format.formatter_of_buffer buf in
-                      (buf, ppf, text o ctx ppf late))
-                    report
-                in
-                let events = ref [] in
-                let collect = perfetto <> None && view <> None in
+                let live = if Option.is_none marker then Some (setup ctx) else None in
+                let held = ref [] in
                 let summary =
                   Analysis.subscribe
                     (module A)
                     (cfg o) c
-                    (fun e ->
-                      if collect then events := e :: !events;
-                      List.iter (fun (_, (sink : _ Text.sink)) -> sink.add e) texts;
-                      Option.iter (fun (_, _, (sink : _ Text.sink)) -> sink.add e) section;
-                      if keep e then
-                        List.iter
-                          (fun (oc, n) ->
-                            if !n < ctx.limit then begin
-                              incr n;
-                              output_string oc (Codec.to_line A.Event.jsont e);
-                              output_char oc '\n'
-                            end)
-                          jsonl)
+                    (fun e -> match live with Some (add, _) -> add e | None -> held := e :: !held)
                 in
-                fun stats ->
+                fun stats ctx ->
                   let s = summary stats in
-                  (summary_of := fun () -> s);
-                  List.iter
-                    (fun (oc, _) ->
-                      if not !diags_written then begin
-                        diags_written := true;
-                        Seq.iter
-                          (fun d ->
-                            output_string oc (Codec.to_line Codec.diag d);
-                            output_char oc '\n')
-                          (Hwfrp.Diag.stream c.net)
-                      end;
-                      output_string oc (Codec.to_line A.Summary.jsont s);
-                      output_char oc '\n';
-                      if oc == stdout then flush oc else close_out oc)
-                    jsonl;
-                  List.iter
-                    (fun ((out : text_out), (sink : _ Text.sink)) ->
-                      sink.finish ();
-                      out.finish ())
-                    texts;
-                  let section =
-                    Option.map
-                      (fun (buf, ppf, (sink : _ Text.sink)) ->
-                        sink.finish ();
-                        Format.pp_print_flush ppf ();
-                        (A.name, A.doc, Buffer.contents buf))
-                      section
+                  let _, finish =
+                    match live with
+                    | Some l -> l
+                    | None ->
+                        let ((add, _) as l) = setup ctx in
+                        List.iter add (List.rev !held);
+                        l
                   in
-                  ( status s,
-                    (match (perfetto, view) with
-                    | Some _, Some v -> [ v ctx (List.to_seq (List.rev !events)) s ]
-                    | _ -> []),
-                    section ))
+                  finish s)
           models)
   in
   let kanata_out =
@@ -1149,14 +1171,15 @@ let run_models env (p : Platform.t) (o : Models.opts) models sinks ?perfetto ?ka
       (fun f ->
         (* Written as the run goes, to the standard output too unless something else prints there. *)
         let hold =
-          f = "-"
-          && (on_stdout "text" <> []
-             || on_stdout "jsonl" <> []
-             || perfetto = Some "-" || report = Some "-")
+          Option.is_some marker
+          || f = "-"
+             && (on_stdout "text" <> []
+                || on_stdout "jsonl" <> []
+                || perfetto = Some "-" || report = Some "-")
         in
         let buf = Buffer.create 4096 in
-        let oc = if f = "-" || hold then stdout else open_out f in
-        let put = if hold then Buffer.add_string buf else output_string oc in
+        let dest = lazy (if f = "-" then stdout else open_out f) in
+        let put = if hold then Buffer.add_string buf else output_string (Lazy.force dest) in
         let builder = Kanata.Builder.create ~disasm:ctx.disasm (Kanata.Writer.create put) in
         guard p (fun () ->
             let (_ : Hwfrp.Sched.run_stats -> _) =
@@ -1167,14 +1190,23 @@ let run_models env (p : Platform.t) (o : Models.opts) models sinks ?perfetto ?ka
                 Analysis.subscribe (module Stalls) () c (Kanata.Builder.stall builder)
               in
               ());
-        (builder, oc, buf, hold))
+        (builder, dest, buf, hold))
       kanata
   in
   let stats = Core.run ?gate:(gate env) c in
-  let results = List.map (fun f -> f stats) finishers in
+  let ctx =
+    {
+      ctx with
+      window =
+        resolve_window marker ctx.window
+          (lazy (match tracked with Some r -> r stats | None -> []));
+    }
+  in
+  let results = List.map (fun f -> f stats ctx) finishers in
   Option.iter
-    (fun (builder, oc, buf, hold) ->
+    (fun (builder, dest, buf, hold) ->
       Kanata.Builder.finish builder;
+      let oc = Lazy.force dest in
       if hold then output_string oc (Buffer.contents buf);
       if oc != stdout then close_out oc else flush oc)
     kanata_out;
@@ -1337,45 +1369,6 @@ let beats =
   Arg.(
     value & opt int 0 & info [ "beats" ] ~docv:"N" ~doc:"Print the first $(docv) beats of each job.")
 
-(* [commits --vector]: the vsetvli configuration each vector instruction ran under, from [ops], with the
-   static one of [disasm --vconfig] when there is an --elf. *)
-let vector_note env p path =
-  if path = "-" then fail ~code:2 "--vector reads the trace twice: name a file, not -";
-  let commits =
-    let pulled = guard p (fun () -> pull env (module Commits) () p (open_trace env path)) in
-    List.of_seq
-      (Seq.filter_map
-         (function Commits.Event.Commit c -> Some c | In_flight _ -> None)
-         pulled.events)
-  in
-  let ops =
-    let pulled =
-      guard p (fun () -> pull env (module Ops) Ops.Config.default p (open_trace env path))
-    in
-    List.of_seq
-      (Seq.filter_map (function Ops.Event.Op o -> Some o | Burst _ -> None) pulled.events)
-  in
-  let static =
-    match env.elf with
-    | None -> fun _ -> None
-    | Some { file; _ } -> (
-        let data =
-          try In_channel.with_open_bin file In_channel.input_all
-          with Sys_error e -> fail ~code:2 e
-        in
-        match Disasm.listing (decoder None) Disasm.everything data with
-        | Error _ -> fun _ -> None
-        | Ok items ->
-            let t = Hashtbl.create 256 in
-            List.iter
-              (function
-                | Disasm.Line { address; vconfig = Some v; _ } -> Hashtbl.replace t address v
-                | _ -> ())
-              (Disasm.with_vconfig items);
-            Hashtbl.find_opt t)
-  in
-  Vector_notes.notes ~static commits ops
-
 let pair_conv =
   Arg.conv
     ( (fun s ->
@@ -1481,14 +1474,20 @@ let commands =
               let name, entry_only = name_of in
               let between =
                 match around with
-                | Some _ -> marker_of (fun n -> Around n) name
-                | None -> if entry_only then marker_of (fun n -> Entry n) name else None
+                | Some _ -> marker_of (fun n -> Window_marker.Around n) name
+                | None ->
+                    if entry_only then marker_of (fun n -> Window_marker.Entry n) name else None
               in
               let env = { shared with elf; between } in
-              let c = resolve_between env p trace (ctx env p ()) in
+              let c = ctx env p () in
+              let marker = marker env in
+              let window = ref c.window in
               let summary, commits =
                 guard p (fun () ->
-                    Window_summary.analyze ?gate:(gate env) p ~window:c.window
+                    Window_summary.analyze ?gate:(gate env) p
+                      ~window:(fun commits ->
+                        window := resolve_window marker c.window (lazy commits);
+                        !window)
                       (open_trace env trace))
               in
               let base =
@@ -1497,7 +1496,7 @@ let commands =
                     match Symbols.find t n with [ f ] -> f.address | _ -> 0)
                 | _ -> 0
               in
-              { Compare.trace; summary; window = c.window; commits; base; disasm = c.disasm }
+              { Compare.trace; summary; window = !window; commits; base; disasm = c.disasm }
             in
             let names =
               match (around, entry) with
@@ -1654,10 +1653,9 @@ let commands =
         const (fun features window limit profile legend vector format output env p path ->
             redirect output;
             if vector && format = `Jsonl then fail ~code:2 "--vector is for the text listing";
-            let note = if vector then Some (vector_note env p path) else None in
             analyze env "commits"
               { Models.default with features; window; limit; profile }
-              ~legend ?note p ~format path)
+              ~legend ~vector p ~format path)
         $ features $ window $ limit $ profile $ legend
         $ Arg.(
             value & flag
@@ -1665,7 +1663,7 @@ let commands =
                 ~doc:
                   "Append to each vector instruction's row the SEW, LMUL and $(b,vl) the RVV \
                    backend ran it under (the $(b,ops) model), and the $(b,disasm --vconfig) one \
-                   with $(b,--elf) where they differ. Text only; the trace must be a file.")
+                   with $(b,--elf) where they differ. Text only.")
         $ format $ output);
     model ~opts:[ elf; between; profile_by ] "stalls" Stalls.doc
       Term.(
@@ -1686,24 +1684,25 @@ let commands =
         const (fun window format output env p path ->
             let region = regions env p in
             redirect output;
-            if path = "-" then fail ~code:2 "cost reads the trace twice: name a file, not -";
-            let c = resolve_between env p path (ctx env p ~region ~window ()) in
-            let window = c.window in
-            let open_trace () = open_trace env path in
-            let commits =
-              let pulled = pull env (module Commits) () p (open_trace ()) in
-              List.of_seq
-                (Seq.filter_map
-                   (function Commits.Event.Commit c -> Some c | In_flight _ -> None)
-                   pulled.events)
+            let c = ctx env p ~region ~window () in
+            let marker = marker env in
+            let env = { env with origins = Some [ Commits.name; Memory.name ] } in
+            let (commits, accesses), _ =
+              Pass.run ?gate:(gate env) p (open_trace env path) ~model:Commits.name
+                {
+                  build =
+                    (fun c ->
+                      let commits = Pass.collect (module Commits) () c in
+                      let accesses = Pass.collect (module Memory) { region } c in
+                      fun stats ->
+                        ( Commits.commits (fst (commits stats)),
+                          List.filter_map
+                            (function
+                              | Memory.Event.Access a -> Some a | Fault _ | Unmatched _ -> None)
+                            (fst (accesses stats)) ));
+                }
             in
-            let accesses =
-              let pulled = pull env (module Memory) { region } p (open_trace ()) in
-              List.of_seq
-                (Seq.filter_map
-                   (function Memory.Event.Access a -> Some a | Fault _ | Unmatched _ -> None)
-                   pulled.events)
-            in
+            let window = resolve_window marker c.window (lazy commits) in
             let rows = Cost.join ~classify:c.instruction_class ~window commits accesses in
             match format with
             | `Text ->
@@ -1724,14 +1723,18 @@ let commands =
         const (fun window format output env p path ->
             let region = regions env p in
             redirect output;
-            if path = "-" then
-              fail ~code:2 "summary reads the trace once a model: name a file, not -";
-            let c = resolve_between env p path (ctx env p ~region ~window ()) in
-            let window = c.window in
-            let s =
+            let c = ctx env p ~region ~window () in
+            let marker = marker env in
+            let window = ref c.window in
+            let s, _ =
               guard p (fun () ->
-                  Window_summary.of_trace ?gate:(gate env) p ~window ~region (open_trace env path))
+                  Window_summary.analyze ?gate:(gate env) p
+                    ~window:(fun commits ->
+                      window := resolve_window marker c.window (lazy commits);
+                      !window)
+                    ~region (open_trace env path))
             in
+            let window = !window in
             match format with
             | `Text ->
                 banner env p;
@@ -1750,19 +1753,19 @@ let commands =
       Term.(
         const (fun features window format output env p path ->
             redirect output;
-            let c = resolve_between env p path (ctx env p ~features ~window ()) in
-            let window = c.window in
-            let pulled = guard p (fun () -> pull env (module Commits) () p (open_trace env path)) in
+            let c = ctx env p ~features ~window () in
+            let marker = marker env in
+            let commits, _ =
+              guard p (fun () ->
+                  Pass.run ?gate:(gate env) p (open_trace env path) ~model:Commits.name
+                    { build = Pass.commits })
+            in
+            let window = resolve_window marker c.window (lazy commits) in
             (* Only the cycle range: a PC filter would cut the trips apart. *)
             let commits =
-              List.of_seq
-                (Seq.filter_map
-                   (function
-                     | Commits.Event.Commit k
-                       when k.retired >= window.first && k.retired <= window.last ->
-                         Some k
-                     | _ -> None)
-                   pulled.events)
+              List.filter
+                (fun (k : Commits.commit) -> k.retired >= window.first && k.retired <= window.last)
+                commits
             in
             let loops = Loops.detect commits in
             match format with

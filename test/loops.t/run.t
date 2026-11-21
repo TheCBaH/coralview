@@ -77,3 +77,15 @@ offset (here A has no loop):
   $ coralview compare --platform loop-core.json --elf cmp.elf --entry first --around-symbol first core.vcd loop.vcd
   --around-symbol and --entry are alternatives
   [2]
+
+A window named by markers is found in the run that prints it, so a pipe works:
+
+  $ coralview loops --platform loop-core.json --elf loop.elf --entry body - < loop.vcd
+  platform test-core
+  loop 80000004 <body>, back edge at 80000008: 3 trips
+    instructions a trip 2 (2..2)
+    cycles a trip 3 (3..5)
+    cycles by trip: 5 3 3
+          pc  count cyc/trip  instruction
+    80000004      3    2.67  addi x10, x10, -1
+    80000008      3    1.00  bne x10, x0, -4

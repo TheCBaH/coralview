@@ -51,11 +51,12 @@ val of_trace :
 val analyze :
   ?gate:(Hwfrp.Trace.t -> model:string -> unit) ->
   Platform.t ->
-  window:Text.window ->
+  window:(Commits.commit list -> Text.window) ->
   ?region:Region.t ->
   Hwfrp.Trace.t ->
   t * Commits.commit list
-(** {!of_trace} and the trace's whole list of retired instructions. *)
+(** {!of_trace} and the trace's whole list of retired instructions. The window is given those, once the run
+    has ended: it may be one they define, like {!Window_marker.resolve}'s. *)
 
 val jsont : t Jsont.t
 (** [{"type":"summary.window","first","last"?,"instructions","cycles","loads"?,"stores"?,

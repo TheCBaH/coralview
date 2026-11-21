@@ -112,8 +112,8 @@ none of this is printed:
 
 A window can also run between two retirements, as the two reads of a cycle
 counter around a kernel do: from the first retirement of the first PC to the
-next of the second, both included. It is a first pass over the trace, and
-the second PC has to retire after the first:
+next of the second, both included. It is found in the run that prints the
+window, so the trace may be a pipe, and the second PC has to retire after the first:
 
   $ coralview commits --platform test-core.json --between-pc 80000000,80000004 core.vcd
   platform test-core
@@ -135,8 +135,12 @@ the second PC has to retire after the first:
   --between-pc: pc 80000000 retires fewer than 2 times
   [3]
   $ coralview commits --platform test-core.json --between-pc 80000000,80000004 - < core.vcd
-  --between-pc reads the trace twice: name a file, not - or --exec
-  [2]
+  platform test-core
+     cycle L pc       word     instruction                      dest             d>r d>w chg
+         4 0 80000000 02a00513 addi x10, x0, 42                 x10=0000002a       3   2   4
+         5 0 80000004 00000013 addi x0, x0, 0                                      3   -   1
+  root TOP.core: 8 cycles, 1 before the first dispatch, 2 later with nothing in flight; 0 retires without dispatch, 0 dispatches skipped with 0 cycles charged, 0 values missing, 0 in flight at the end
+  window [4, 5]: 2 commits, 5 cycles charged
 
 `cost` takes the same window, and joins commits with memory, so it needs
 the lsu block this platform does not describe:
@@ -145,8 +149,8 @@ the lsu block this platform does not describe:
   platform test-core describes no lsu block
   [2]
   $ coralview cost --platform test-core.json --format jsonl --between-pc 90000000,80000000 core.vcd
-  --between-pc: pc 90000000 retires fewer than 1 times
-  [3]
+  platform test-core describes no lsu block
+  [2]
 
 The same retirements as JSON lines, filtered alike; the summary covers
 the whole run:
@@ -341,13 +345,13 @@ The second instruction of this trace is changed to a mul:
          5 0 80000004 02a50533 mul x10, x10, x10                                   3   -   1
 
 `--vector` joins the RVV backend's configuration to the rows, so it needs a platform with the
-`v_dispatch` block, a file, and the text listing:
+`v_dispatch` block and the text listing:
 
   $ coralview commits --platform test-core.json --vector core.vcd
   platform test-core describes no v_dispatch block
   [2]
   $ coralview commits --platform test-core.json --vector - < core.vcd
-  --vector reads the trace twice: name a file, not -
+  platform test-core describes no v_dispatch block
   [2]
   $ coralview commits --platform test-core.json --vector --format jsonl core.vcd
   --vector is for the text listing

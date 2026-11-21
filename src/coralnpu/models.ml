@@ -33,6 +33,7 @@ type t =
       status : 's -> int;
       profile : (Text.ctx -> Format.formatter -> (unit -> 's) -> 'e Text.sink) option;
       perfetto : (Text.ctx -> 'e Seq.t -> 's -> Perfetto.process) option;
+      commit : ('e -> Commits.commit option) option;
     }
       -> t
 
@@ -49,6 +50,7 @@ let all =
         status = ok;
         profile = Some Commits.profile;
         perfetto = None;
+        commit = Some (function Commits.Event.Commit c -> Some c | In_flight _ -> None);
       };
     M
       {
@@ -58,6 +60,7 @@ let all =
         status = ok;
         profile = Some Stalls.profile;
         perfetto = Some Stalls.perfetto;
+        commit = None;
       };
     M
       {
@@ -67,6 +70,7 @@ let all =
         status = ok;
         profile = None;
         perfetto = None;
+        commit = None;
       };
     M
       {
@@ -76,6 +80,7 @@ let all =
         status = ok;
         profile = Some Axi.profile;
         perfetto = Some Axi.perfetto;
+        commit = None;
       };
     M
       {
@@ -85,6 +90,7 @@ let all =
         status = ok;
         profile = None;
         perfetto = Some Dma.perfetto;
+        commit = None;
       };
     M
       {
@@ -94,6 +100,7 @@ let all =
         status = Registers.status;
         profile = None;
         perfetto = None;
+        commit = None;
       };
     M
       {
@@ -103,6 +110,7 @@ let all =
         status = ok;
         profile = None;
         perfetto = None;
+        commit = None;
       };
     M
       {
@@ -112,6 +120,7 @@ let all =
         status = ok;
         profile = Some Ops.profile;
         perfetto = Some Ops.perfetto;
+        commit = None;
       };
     M
       {
@@ -121,6 +130,7 @@ let all =
         status = ok;
         profile = None;
         perfetto = None;
+        commit = None;
       };
     M
       {
@@ -130,6 +140,7 @@ let all =
         status = Vectors.status;
         profile = None;
         perfetto = None;
+        commit = None;
       };
   ]
 

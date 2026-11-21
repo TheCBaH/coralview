@@ -28,6 +28,9 @@ type t =
       status : 's -> int;  (** The exit status the summary asks for. *)
       profile : (Text.ctx -> Format.formatter -> (unit -> 's) -> 'e Text.sink) option;
       perfetto : (Text.ctx -> 'e Seq.t -> 's -> Perfetto.process) option;
+      commit : ('e -> Commits.commit option) option;
+          (** The retirement an event is: for the analysis of the retirements themselves, which a window's
+              markers are found in without building them again. *)
     }
       -> t
 

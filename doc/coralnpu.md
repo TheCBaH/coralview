@@ -1084,8 +1084,8 @@ reports one window: the instructions retired in it and the cycles charged to the
 read and write requests (`memory`), vector instructions and operations (`ops`), and the dispatch
 lane-cycles by reason, clipped to the window (`stalls`). What the platform cannot give is left out, not
 zero. `--format jsonl` writes the header and one `summary.window` record (with a `hot_loop` — header PC, trips and median cycles a trip of the window's hottest loop — when it has one), a stable form for tests and
-for `compare`; the window options are those of `cost`. It reads the trace once, so a pipe works unless
-a marker window (`--between-pc`, `--around-symbol`, `--entry`) needs a first pass.
+for `compare`; the window options are those of `cost`. It reads the trace once, so a pipe works, a
+marker window (`--between-pc`, `--around-symbol`, `--entry`) included: it is found in the same run.
 
 The same figures are a library call, `Window_summary.of_trace platform ~window trace`, over any
 `Hwfrp.Trace.t`: a file, a pipe, or events held in memory (`Hwfrp.In_memory`), as `hwfrp` hands them over.

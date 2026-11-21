@@ -57,9 +57,9 @@ $ coralview cost --platform core-mini-axi --manifest $e/hardware-configurations.
     --elf $e/examples/exit_status.elf --entry main run1.fst
 ```
 
-A command that reads the trace twice (`cost`, and anything with `--between-pc`, `--around-symbol` or
-`--entry`) needs a file. The simulator's own exit status (here 125, the program's) is reported after
-the results as `# producer: failed, exited with status N`; coralview exits 4 for it.
+Every command reads the trace once, windows from `--between-pc`, `--around-symbol` and `--entry`
+included, so a pipe or `--exec` serves wherever a file does. The simulator's own exit status (here
+125, the program's) is reported after the results as `# producer: failed, exited with status N`; coralview exits 4 for it.
 
 ## Installing
 
