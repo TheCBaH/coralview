@@ -19,9 +19,13 @@ val report_to : format -> unit
 (** Sets where {!finish} writes the producer's status, once one is started; the standard error until
     then. Does nothing when there is no producer. *)
 
+val trace_fd_number : int
+(** [3]: the descriptor a trace producer writes to, as a VCD simulator's [--trace_fd=3] does. *)
+
 val start : string -> unit
-(** Runs the command with [sh -c]. Its descriptor 3 is the write end of the stream; its other
-    descriptors are the caller's. *)
+(** Runs the command with [sh -c]. Its descriptor {!trace_fd_number} is the write end of the stream,
+    whether or not the caller had one there; its other descriptors, standard input included, are the
+    caller's. The read end becomes the standard input of this process. *)
 
 val active : unit -> bool
 

@@ -10,11 +10,20 @@ type running = { cmd : string; pid : int; mutable report : format }
 let current : running option ref = ref None
 let active () = !current <> None
 let report_to format = Option.iter (fun r -> r.report <- format) !current
+let trace_fd_number = 3
 
-(* The descriptor number the producer writes the trace to. *)
-let trace_fd : Unix.file_descr = Obj.magic 3
+(* [Unix.file_descr] is abstract, and the number is the only way to name descriptor 3. The standard
+   three prove the conversion, so that a platform where it does not hold fails here, not in the
+   producer. *)
+external of_number : int -> Unix.file_descr = "%identity"
+
+let descriptor n =
+  if of_number 0 <> Unix.stdin || of_number 1 <> Unix.stdout || of_number 2 <> Unix.stderr then
+    failwith "Driver: a Unix.file_descr is not a descriptor number on this platform";
+  of_number n
 
 let start command =
+  let trace_fd = descriptor trace_fd_number in
   let read_end, write_end = Unix.pipe ~cloexec:true () in
   flush_all ();
   match Unix.fork () with
