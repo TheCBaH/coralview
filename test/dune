@@ -34,7 +34,7 @@
   ../tools/jsonl-schema.sh))
 
 (cram
- (applies_to descriptions)
+ (applies_to descriptions reset)
  (deps
   %{bin:coralview}
   (source_tree .)))

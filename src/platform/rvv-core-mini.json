@@ -7,6 +7,7 @@
     { "name": "rvv-core-mini-itcm512kb-dtcm512kb-axi", "top_level": "RvvCoreMini_ITCM512KB_DTCM512KBAxi", "trace_root": ["VRvvCoreMini_ITCM512KB_DTCM512KBAxi.core", "RvvCoreMini_ITCM512KB_DTCM512KBAxi"] }
   ],
   "clock": "io_aclk",
+  "reset": { "signal": "io_aresetn", "active": "low" },
   "sample": "after_falling",
   "blocks": {
     "dispatch_debug": { "scope": [], "lanes": 4,

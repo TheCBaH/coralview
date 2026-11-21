@@ -259,10 +259,18 @@ type configuration = {
   trace_root : string list;  (** Scope components of the core in its traces. *)
 }
 
+type reset = {
+  reset_signal : string;  (** A 1-bit signal of the core's scope, like the clock. *)
+  reset_active : bool;
+      (** The level that holds the core in reset: [true] for [high], [false] for [low]. *)
+}
+
 type family = {
   family : string;
   configurations : configuration list;
   clock : string;
+  reset : reset option;
+      (** Absent when the description does not say where the reset is: every sample is then out of reset. *)
   sample : Hwfrp.Trace.sample_rule;
   blocks : blocks;
 }
@@ -274,6 +282,7 @@ type t = {
   top_level : string;
   trace_root : string list;
   clock : string;
+  reset : reset option;
   sample : Hwfrp.Trace.sample_rule;
   blocks : blocks;
 }

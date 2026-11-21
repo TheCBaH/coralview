@@ -53,6 +53,7 @@ and clock_rec = {
   mutable cycle : int node option;
   mutable time : Timestamp.t node option;
   mutable enabled : bool node option;
+  mutable in_reset : bool node option;
 }
 
 and tally = { mutable total : int; mutable errors : int }
@@ -155,7 +156,14 @@ module Net = struct
       nodes = [];
       clocks = [];
       frozen = false;
-      tick = { Trace.domain = 0; index = 0; time = Timestamp.of_int64 0L; enabled = true };
+      tick =
+        {
+          Trace.domain = 0;
+          index = 0;
+          time = Timestamp.of_int64 0L;
+          enabled = true;
+          in_reset = false;
+        };
       sampler = None;
       finishing = false;
       max_diags;
@@ -170,6 +178,7 @@ module Net = struct
     }
 
   let domains net = Array.of_list (List.rev_map (fun rc -> rc.spec) net.clocks)
+  let tick net = net.tick
 
   type nonrec ext = ext = ..
 
@@ -199,6 +208,7 @@ module Clock = struct
         cycle = None;
         time = None;
         enabled = None;
+        in_reset = None;
       }
     in
     net.clocks <- rc :: net.clocks;
@@ -299,6 +309,12 @@ module Sig = struct
       (fun rc -> rc.enabled)
       (fun rc n -> rc.enabled <- Some n)
       ~name:"enabled" ~kind:K_clock rc true
+
+  let in_reset rc =
+    clock_node
+      (fun rc -> rc.in_reset)
+      (fun rc n -> rc.in_reset <- Some n)
+      ~name:"in_reset" ~kind:K_clock rc false
 
   let peek n = n.value
 end
@@ -789,6 +805,7 @@ module Sched = struct
   type run_stats = {
     ticks : int array;
     enabled : int array;
+    in_reset : int array;
     node_evals : int;
     wall_s : float;
     per_node : (string * node_stats) list;
@@ -908,6 +925,9 @@ module Sched = struct
       rc.cycle;
     Option.iter (fun n -> if set_if Timestamp.equal n tick.time then mark_changed t (P n)) rc.time;
     Option.iter (fun n -> if set_if Bool.equal n tick.enabled then mark_changed t (P n)) rc.enabled;
+    Option.iter
+      (fun n -> if set_if Bool.equal n tick.in_reset then mark_changed t (P n))
+      rc.in_reset;
     let src = t.sources.(d) in
     if tick.index = 0 then Array.iter (push t) t.by_domain.(d)
     else
@@ -937,6 +957,7 @@ module Sched = struct
     sampler : Sampler.t;
     ticks : int array;
     enabled : int array;
+    in_reset : int array;
     clock : unit -> float;
     t0 : float;
     mutable ended : bool;
@@ -954,6 +975,7 @@ module Sched = struct
       sampler;
       ticks = Array.make (Array.length t.clocks) 0;
       enabled = Array.make (Array.length t.clocks) 0;
+      in_reset = Array.make (Array.length t.clocks) 0;
       clock;
       t0 = clock ();
       ended = false;
@@ -977,6 +999,7 @@ module Sched = struct
           step r.sched r.sampler tick;
           r.ticks.(tick.domain) <- r.ticks.(tick.domain) + 1;
           if tick.enabled then r.enabled.(tick.domain) <- r.enabled.(tick.domain) + 1;
+          if tick.in_reset then r.in_reset.(tick.domain) <- r.in_reset.(tick.domain) + 1;
           Stepped
 
   let check_clocks r =
@@ -986,7 +1009,10 @@ module Sched = struct
         if r.ticks.(d) = 0 then diag "clock.no-edges" "the clock domain never ticked"
         else if rc.spec.enable <> None && r.enabled.(d) = 0 then
           diag "clock.enable-never-high"
-            (Printf.sprintf "the enable was low at all %d clock samples" r.ticks.(d)))
+            (Printf.sprintf "the enable was low at all %d clock samples" r.ticks.(d))
+        else if r.in_reset.(d) = r.ticks.(d) then
+          diag "clock.always-in-reset"
+            (Printf.sprintf "the reset was asserted at all %d clock samples" r.ticks.(d)))
       r.sched.clocks
 
   let finish_run r =
@@ -1017,6 +1043,7 @@ module Sched = struct
           {
             ticks = r.ticks;
             enabled = r.enabled;
+            in_reset = r.in_reset;
             node_evals = List.fold_left (fun a (_, (s : node_stats)) -> a + s.evals) 0 per_node;
             wall_s = r.clock () -. r.t0;
             per_node;

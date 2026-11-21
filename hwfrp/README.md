@@ -219,6 +219,10 @@ equality.
   high, per domain, next to `ticks`. A domain that never ticked, or whose
   enable was low at every sample, ends the run with a `clock.no-edges` or
   `clock.enable-never-high` diagnostic.
+- `Bind.clock ~reset:(path, active)` gives the domain a reset: the samples where it is asserted, or
+  not yet known to be released, are `in_reset` (`Sig.in_reset`, `run_stats.in_reset`), and a `Bind`
+  decoder reports no `bind.unknown-bits` in them. A domain in reset at every sample ends the run with
+  `clock.always-in-reset`.
 
 `Bundle` knows Chisel's flattening of bundles into port names:
 

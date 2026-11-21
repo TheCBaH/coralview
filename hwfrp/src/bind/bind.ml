@@ -133,11 +133,16 @@ let require ?force net tr (r : requirement) =
 let parent p =
   match List.rev (Reference.to_list p) with [] -> p | _ :: up -> Reference.of_list (List.rev up)
 
-let clock net tr ~model ?(purpose = "") ~name ?enable rule path =
-  let bit path = require net tr { model; root = parent path; path; width = Exact 1; purpose } in
+let clock net tr ~model ?(purpose = "") ~name ?enable ?reset rule path =
+  let bit ?(purpose = purpose) path =
+    require net tr { model; root = parent path; path; width = Exact 1; purpose }
+  in
   let s = bit path in
   let enable = Option.map (fun p -> (bit p).slot) enable in
-  Clock.define net ~name { clock = s.slot; rule; enable }
+  let reset =
+    Option.map (fun (p, active) -> { Trace.signal = (bit ~purpose:"reset" p).slot; active }) reset
+  in
+  Clock.define net ~name { clock = s.slot; rule; enable; reset }
 
 type 'c scope = {
   net : Net.t;
@@ -226,9 +231,10 @@ let decode sc d (s : Trace.signal) l =
   match d.decode l with
   | Ok v -> v
   | Error l ->
-      Diag.report sc.net
-        (Diag.make ~paths:[ s.path ] ~source:sc.model ~code:"bind.unknown-bits"
-           (Printf.sprintf "%s of %s" d.dname (Logic.to_string l)));
+      if not (Net.tick sc.net).in_reset then
+        Diag.report sc.net
+          (Diag.make ~paths:[ s.path ] ~source:sc.model ~code:"bind.unknown-bits"
+             (Printf.sprintf "%s of %s" d.dname (Logic.to_string l)));
       d.unknown s.width
 
 let signal ?purpose sc name d =

@@ -40,10 +40,13 @@ val clock :
   ?purpose:string ->
   name:string ->
   ?enable:Vcd_types.Reference.t ->
+  ?reset:Vcd_types.Reference.t * bool ->
   Trace.sample_rule ->
   Vcd_types.Reference.t ->
   Frp.Clock.any
-(** A clock domain sampled on a 1-bit signal. Raises {!Unbound}, for an empty path as for an absent signal. *)
+(** A clock domain sampled on a 1-bit signal. [reset] is a 1-bit signal and the level that asserts it:
+    the samples taken then are [in_reset], and a decoder reports no unknown bits in them (see
+    {!Frp.Sig.in_reset}). Raises {!Unbound}, for an empty path as for an absent signal. *)
 
 val collect : Frp.Net.t -> unit
 (** Switches the net to collecting: from now on a probe that does not resolve is recorded instead of

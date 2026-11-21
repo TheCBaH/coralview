@@ -198,11 +198,13 @@ type blocks = {
 }
 
 type configuration = { config : string; top_level : string; trace_root : string list }
+type reset = { reset_signal : string; reset_active : bool }
 
 type family = {
   family : string;
   configurations : configuration list;
   clock : string;
+  reset : reset option;
   sample : Hwfrp.Trace.sample_rule;
   blocks : blocks;
 }
@@ -213,6 +215,7 @@ type t = {
   top_level : string;
   trace_root : string list;
   clock : string;
+  reset : reset option;
   sample : Hwfrp.Trace.sample_rule;
   blocks : blocks;
 }
@@ -826,17 +829,28 @@ let sample =
       ("after_rising", After_rising);
     ]
 
+let reset =
+  obj_at "reset" (fun at reset_signal reset_active ->
+      if reset_signal = "" then Jsont.Error.msgf at "reset: the signal has no name";
+      { reset_signal; reset_active })
+  |> Jsont.Object.mem "signal" Jsont.string ~enc:(fun r -> r.reset_signal)
+  |> Jsont.Object.mem "active"
+       (Jsont.enum ~kind:"reset level" [ ("low", false); ("high", true) ])
+       ~enc:(fun r -> r.reset_active)
+  |> finish
+
 let schema_version = Jsont.enum ~kind:"schema_version" [ ("1.0", ()) ]
 
 let jsont =
-  obj "platform" (fun () family configurations clock sample blocks ->
-      { family; configurations; clock; sample; blocks })
+  obj "platform" (fun () family configurations clock reset sample blocks ->
+      { family; configurations; clock; reset; sample; blocks })
   |> Jsont.Object.mem "schema_version" schema_version ~enc:(fun _ -> ())
   |> Jsont.Object.mem "name" Jsont.string ~enc:(fun f -> f.family)
   |> Jsont.Object.mem "configurations"
        Jsont.(list configuration)
        ~enc:(fun (f : family) -> f.configurations)
   |> Jsont.Object.mem "clock" Jsont.string ~enc:(fun (f : family) -> f.clock)
+  |> Jsont.Object.opt_mem "reset" reset ~enc:(fun (f : family) -> f.reset)
   |> Jsont.Object.mem "sample" sample ~enc:(fun (f : family) -> f.sample)
   |> Jsont.Object.mem "blocks" blocks_codec ~enc:(fun (f : family) -> f.blocks)
   |> finish
@@ -852,6 +866,7 @@ let configurations f =
         top_level = c.top_level;
         trace_root = c.trace_root;
         clock = f.clock;
+        reset = f.reset;
         sample = f.sample;
         blocks = f.blocks;
       })

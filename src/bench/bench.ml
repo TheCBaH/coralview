@@ -35,7 +35,9 @@ let sample (p : Platform.t) ~select path =
   let clk = find p.clock in
   let names = inputs p tr root in
   List.iter (fun n -> ignore (find n)) names;
-  let s = Sampler.create tr [| { clock = clk.slot; rule = p.sample; enable = None } |] in
+  let s =
+    Sampler.create tr [| { clock = clk.slot; rule = p.sample; enable = None; reset = None } |]
+  in
   let rec go n = match Sampler.next s with Some _ -> go (n + 1) | None -> n in
   let ticks, drain_s = time (fun () -> go 0) in
   (open_s, ticks, List.length names, drain_s, Sampler.stats s)

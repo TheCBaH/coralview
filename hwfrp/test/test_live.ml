@@ -31,7 +31,8 @@ let build tr =
   let net = Net.create () in
   let c = Option.get (Trace.track_path tr "top.clk") in
   let (Clock.Any clk) =
-    Clock.define net ~name:"clk" { clock = c.slot; rule = After_falling; enable = None }
+    Clock.define net ~name:"clk"
+      { clock = c.slot; rule = After_falling; enable = None; reset = None }
   in
   let d =
     Source.value clk

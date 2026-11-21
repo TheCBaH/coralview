@@ -22,8 +22,13 @@ exception No_block of string * string
 let bind ?(collect = false) ?max_diags (p : Platform.t) tr ~model =
   let net = Net.create ?max_diags () in
   if collect then Bind.collect net;
+  let reset =
+    Option.map
+      (fun (r : Platform.reset) -> (Platform.scope p [ r.reset_signal ], r.reset_active))
+      p.reset
+  in
   let (Clock.Any clk) =
-    Bind.clock net tr ~model ~purpose:"core clock" ~name:p.clock p.sample
+    Bind.clock net tr ~model ~purpose:"core clock" ~name:p.clock ?reset p.sample
       (Platform.scope p [ p.clock ])
   in
   Any { net; trace = tr; clk; platform = p; model; deps = Hashtbl.create 4 }
@@ -53,10 +58,15 @@ let start ?(gate = fun _ ~model:_ -> ()) c =
 
 let run ?gate c = Run.finish (start ?gate c)
 
-let lane_sig valid payload =
+let lane_sig c valid payload =
   let open Sig in
-  let+ v = valid and+ p = payload in
-  if v then Some p else None
+  match c.platform.reset with
+  | None ->
+      let+ v = valid and+ p = payload in
+      if v then Some p else None
+  | Some _ ->
+      let+ v = valid and+ p = payload and+ in_reset = Sig.in_reset c.clk in
+      if v && not in_reset then Some p else None
 
 type dispatched = { d_lane : int; d_pc : int; d_word : int }
 
@@ -68,7 +78,7 @@ let dispatch c =
       let valid = Bind.signal sc (name b.dd_fire i) Bind.bool ~purpose:"dispatch lane fires" in
       let pc = Bind.signal sc (name b.dd_addr i) Bind.uint ~purpose:"dispatched PC" in
       let word = Bind.signal sc (name b.dd_inst i) Bind.uint ~purpose:"dispatched word" in
-      lane_sig valid
+      lane_sig c valid
         (let open Sig in
          let+ pc = pc and+ word = word in
          { d_lane = i; d_pc = pc; d_word = word }))
@@ -98,7 +108,7 @@ let retire c =
         | Some t -> Bind.signal sc (name t i) Bind.bool ~purpose:"retired with a trap"
         | None -> Sig.const c.clk false
       in
-      lane_sig valid
+      lane_sig c valid
         (let open Sig in
          let+ pc = pc and+ idx = idx and+ trap = trap in
          { r_lane = i; r_pc = pc; r_idx = idx; r_trap = trap }))
@@ -112,7 +122,7 @@ let write_ports c group base (b : Platform.writeback) =
       let valid = Bind.signal sc (name b.wb_valid i) Bind.bool ~purpose:(group ^ " writeback") in
       let addr = Bind.signal sc (name b.wb_addr i) Bind.uint ~purpose:"written register" in
       let data = Bind.signal sc (name b.wb_data i) Bind.uint ~purpose:"written value" in
-      lane_sig valid
+      lane_sig c valid
         (let open Sig in
          let+ addr = addr and+ data = data in
          { reg = base + addr; value = data }))

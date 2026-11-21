@@ -79,13 +79,25 @@ type sample_rule =
   | Before_rising  (** State before the changes of the timestamp at which the clock went 0 to 1. *)
   | After_rising  (** State after the changes of the rising-edge timestamp. *)
 
-type domain_spec = { clock : slot; rule : sample_rule; enable : slot option }
+type reset = { signal : slot; active : bool }
+(** A reset signal and the level at which it holds the design in reset. *)
+
+type domain_spec = {
+  clock : slot;
+  rule : sample_rule;
+  enable : slot option;
+  reset : reset option;
+      (** The samples taken unless the signal is known to be at its inactive level are [in_reset]: an
+          unknown level, such as before the first change, is a design not yet out of reset. *)
+}
 
 type tick = {
   domain : int;  (** Index in the domain list. *)
   index : int;  (** 0-based cycle number in that domain. *)
   time : Vcd_types.Timestamp.t;
   enabled : bool;
+  in_reset : bool;
+      (** The reset of the domain's spec is asserted at this sample; false without one. *)
 }
 
 val find : t -> string list -> signal option

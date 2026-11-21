@@ -206,7 +206,7 @@ let build (w, ops) =
         let clk = Option.get (Trace.track_path tr (Printf.sprintf "top.clk%d" k)) in
         match
           Clock.define net ~name:(Printf.sprintf "clk%d" k)
-            { clock = clk.slot; rule = w.rules.(k); enable = None }
+            { clock = clk.slot; rule = w.rules.(k); enable = None; reset = None }
         with
         | Clock.Any c ->
             let src i =
@@ -445,7 +445,8 @@ module Ref = struct
     let sampler =
       Sampler.create tr
         (Array.mapi
-           (fun k (c : Trace.signal) -> { Trace.clock = c.slot; rule = w.rules.(k); enable = None })
+           (fun k (c : Trace.signal) ->
+             { Trace.clock = c.slot; rule = w.rules.(k); enable = None; reset = None })
            clocks)
     in
     let ctx = { index = 0; finishing = false } in
@@ -539,7 +540,7 @@ let sampled_state =
       in
       let clk = List.hd signals in
       let rule = w.rules.(0) in
-      let s = Sampler.create tr [| { clock = clk.slot; rule; enable = None } |] in
+      let s = Sampler.create tr [| { clock = clk.slot; rule; enable = None; reset = None } |] in
       let states = Hashtbl.create 64 in
       Seq.iter
         (fun (e : Vcd.Stateful.event) ->
@@ -638,7 +639,9 @@ let sample_subset ~select w keep =
     |> List.map track
   in
   let signals = clk :: data in
-  let s = Sampler.create tr [| { clock = clk.slot; rule = w.rules.(0); enable = None } |] in
+  let s =
+    Sampler.create tr [| { clock = clk.slot; rule = w.rules.(0); enable = None; reset = None } |]
+  in
   let rec go acc =
     match Sampler.next s with
     | None -> List.rev acc

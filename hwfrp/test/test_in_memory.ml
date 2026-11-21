@@ -29,7 +29,10 @@ b1111 "
 let samples tr =
   let c = Option.get (Trace.track_path tr "top.clk")
   and d = Option.get (Trace.track_path tr "top.d") in
-  let s = Sampler.create tr [| { Trace.clock = c.slot; rule = After_falling; enable = None } |] in
+  let s =
+    Sampler.create tr
+      [| { Trace.clock = c.slot; rule = After_falling; enable = None; reset = None } |]
+  in
   let rec go acc =
     match Sampler.next s with
     | None -> List.rev acc

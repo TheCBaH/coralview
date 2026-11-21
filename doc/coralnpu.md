@@ -84,6 +84,21 @@ the file, the line and the members that lead to it. A block is only accepted
 with the blocks the models over it read: `axi_master`, `x_registers`,
 `f_registers` and `v_registers` need `dispatch_debug`, `retirement_debug` and
 `regfile_writeback`, `traps` the first two, `v_dispatch` `dispatch_debug`.
+The optional `reset` member, `{ "signal": "io_aresetn", "active": "low" }`, names the core's reset
+wire (in the core's scope, like `clock`) and the level that asserts it, `low` or `high`. The three core
+descriptions give it; the subsystem's does not, and a description without one has no reset window, so
+every sample is read. With it, the wire is bound like the clock (a trace without it is a hard error), and
+a sample taken while it is asserted, or not yet known to be released, is *in reset*:
+
+- no dispatch, retirement or writeback lane is valid in it, so the commit stream starts after the reset,
+  while the cycles still count and number as in the trace;
+- unknown bits in the signals the models bind are not reported there (`bind.unknown-bits`);
+- a trace that never leaves reset ends with a `clock.always-in-reset` warning, as one whose clock never
+  ticks does with `clock.no-edges`.
+
+Models that read their own wires (`stalls`, `axi`, `memory`, ...) see the window as it is, apart from
+the unknown bits; `Hwfrp.Sig.in_reset` gives it to a model that wants to handle it.
+
 Per block:
 
 | Block | Members naming wires |

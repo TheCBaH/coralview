@@ -5,6 +5,7 @@
     { "name": "vme-core-mini-axi", "top_level": "VmeCoreMiniAxi", "trace_root": ["VVmeCoreMiniAxi.core", "VmeCoreMiniAxi"] }
   ],
   "clock": "io_aclk",
+  "reset": { "signal": "io_aresetn", "active": "low" },
   "sample": "after_falling",
   "blocks": {
     "dispatch_debug": { "scope": [], "lanes": 4,

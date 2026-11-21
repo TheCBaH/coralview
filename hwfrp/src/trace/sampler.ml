@@ -198,7 +198,12 @@ let emit t d time =
   let enabled =
     match dom.spec.enable with None -> true | Some e -> level t.values.((e :> int)) = Some true
   in
-  let tick = { Trace.domain = d; index = dom.index; time; enabled } in
+  let in_reset =
+    match dom.spec.reset with
+    | None -> false
+    | Some r -> level t.values.((r.signal :> int)) <> Some (not r.active)
+  in
+  let tick = { Trace.domain = d; index = dom.index; time; enabled; in_reset } in
   dom.index <- dom.index + 1;
   t.current <- d;
   tick
