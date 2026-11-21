@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ocaml-compiler: ["4.14.4", "5.4.1"]
+        ocaml-compiler: ["4.14.4", "5.4.1", "5.5.2"]
     steps:
     # For pull_request events github.sha is a synthetic merge commit; pin the PR head instead.
     - name: resolve git ref
