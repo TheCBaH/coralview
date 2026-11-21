@@ -12,6 +12,93 @@ let%expect_test "json keeps the key order and escapes" =
           ]));
   [%expect {| {"z":1,"a":"q\"\\\n\t\r\u0001\u001F\u007Fé","n":null,"l":[true,false,{}]} |}]
 
+let%expect_test "json floats print the shortest text that reads back, and never as an int" =
+  let show f = print_endline (Json.to_string (Float f)) in
+  List.iter show
+    [
+      0.;
+      -0.;
+      1.;
+      -2.5;
+      0.5;
+      0.1;
+      1. /. 3.;
+      3.14159;
+      123456789.125;
+      1e15;
+      1e21;
+      1.5e-7;
+      max_float;
+      min_float;
+      5e-324;
+      -1.7976931348623157e308;
+    ];
+  [%expect
+    {|
+      0.0
+      -0.0
+      1.0
+      -2.5
+      0.5
+      0.1
+      0.3333333333333333
+      3.14159
+      123456789.125
+      1e+15
+      1e+21
+      1.5e-07
+      1.7976931348623157e+308
+      2.2250738585072014e-308
+      4.94065645841247e-324
+      -1.7976931348623157e+308 |}];
+  List.iter show [ nan; infinity; neg_infinity ];
+  [%expect {|
+    null
+    null
+    null |}];
+  print_endline (Json.to_string (List [ Float 1.; Int 1; Obj [ ("t", Float 0.25) ] ]));
+  [%expect {| [1.0,1,{"t":0.25}] |}]
+
+let json_number_ok s =
+  let n = String.length s in
+  let i = ref 0 in
+  let digits () =
+    let j = !i in
+    while !i < n && s.[!i] >= '0' && s.[!i] <= '9' do
+      incr i
+    done;
+    !i > j
+  in
+  if !i < n && s.[!i] = '-' then incr i;
+  digits ()
+  && (if !i < n && s.[!i] = '.' then (
+        incr i;
+        digits ())
+      else true)
+  && ((not (!i < n && (s.[!i] = 'e' || s.[!i] = 'E')))
+     || begin
+       incr i;
+       if !i < n && (s.[!i] = '+' || s.[!i] = '-') then incr i;
+       digits ()
+     end)
+  && !i = n
+
+let float_round_trip =
+  QCheck2.Test.make ~name:"json float round trip" ~count:20000
+    QCheck2.Gen.(
+      oneof [ float; map Int64.float_of_bits int64; map (fun n -> float_of_int n /. 1000.) int ])
+    (fun f ->
+      let s = Json.to_string (Float f) in
+      if Float.is_finite f then
+        json_number_ok s
+        && Int64.equal (Int64.bits_of_float (float_of_string s)) (Int64.bits_of_float f)
+        && String.exists (fun c -> c = '.' || c = 'e' || c = 'E') s
+      else s = "null")
+
+let%expect_test "json float property" =
+  QCheck2.Test.check_exn ~rand:(Random.State.make [| 18 |]) float_round_trip;
+  [%expect {||}]
+
 let%expect_test "jsonl and lines" =
   let recs = List.to_seq [ Json.Obj [ ("ev", Str "a"); ("t", Int 1) ]; Obj [ ("ev", Str "b") ] ] in
   print_string (Jsonl.to_string ~header:(Obj [ ("format", Str "x/1") ]) recs);

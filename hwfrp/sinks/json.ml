@@ -4,6 +4,7 @@
 
 type t =
   | Int of int
+  | Float of float
   | Str of string
   | Bool of bool
   | Null
@@ -25,8 +26,17 @@ let add_string b s =
     s;
   Buffer.add_char b '"'
 
+let float_text f =
+  if not (Float.is_finite f) then "null"
+  else
+    let s = Printf.sprintf "%.15g" f in
+    let s = if float_of_string s = f then s else Printf.sprintf "%.16g" f in
+    let s = if float_of_string s = f then s else Printf.sprintf "%.17g" f in
+    if String.exists (fun c -> c = '.' || c = 'e') s then s else s ^ ".0"
+
 let rec add b = function
   | Int n -> Buffer.add_string b (string_of_int n)
+  | Float f -> Buffer.add_string b (float_text f)
   | Str s -> add_string b s
   | Bool x -> Buffer.add_string b (if x then "true" else "false")
   | Null -> Buffer.add_string b "null"
