@@ -766,7 +766,7 @@ module Sched = struct
     clocks : clock_rec array;
     nodes : packed array;  (** by id *)
     by_domain : packed array array;  (** by id *)
-    sources : (int, packed list) Hashtbl.t array;
+    sources : packed list array array;  (** by domain and slot *)
     subs : (unit -> unit) array array;
     heap : Heap.t;
     queued : Bitset.t;
@@ -791,12 +791,10 @@ module Sched = struct
       let sources =
         Array.map
           (fun (rc : clock_rec) ->
-            let h = Hashtbl.create 64 in
-            List.iter
-              (fun (slot, p) ->
-                Hashtbl.replace h slot (p :: Option.value (Hashtbl.find_opt h slot) ~default:[]))
-              rc.sources;
-            h)
+            let size = List.fold_left (fun m (slot, _) -> max m (slot + 1)) 0 rc.sources in
+            let a = Array.make size [] in
+            List.iter (fun (slot, p) -> if slot >= 0 then a.(slot) <- p :: a.(slot)) rc.sources;
+            a)
           clocks
       in
       Ok
@@ -876,13 +874,11 @@ module Sched = struct
       rc.cycle;
     Option.iter (fun n -> if set_if Timestamp.equal n tick.time then mark_changed t (P n)) rc.time;
     Option.iter (fun n -> if set_if Bool.equal n tick.enabled then mark_changed t (P n)) rc.enabled;
+    let src = t.sources.(d) in
     if tick.index = 0 then Array.iter (push t) t.by_domain.(d)
     else
       Bitset.iter
-        (fun slot ->
-          match Hashtbl.find_opt t.sources.(d) slot with
-          | Some l -> List.iter (push t) l
-          | None -> ())
+        (fun slot -> if slot < Array.length src then List.iter (push t) src.(slot))
         (Sampler.changed sampler);
     List.iter (push t) rc.every;
     settle t d;
