@@ -574,6 +574,22 @@ mechanics.
 - **Maps run once when built.** `Sig.map f s` computes `f` on `s`'s initial
   value to get its own initial value, so `f` must accept the decoder's
   `unknown` value (e.g. `Bits.zero width`).
+- **X and Z are one state.** `Logic.t` is a value plus a single `unknown`
+  mask: X, Z, U, W, L, H and `-` all set the mask, and the value keeps only
+  the weak value (L reads 0, H reads 1, the rest 0). A decoder cannot tell
+  an X from a Z, `bind.unknown-bits` and `signal.unknown-at-end` report
+  both alike, and `Logic.to_string` prints `x`, or `h` for a weak 1. A
+  model that must tell a floating bus from an unknown value cannot be
+  written over `Logic.t`.
+- **A 63-bit `int` is assumed.** The library targets native 64-bit OCaml.
+  `Bits` holds widths up to 62 in an `int` (wider values in bytes, so any
+  width is representable, but `Bits.field_int` and `Bind.uint` stop at 62
+  bits and `Bits.to_int_exn` raises when a bit at or above 62 is set);
+  `Bitset` packs 62 members per word; cycle numbers, PCs and the 32-bit
+  addresses of the models are plain `int`s; the TL-UL tracker reads at
+  most 62 bits of a lane. A target with 32-bit `int`s, which is what
+  js_of_ocaml and wasm_of_ocaml provide, would break these; neither
+  backend has been checked.
 - **A change is a new value by physical equality** unless `?eq` is given.
   A map that builds a new record or list each time counts as a change, so
   its successors are re-evaluated. That is correct but costs evaluations;
