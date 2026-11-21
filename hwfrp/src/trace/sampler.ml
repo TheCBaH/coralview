@@ -4,12 +4,21 @@
 
 open Vcd_types
 
+module SH = Hashtbl.Make (struct
+  type t = string
+
+  let equal = String.equal
+  let hash = Hashtbl.hash
+end)
+
 type domain = {
   spec : Trace.domain_spec;
   mutable index : int;
   pending : Bitset.t;  (** slots changed since this domain's last sample *)
   last : Value.t array;  (** values at this domain's last sample *)
   changed : Bitset.t;
+  mutable clock_seen : bool;  (** the clock changed in the open batch *)
+  mutable clock_new : Value.t;  (** and this is its last value there *)
 }
 
 type action = Action_tick of int * Timestamp.t | Apply of (int * Value.t) list
@@ -17,7 +26,8 @@ type activity = { signal : Trace.signal; changes : int; unknown_at_end : bool }
 type stats = { events : int; changes_seen : int; changes_tracked : int; timestamps : int }
 
 type t = {
-  slot_of_id : (string, int) Hashtbl.t;
+  slot_of_id : int SH.t;
+  clock_of : int list array;  (** by slot: the domains it clocks *)
   values : Value.t array;
   widths : int array;
   logic_cache : (Logic.t, Logic.decode_error) result option array;
@@ -38,16 +48,32 @@ type t = {
 
 let unset = Value.Scalar Value.X
 
+(* Structural equality, with the common cases off the polymorphic comparison. *)
+let same (a : Value.t) (b : Value.t) =
+  match (a, b) with
+  | Int x, Int y -> x = y
+  | Scalar x, Scalar y -> x = y
+  | Int64 x, Int64 y -> Int64.equal x y
+  | Bytes x, Bytes y -> Bytes.equal x y
+  | _ -> a = b
+
 let create trace specs =
   Trace.freeze trace;
   let signals = Trace.tracked trace in
   let n = Array.length signals in
-  let slot_of_id = Hashtbl.create (2 * n) in
+  let slot_of_id = SH.create (2 * n) in
   Array.iter
-    (fun (s : Trace.signal) -> Hashtbl.replace slot_of_id (ID.to_string s.id) (s.slot :> int))
+    (fun (s : Trace.signal) -> SH.replace slot_of_id (ID.to_string s.id) (s.slot :> int))
     signals;
+  let clock_of = Array.make n [] in
+  Array.iteri
+    (fun d (spec : Trace.domain_spec) ->
+      let c = (spec.clock :> int) in
+      if c >= 0 && c < n then clock_of.(c) <- d :: clock_of.(c))
+    specs;
   {
     slot_of_id;
+    clock_of;
     values = Array.make n unset;
     widths = Array.map (fun (s : Trace.signal) -> s.width) signals;
     logic_cache = Array.make n None;
@@ -60,6 +86,8 @@ let create trace specs =
             pending = Bitset.create n;
             last = Array.make n unset;
             changed = Bitset.create n;
+            clock_seen = false;
+            clock_new = unset;
           })
         specs;
     events = Trace.pull trace;
@@ -81,33 +109,40 @@ let level : Value.t -> bool option = function
   | Scalar (B1 | H) | Int 1 -> Some true
   | _ -> None
 
-let edge t batch (spec : Trace.domain_spec) =
-  let clk = (spec.clock :> int) in
-  let rec last = function [] -> None | (s, v) :: rest -> if s = clk then Some v else last rest in
-  match last batch with
-  | None -> `None
-  | Some v -> (
-      match (level t.values.(clk), level v) with
-      | Some false, Some true -> `Rising
-      | Some true, Some false -> `Falling
-      | _ -> `None)
+let edge t (dom : domain) =
+  if not dom.clock_seen then `None
+  else
+    match (level t.values.((dom.spec.clock :> int)), level dom.clock_new) with
+    | Some false, Some true -> `Rising
+    | Some true, Some false -> `Falling
+    | _ -> `None
 
 (* [t.batch] holds the changes of [t.batch_time]; schedule its samples around applying it. *)
 let close_batch t =
   let batch = t.batch in
   t.batch <- [];
-  if batch <> [] then begin
-    let pre = ref [] and post = ref [] in
-    Array.iteri
-      (fun d dom ->
-        match (dom.spec.rule, edge t batch dom.spec) with
-        | Before_rising, `Rising -> pre := Action_tick (d, t.batch_time) :: !pre
-        | After_rising, `Rising | After_falling, `Falling ->
-            post := Action_tick (d, t.batch_time) :: !post
-        | _ -> ())
-      t.domains;
-    t.queue <- List.rev_append !pre (Apply (List.rev batch) :: List.rev !post)
-  end
+  match batch with
+  | [] -> ()
+  | _ ->
+      let pre = ref [] and post = ref [] in
+      Array.iteri
+        (fun d dom ->
+          (match (dom.spec.rule, edge t dom) with
+          | Before_rising, `Rising -> pre := Action_tick (d, t.batch_time) :: !pre
+          | After_rising, `Rising | After_falling, `Falling ->
+              post := Action_tick (d, t.batch_time) :: !post
+          | _ -> ());
+          dom.clock_seen <- false)
+        t.domains;
+      t.queue <- List.rev_append !pre (Apply (List.rev batch) :: List.rev !post)
+
+let rec mark_clock t v = function
+  | [] -> ()
+  | d :: rest ->
+      let dom = t.domains.(d) in
+      dom.clock_seen <- true;
+      dom.clock_new <- v;
+      mark_clock t v rest
 
 (* [`More]: the queue may hold samples, or the source ended; [`Starved]: nothing until it has more. *)
 let rec pull t =
@@ -124,13 +159,14 @@ let rec pull t =
           t.n_timestamps <- t.n_timestamps + 1;
           close_batch t;
           t.batch_time <- ts;
-          if t.queue = [] then pull t else `More
+          if t.queue == [] then pull t else `More
       | Change (id, v) ->
           t.n_seen <- t.n_seen + 1;
-          (match Hashtbl.find_opt t.slot_of_id (ID.to_string id) with
+          (match SH.find_opt t.slot_of_id (ID.to_string id) with
           | Some s ->
               t.n_tracked <- t.n_tracked + 1;
-              t.batch <- (s, v) :: t.batch
+              t.batch <- (s, v) :: t.batch;
+              mark_clock t v t.clock_of.(s)
           | None -> ());
           pull t
       | DumpStart _ | DumpEnd | SimComment _ -> pull t)
@@ -138,11 +174,13 @@ let rec pull t =
 let apply t batch =
   List.iter
     (fun (s, v) ->
-      if t.values.(s) <> v then begin
+      if not (same t.values.(s) v) then begin
         t.values.(s) <- v;
         t.n_changed.(s) <- t.n_changed.(s) + 1;
         t.logic_cache.(s) <- None;
-        Array.iter (fun d -> Bitset.add d.pending s) t.domains
+        for d = 0 to Array.length t.domains - 1 do
+          Bitset.add t.domains.(d).pending s
+        done
       end)
     batch
 
@@ -151,7 +189,7 @@ let emit t d time =
   Bitset.clear dom.changed;
   Bitset.iter
     (fun s ->
-      if dom.last.(s) <> t.values.(s) then begin
+      if not (same dom.last.(s) t.values.(s)) then begin
         dom.last.(s) <- t.values.(s);
         Bitset.add dom.changed s
       end)

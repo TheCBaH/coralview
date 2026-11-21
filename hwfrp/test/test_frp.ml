@@ -93,6 +93,50 @@ let%expect_test "after rising" =
     #7 cycle 3 en=false data=00000111 changed=[1]
     events=27 seen=16 tracked=16 timestamps=9 |}]
 
+let%expect_test "domains on one clock; a clock that glitches within a timestamp has no edge" =
+  let tr =
+    Hwfrp_vcd.of_string
+      {|$timescale 1ps $end
+$scope module top $end
+$var wire 1 ! clk $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+0!
+$end
+#1
+1!
+#2
+0!
+#3
+1!
+0!
+#4
+1!
+#5
+0!
+|}
+  in
+  let clk = Option.get (Trace.track_path tr "top.clk") in
+  let spec rule = { Trace.clock = clk.slot; rule; enable = None } in
+  let s = Sampler.create tr [| spec Before_rising; spec After_falling |] in
+  let rec go () =
+    match Sampler.next s with
+    | None -> ()
+    | Some tk ->
+        Format.printf "domain %d cycle %d at #%a@." tk.domain tk.index Timestamp.pp tk.time;
+        go ()
+  in
+  go ();
+  [%expect
+    {|
+      domain 0 cycle 0 at #1
+      domain 1 cycle 0 at #2
+      domain 0 cycle 1 at #4
+      domain 1 cycle 1 at #5
+    |}]
+
 let%expect_test "combinators" =
   let tr = Hwfrp_vcd.of_string vcd in
   let net = Net.create () in

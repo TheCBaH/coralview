@@ -21,17 +21,32 @@ let trim width b =
 
 let byte_bit b k = (Bytes.get_uint8 b (k lsr 3) lsr (k land 7)) land 1 = 1
 
-let set_byte_bit b k =
-  let i = k lsr 3 in
-  Bytes.set_uint8 b i (Bytes.get_uint8 b i lor (1 lsl (k land 7)))
+(* The little-endian bytes [i, i + n) of [b], [n <= 7]. *)
+let le_bytes b i n =
+  let r = ref 0 in
+  for j = n - 1 downto 0 do
+    r := (!r lsl 8) lor Bytes.get_uint8 b (i + j)
+  done;
+  !r
 
 (* The low [w <= 62] bits of [b] starting at bit [lo]. *)
 let bytes_field b ~lo ~w =
-  let r = ref 0 in
-  for k = w - 1 downto 0 do
-    r := (!r lsl 1) lor if byte_bit b (lo + k) then 1 else 0
-  done;
-  !r
+  if w = 0 then 0
+  else begin
+    let i = lo lsr 3 and s = lo land 7 in
+    let n = (s + w + 7) lsr 3 in
+    if n <= 7 then (le_bytes b i n lsr s) land mask w
+    else
+      let low = le_bytes b i 7 and high = le_bytes b (i + 7) (n - 7) in
+      (low lsr s) lor (high lsl (56 - s)) land mask w
+  end
+
+(* Or the 8 bits of [byte] into [r] at bit [pos]; bits past the end of [r] must be clear. *)
+let or_byte r pos byte =
+  let i = pos lsr 3 and s = pos land 7 in
+  Bytes.set_uint8 r i (Bytes.get_uint8 r i lor ((byte lsl s) land 0xff));
+  if s > 0 && i + 1 < Bytes.length r then
+    Bytes.set_uint8 r (i + 1) (Bytes.get_uint8 r (i + 1) lor (byte lsr (8 - s)))
 
 let of_le width b =
   if width <= small_max then Small { width; v = bytes_field b ~lo:0 ~w:width } else Big { width; b }
@@ -88,8 +103,15 @@ let of_bytes_be ~width src =
   end
 
 let high_clear b ~from =
-  let rec go k = k >= Bytes.length b * 8 || ((not (byte_bit b k)) && go (k + 1)) in
-  go from
+  let n = Bytes.length b and i = from lsr 3 in
+  i >= n
+  || Bytes.get_uint8 b i lsr (from land 7) = 0
+     &&
+     let rec go j =
+       if j + 8 <= n then Bytes.get_int64_ne b j = 0L && go (j + 8)
+       else j >= n || (Bytes.get_uint8 b j = 0 && go (j + 1))
+     in
+     go (i + 1)
 
 let to_int = function
   | Small s -> Some s.v
@@ -141,11 +163,16 @@ let field t ~lo ~width:w =
   | Big { b; _ } ->
       if w <= small_max then Small { width = w; v = bytes_field b ~lo ~w }
       else begin
-        let r = Bytes.make (nbytes w) '\000' in
-        for k = 0 to w - 1 do
-          if byte_bit b (lo + k) then set_byte_bit r k
+        let r = Bytes.create (nbytes w) and i = lo lsr 3 and s = lo land 7 in
+        let last = Bytes.length b - 1 in
+        for j = 0 to Bytes.length r - 1 do
+          let x = Bytes.get_uint8 b (i + j) lsr s in
+          let y =
+            if s > 0 && i + j + 1 <= last then Bytes.get_uint8 b (i + j + 1) lsl (8 - s) else 0
+          in
+          Bytes.set_uint8 r j (x lor y land 0xff)
         done;
-        Big { width = w; b = r }
+        Big { width = w; b = trim w r }
       end
 
 let concat ts =
@@ -154,39 +181,64 @@ let concat ts =
   let (_ : int) =
     List.fold_left
       (fun lo t ->
-        for k = 0 to width t - 1 do
-          if bit t k then set_byte_bit r (lo + k)
-        done;
-        lo + width t)
+        let w = width t in
+        (match t with
+        | Small { v; _ } ->
+            for j = 0 to nbytes w - 1 do
+              or_byte r (lo + (8 * j)) ((v lsr (8 * j)) land 0xff)
+            done
+        | Big { b; _ } ->
+            for j = 0 to Bytes.length b - 1 do
+              or_byte r (lo + (8 * j)) (Bytes.get_uint8 b j)
+            done);
+        lo + w)
       0 (List.rev ts)
   in
   of_le total r
+
+let compare_bytes x y =
+  let rec go i =
+    if i < 0 then 0
+    else
+      match Int.compare (Bytes.get_uint8 x i) (Bytes.get_uint8 y i) with 0 -> go (i - 1) | c -> c
+  in
+  go (Bytes.length x - 1)
 
 let compare a b =
   match Int.compare (width a) (width b) with
   | 0 -> (
       match (a, b) with
       | Small x, Small y -> Int.compare x.v y.v
-      | _ ->
-          let x = to_bytes_le a and y = to_bytes_le b in
-          let rec go i =
-            if i < 0 then 0
-            else
-              match Int.compare (Bytes.get_uint8 x i) (Bytes.get_uint8 y i) with
-              | 0 -> go (i - 1)
-              | c -> c
-          in
-          go (Bytes.length x - 1))
+      | Big x, Big y -> compare_bytes x.b y.b
+      | _ -> compare_bytes (to_bytes_le a) (to_bytes_le b))
   | c -> c
 
-let equal a b = compare a b = 0
+let equal a b =
+  match (a, b) with
+  | Small x, Small y -> x.width = y.width && x.v = y.v
+  | Big x, Big y -> x.width = y.width && Bytes.equal x.b y.b
+  | _ -> false
 
-let popcount t =
-  let n = ref 0 in
-  for k = 0 to width t - 1 do
-    if bit t k then incr n
+let pop_byte =
+  let t = Bytes.make 256 '\000' in
+  for i = 1 to 255 do
+    Bytes.set_uint8 t i ((i land 1) + Bytes.get_uint8 t (i lsr 1))
   done;
-  !n
+  t
+
+let popcount = function
+  | Small { v; width } ->
+      let n = ref 0 in
+      for j = 0 to nbytes width - 1 do
+        n := !n + Bytes.get_uint8 pop_byte ((v lsr (8 * j)) land 0xff)
+      done;
+      !n
+  | Big { b; _ } ->
+      let n = ref 0 in
+      for j = 0 to Bytes.length b - 1 do
+        n := !n + Bytes.get_uint8 pop_byte (Bytes.get_uint8 b j)
+      done;
+      !n
 
 let to_hex t =
   let w = width t in

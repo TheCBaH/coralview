@@ -101,3 +101,93 @@ let%expect_test "concat and compare" =
   Printf.printf "%s %d %d %d\n" (Bits.to_hex c) (Bits.width c) (Bits.compare c c)
     (Bits.compare (Bits.of_int ~width:68 1) c);
   [%expect {| a0000000000000123 68 0 -1 |}]
+
+(* The byte-wise paths against bit-at-a-time references built on [Bits.bit]. *)
+let%expect_test "word-wise paths against bit-at-a-time references" =
+  let seed = ref 12345 in
+  let rnd n =
+    seed := ((!seed * 1103515245) + 12345) land 0x3fffffff;
+    (!seed lsr 8) mod n
+  in
+  let bits_of t = List.init (Bits.width t) (Bits.bit t) in
+  let of_bits l =
+    let w = List.length l in
+    let b = Bytes.make ((w + 7) / 8) '\000' in
+    List.iteri
+      (fun k x ->
+        if x then Bytes.set_uint8 b (k / 8) (Bytes.get_uint8 b (k / 8) lor (1 lsl (k mod 8))))
+      l;
+    Bits.of_bytes_le ~width:w b
+  in
+  let sub l lo w = List.filteri (fun k _ -> k >= lo && k < lo + w) l in
+  let value l = List.fold_right (fun x r -> (r lsl 1) lor if x then 1 else 0) l 0 in
+  let random w =
+    let b = Bytes.init (((w + 7) / 8) + 1) (fun _ -> Char.chr (rnd 256)) in
+    (* Sparse and dense patterns both. *)
+    if rnd 3 = 0 then Bytes.fill b 0 (Bytes.length b) (if rnd 2 = 0 then '\000' else '\255');
+    if rnd 4 = 0 then Bytes.set_uint8 b (rnd (Bytes.length b)) (1 lsl rnd 8);
+    Bits.of_bytes_le ~width:w b
+  in
+  let widths = [| 1; 7; 8; 9; 31; 32; 33; 61; 62; 63; 64; 65; 69; 70; 71; 127; 128; 129; 200 |] in
+  let bad = ref 0 and n = ref 0 in
+  let check name ok =
+    incr n;
+    if not ok then begin
+      incr bad;
+      Printf.printf "MISMATCH %s\n" name
+    end
+  in
+  for _ = 1 to 3000 do
+    let w = widths.(rnd (Array.length widths)) in
+    let t = random w in
+    let l = bits_of t in
+    let lo = rnd w in
+    let fw = rnd (w - lo + 1) in
+    let f = Bits.field t ~lo ~width:fw in
+    check "field" (Bits.width f = fw && bits_of f = sub l lo fw);
+    if fw <= 62 then check "field_int" (Bits.field_int t ~lo ~width:fw = value (sub l lo fw));
+    check "popcount" (Bits.popcount t = List.length (List.filter Fun.id l));
+    check "is_zero" (Bits.is_zero t = not (List.mem true l));
+    check "to_int"
+      (Bits.to_int t
+      = if List.mem true (sub l 62 (max 0 (w - 62))) then None else Some (value (sub l 0 62)));
+    check "to_int64"
+      (Bits.to_int64 t
+      =
+      if List.mem true (sub l 64 (max 0 (w - 64))) then None
+      else
+        Some
+          (List.fold_right
+             (fun x r -> Int64.logor (Int64.shift_left r 1) (if x then 1L else 0L))
+             (sub l 0 64) 0L));
+    let u = random widths.(rnd (Array.length widths)) in
+    let parts = [ t; u; f ] in
+    check "concat" (bits_of (Bits.concat parts) = List.concat_map bits_of (List.rev parts));
+    check "equal"
+      (Bits.equal t t && Bits.equal t (of_bits l) && Bits.equal t u = (bits_of t = bits_of u));
+    check "compare"
+      (Bits.compare t u
+      =
+      if w <> Bits.width u then Int.compare w (Bits.width u)
+      else Stdlib.compare (List.rev l) (List.rev (bits_of u)))
+  done;
+  Printf.printf "%d checks, %d mismatches\n" !n !bad;
+  [%expect {| 26860 checks, 0 mismatches |}]
+
+let%expect_test "Bitset.iter visits the set bits in ascending order" =
+  let n = 300 in
+  let s = Bitset.create n in
+  let seen = ref [] in
+  Bitset.iter (fun i -> seen := i :: !seen) s;
+  Printf.printf "empty: %d\n" (List.length !seen);
+  List.iter (Bitset.add s) [ 0; 1; 61; 62; 63; 123; 124; 186; 299; 150 ];
+  Printf.printf "%s\n" (String.concat "," (List.map string_of_int (Bitset.elements s)));
+  let all = Bitset.create n in
+  for i = 0 to n - 1 do
+    Bitset.add all i
+  done;
+  Printf.printf "%b\n" (Bitset.elements all = List.init n Fun.id);
+  [%expect {|
+    empty: 0
+    0,1,61,62,63,123,124,150,186,299
+    true |}]
