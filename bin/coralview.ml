@@ -1136,6 +1136,55 @@ let entries =
         } );
   ]
 
+(* A text view's destination in [run]. The standard output is written as the views go only when one
+   view alone prints to it: otherwise the text is held until the view ends, so that the views do not
+   interleave. *)
+type text_out = {
+  ppf : Format.formatter;
+  finish : unit -> unit;  (** Flushes and releases it; the held text goes out. *)
+  abandon : unit -> unit;  (** The same without the held text, after an error. *)
+}
+
+let text_out path ~hold =
+  let finished = ref false in
+  let make ppf ~flush ~release ~abandon =
+    {
+      ppf;
+      finish =
+        (fun () ->
+          if not !finished then begin
+            finished := true;
+            Format.pp_print_flush ppf ();
+            flush ();
+            release ()
+          end);
+      abandon =
+        (fun () ->
+          if not !finished then begin
+            finished := true;
+            Format.pp_print_flush ppf ();
+            abandon ()
+          end);
+    }
+  in
+  if path <> "-" then
+    let oc = open_out path in
+    make
+      (Format.formatter_of_out_channel oc)
+      ~flush:ignore
+      ~release:(fun () -> close_out oc)
+      ~abandon:(fun () -> close_out_noerr oc)
+  else if hold then
+    let buf = Buffer.create 4096 in
+    make (Format.formatter_of_buffer buf) ~flush:ignore
+      ~release:(fun () -> print_string (Buffer.contents buf))
+      ~abandon:ignore
+  else
+    make
+      (Format.formatter_of_out_channel stdout)
+      ~flush:(fun () -> flush stdout)
+      ~release:ignore ~abandon:ignore
+
 (* Several analyses in one pass: each is built in the same net, and its events are pushed to its
    sinks as they come. A model without a sink prints its text to the standard output. *)
 let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
@@ -1168,6 +1217,18 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
   run_origins := Some models;
   let tr = open_trace path in
   let (Core.Any c) = Core.bind p tr ~model:"run" in
+  let targets m =
+    match List.filter (fun (m', _, _) -> m' = m) sinks with
+    | [] when perfetto <> None || kanata <> None || report <> None -> []
+    | [] -> [ ("text", "-") ]
+    | l -> List.map (fun (_, k, f) -> (k, f)) l
+  in
+  let on_stdout k =
+    List.concat_map (fun m -> List.filter (fun (k', f) -> k' = k && f = "-") (targets m)) models
+  in
+  let hold = List.length (on_stdout "text") > 1 || on_stdout "jsonl" <> [] in
+  let outs = ref [] in
+  Fun.protect ~finally:(fun () -> List.iter (fun o -> o.abandon ()) !outs) @@ fun () ->
   let finishers =
     guard p (fun () ->
         List.map
@@ -1175,12 +1236,7 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
             match List.assoc_opt m entries with
             | None -> fail ~code:2 ("run: no analysis " ^ m)
             | Some (E { a = (module A); cfg; text; status; perfetto = view; _ }) ->
-                let mine =
-                  match List.filter (fun (m', _, _) -> m' = m) sinks with
-                  | [] when perfetto <> None || kanata <> None || report <> None -> []
-                  | [] -> [ ("text", "-") ]
-                  | l -> List.map (fun (_, k, f) -> (k, f)) l
-                in
+                let mine = targets m in
                 let keep e =
                   selected ctx.window ~cycle:(A.Event.cycle e)
                     ~pc:(Option.value (A.Event.pc e) ~default:(-1))
@@ -1202,17 +1258,47 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
                       end)
                     mine
                 in
+                let summary_of =
+                  ref (fun () -> failwith "run: the summary is read after the run")
+                in
+                let late () = !summary_of () in
                 let texts =
-                  List.filter_map (fun (k, f) -> if k = "text" then Some f else None) mine
+                  List.filter_map
+                    (fun (k, f) ->
+                      if k <> "text" then None
+                      else begin
+                        let out = text_out f ~hold in
+                        outs := out :: !outs;
+                        print_banner out.ppf p;
+                        Some (out, text o ctx out.ppf late)
+                      end)
+                    mine
+                in
+                let section =
+                  Option.map
+                    (fun _ ->
+                      let ctx =
+                        {
+                          ctx with
+                          limit = 0;
+                          profile = (if ctx.profile = 0 then 10 else ctx.profile);
+                        }
+                      in
+                      let buf = Buffer.create 1024 in
+                      let ppf = Format.formatter_of_buffer buf in
+                      (buf, ppf, text o ctx ppf late))
+                    report
                 in
                 let events = ref [] in
+                let collect = perfetto <> None && view <> None in
                 let summary =
                   Analysis.subscribe
                     (module A)
                     (cfg o) c
                     (fun e ->
-                      if texts <> [] || report <> None || (perfetto <> None && view <> None) then
-                        events := e :: !events;
+                      if collect then events := e :: !events;
+                      List.iter (fun (_, (sink : _ Text.sink)) -> sink.add e) texts;
+                      Option.iter (fun (_, _, (sink : _ Text.sink)) -> sink.add e) section;
                       if keep e then
                         List.iter
                           (fun (oc, n) ->
@@ -1225,6 +1311,7 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
                 in
                 fun stats ->
                   let s = summary stats in
+                  (summary_of := fun () -> s);
                   List.iter
                     (fun (oc, _) ->
                       Seq.iter
@@ -1236,32 +1323,23 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
                       output_char oc '\n';
                       if oc == stdout then flush oc else close_out oc)
                     jsonl;
-                  let events = List.rev !events in
                   List.iter
-                    (fun f ->
-                      with_ppf f (fun ppf ->
-                          print_banner ppf p;
-                          Text.drain (text o ctx ppf (fun () -> s)) (List.to_seq events)))
+                    (fun ((out : text_out), (sink : _ Text.sink)) ->
+                      sink.finish ();
+                      out.finish ())
                     texts;
                   let section =
                     Option.map
-                      (fun _ ->
-                        let ctx =
-                          {
-                            ctx with
-                            limit = 0;
-                            profile = (if ctx.profile = 0 then 10 else ctx.profile);
-                          }
-                        in
-                        let buf = Buffer.create 1024 in
-                        let ppf = Format.formatter_of_buffer buf in
-                        Text.drain (text o ctx ppf (fun () -> s)) (List.to_seq events);
+                      (fun (buf, ppf, (sink : _ Text.sink)) ->
+                        sink.finish ();
                         Format.pp_print_flush ppf ();
                         (A.name, A.doc, Buffer.contents buf))
-                      report
+                      section
                   in
                   ( status s,
-                    (match (perfetto, view) with Some _, Some v -> [ v ctx events s ] | _ -> []),
+                    (match (perfetto, view) with
+                    | Some _, Some v -> [ v ctx (List.rev !events) s ]
+                    | _ -> []),
                     section ))
           models)
   in

@@ -90,6 +90,12 @@ Several analyses in one pass, each to its own sinks, give what their own command
   platform axi-core describes no lsu block
   [2]
 
+Views that print to the standard output come one after the other, each whole, as the sorted
+models go:
+
+  $ coralview run --platform axi-core.json --model commits --model axi --limit 2 axi.vcd > both.txt
+  $ (coralview axi --platform axi-core.json --limit 2 axi.vcd; coralview commits --platform axi-core.json --limit 2 axi.vcd) | cmp - both.txt
+
 The transactions as a Chrome trace for ui.perfetto.dev: a track per AXI ID, a slice per
 transaction from its start to its completion, and the outstanding count:
 
