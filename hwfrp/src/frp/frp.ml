@@ -308,6 +308,23 @@ module Ev = struct
 
   let never rc = mk_event rc
 
+  let at_finish rc f =
+    let n = mk_event rc in
+    let pending = ref None in
+    n.eval <-
+      (fun () ->
+        match !pending with
+        | None -> false
+        | Some x ->
+            pending := None;
+            fire n x);
+    rc.finishers <-
+      (fun () ->
+        pending := Some (f ());
+        [ P n ])
+      :: rc.finishers;
+    n
+
   let on e f =
     let n = mk_event e.rc in
     n.eval <- (fun () -> match e.value with Some x -> f n x | None -> false);

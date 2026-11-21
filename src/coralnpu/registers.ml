@@ -248,16 +248,9 @@ let graph ?at (c : _ Core.t) =
       files
   in
   let flushes = List.map (fun (_, f) -> Ev.map (fun e -> [ e ]) f) both in
-  let checks, _ =
-    Machine.run
-      {
-        name = model ^ ".checks";
-        init = ();
-        step = (fun ~tick:_ () () -> ((), []));
-        finish = (fun () -> [ Event.Checks { cycle = Sig.peek cycle; relations = relations () } ]);
-        every_tick = false;
-      }
-      (Sig.const c.clk ())
+  let checks =
+    Ev.at_finish c.clk (fun () ->
+        [ Event.Checks { cycle = Sig.peek cycle; relations = relations () } ])
   in
   let events = Ev.map List.concat (Ev.union (writes @ flushes @ [ checks ])) in
   ( events,

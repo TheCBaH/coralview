@@ -86,6 +86,12 @@ module Ev : sig
   type ('a, 'c) t = ('a, 'c) event
 
   val never : 'c Clock.t -> ('a, 'c) t
+
+  val at_finish : 'c Clock.t -> (unit -> 'a) -> ('a, 'c) t
+  (** Fires once, after the last sample, with the result of the function; the events and signals downstream
+      see it, and no node steps then. Several are called in registration order, with the machines'
+      [finish]. *)
+
   val map : ('a -> 'b) -> ('a, 'c) t -> ('b, 'c) t
   val filter : ('a -> bool) -> ('a, 'c) t -> ('a, 'c) t
   val filter_map : ('a -> 'b option) -> ('a, 'c) t -> ('b, 'c) t
