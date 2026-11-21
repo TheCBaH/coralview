@@ -43,9 +43,10 @@ A layout without the byte enables is not a vector register file:
   $ sed 's/"rt_strobe"/"rt_mask"/' vector-core.json > no-strobe.json
   $ coralview vectors --platform no-strobe.json vectors.vcd
   v_registers.writes.layout: no rt_strobe
-  File "no-strobe.json": in member v_registers of
+  File "no-strobe.json", lines 17-30, characters 19-5:
+  File "no-strobe.json", line 17, characters 4-17: in member v_registers of
   File "no-strobe.json", lines 9-31, characters 12-3: blocks object
-  File "no-strobe.json": in member blocks of
+  File "no-strobe.json", line 9, characters 2-10: in member blocks of
   File "no-strobe.json", lines 1-31, characters 0-3: platform object
   [2]
 

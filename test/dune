@@ -32,3 +32,9 @@
   (source_tree .)
   ../doc/coralnpu.md
   ../tools/jsonl-schema.sh))
+
+(cram
+ (applies_to descriptions)
+ (deps
+  %{bin:coralview}
+  (source_tree .)))

@@ -223,16 +223,17 @@ let has_lane pattern =
   | None -> false
 
 let obj kind f = Jsont.Object.map ~kind f
+let obj_at kind f = Jsont.Object.map' ~kind f
 let finish m = Jsont.Object.(finish (error_unknown m))
 let scope = Jsont.(list string)
 
-let lanes_pattern kind lanes pattern =
+let lanes_pattern at kind lanes pattern =
   if lanes > 1 && not (has_lane pattern) then
-    Jsont.Error.msgf Jsont.Meta.none "%s: %S has no %%d for its %d lanes" kind pattern lanes
+    Jsont.Error.msgf at "%s: %S has no %%d for its %d lanes" kind pattern lanes
 
 let dispatch_debug =
-  obj "dispatch_debug" (fun dd_scope dd_lanes dd_fire dd_addr dd_inst ->
-      List.iter (lanes_pattern "dispatch_debug" dd_lanes) [ dd_fire; dd_addr; dd_inst ];
+  obj_at "dispatch_debug" (fun at dd_scope dd_lanes dd_fire dd_addr dd_inst ->
+      List.iter (lanes_pattern at "dispatch_debug" dd_lanes) [ dd_fire; dd_addr; dd_inst ];
       { dd_scope; dd_lanes; dd_fire; dd_addr; dd_inst })
   |> Jsont.Object.mem "scope" scope ~enc:(fun b -> b.dd_scope)
   |> Jsont.Object.mem "lanes" Jsont.int ~enc:(fun b -> b.dd_lanes)
@@ -242,9 +243,9 @@ let dispatch_debug =
   |> finish
 
 let retirement_debug =
-  obj "retirement_debug" (fun rd_scope rd_lanes idx_width rd_valid rd_pc rd_idx rd_trap ->
+  obj_at "retirement_debug" (fun at rd_scope rd_lanes idx_width rd_valid rd_pc rd_idx rd_trap ->
       List.iter
-        (lanes_pattern "retirement_debug" rd_lanes)
+        (lanes_pattern at "retirement_debug" rd_lanes)
         ([ rd_valid; rd_pc; rd_idx ] @ Option.to_list rd_trap);
       { rd_scope; rd_lanes; idx_width; rd_valid; rd_pc; rd_idx; rd_trap })
   |> Jsont.Object.mem "scope" scope ~enc:(fun b -> b.rd_scope)
@@ -257,8 +258,8 @@ let retirement_debug =
   |> finish
 
 let writeback =
-  obj "writeback" (fun wb_scope ports wb_valid wb_addr wb_data ->
-      List.iter (lanes_pattern "writeback" ports) [ wb_valid; wb_addr; wb_data ];
+  obj_at "writeback" (fun at wb_scope ports wb_valid wb_addr wb_data ->
+      List.iter (lanes_pattern at "writeback" ports) [ wb_valid; wb_addr; wb_data ];
       { wb_scope; ports; wb_valid; wb_addr; wb_data })
   |> Jsont.Object.mem "scope" scope ~enc:(fun b -> b.wb_scope)
   |> Jsont.Object.mem "ports" Jsont.int ~enc:(fun b -> b.ports)
@@ -275,13 +276,14 @@ let lane =
   |> Jsont.Object.mem "inst" Jsont.string ~enc:(fun l -> l.l_inst)
   |> finish
 
-let per_lane name lanes l =
+let per_lane at name lanes l =
   if List.length l <> lanes then
-    Jsont.Error.msgf Jsont.Meta.none "dispatch.%s: %d names for %d lanes" name (List.length l) lanes
+    Jsont.Error.msgf at "dispatch.%s: %d names for %d lanes" name (List.length l) lanes
 
 let dispatch =
-  obj "dispatch"
+  obj_at "dispatch"
     (fun
+      at
       d_scope
       d_lanes
       lane
@@ -297,11 +299,11 @@ let dispatch =
       rob_trap_pending
       lsu_capacity
     ->
-      per_lane "try_dispatch" d_lanes try_dispatch;
-      per_lane "comb" d_lanes comb;
-      Option.iter (per_lane "fcomb" d_lanes) fcomb;
+      per_lane at "try_dispatch" d_lanes try_dispatch;
+      per_lane at "comb" d_lanes comb;
+      Option.iter (per_lane at "fcomb" d_lanes) fcomb;
       List.iter
-        (lanes_pattern "dispatch.lane" d_lanes)
+        (lanes_pattern at "dispatch.lane" d_lanes)
         [ lane.l_valid; lane.l_ready; lane.l_addr; lane.l_inst ];
       {
         d_scope;
@@ -336,9 +338,9 @@ let dispatch =
   |> finish
 
 let tlul =
-  obj "tlul port" (fun tl_prefix tl_data_bytes d_ready ->
+  obj_at "tlul port" (fun at tl_prefix tl_data_bytes d_ready ->
       if tl_data_bytes <= 0 || tl_data_bytes land (tl_data_bytes - 1) <> 0 then
-        Jsont.Error.msgf Jsont.Meta.none "tlul: data_bytes %d is not a power of two" tl_data_bytes;
+        Jsont.Error.msgf at "tlul: data_bytes %d is not a power of two" tl_data_bytes;
       { tl_prefix; tl_data_bytes; d_ready })
   |> Jsont.Object.mem "prefix" Jsont.string ~enc:(fun t -> t.tl_prefix)
   |> Jsont.Object.mem "data_bytes" Jsont.int ~enc:(fun t -> t.tl_data_bytes)
@@ -410,10 +412,10 @@ let tracking =
   |> finish
 
 let origin =
-  obj "origin" (fun o_scope o_valid o_ready o_addr align o_write o_pc track ops ->
+  obj_at "origin" (fun at o_scope o_valid o_ready o_addr align o_write o_pc track ops ->
       if align <= 0 || align land (align - 1) <> 0 then
-        Jsont.Error.msgf Jsont.Meta.none "origin: align %d is not a power of two" align;
-      if ops <> None && o_pc = None then Jsont.Error.msgf Jsont.Meta.none "origin: ops without a pc";
+        Jsont.Error.msgf at "origin: align %d is not a power of two" align;
+      if ops <> None && o_pc = None then Jsont.Error.msgf at "origin: ops without a pc";
       { o_scope; o_valid; o_ready; o_addr; align; o_write; o_pc; track; ops })
   |> Jsont.Object.mem "scope" scope ~enc:(fun o -> o.o_scope)
   |> Jsont.Object.mem "valid" Jsont.string ~enc:(fun o -> o.o_valid)
@@ -437,13 +439,12 @@ let axi_source =
   |> finish
 
 let axi =
-  obj "axi_master" (fun axi_scope axi_prefix data_bytes sources ->
+  obj_at "axi_master" (fun at axi_scope axi_prefix data_bytes sources ->
       if data_bytes <= 0 || data_bytes land (data_bytes - 1) <> 0 then
-        Jsont.Error.msgf Jsont.Meta.none "axi_master: data_bytes %d is not a power of two"
-          data_bytes;
+        Jsont.Error.msgf at "axi_master: data_bytes %d is not a power of two" data_bytes;
       let ids = List.map (fun s -> s.source_id) sources in
       if List.length (List.sort_uniq compare ids) <> List.length ids then
-        Jsont.Error.msgf Jsont.Meta.none "axi_master: a source id is given twice";
+        Jsont.Error.msgf at "axi_master: a source id is given twice";
       { axi_scope; axi_prefix; data_bytes; sources })
   |> Jsont.Object.mem "scope" scope ~enc:(fun a -> a.axi_scope)
   |> Jsont.Object.mem "prefix" Jsont.string ~enc:(fun a -> a.axi_prefix)
@@ -452,9 +453,9 @@ let axi =
   |> finish
 
 let dma =
-  obj "dma" (fun dma_scope host device csr_base requester ->
+  obj_at "dma" (fun at dma_scope host device csr_base requester ->
       if host.tl_data_bytes < 16 then
-        Jsont.Error.msgf Jsont.Meta.none "dma: the host port carries 16-byte descriptor halves";
+        Jsont.Error.msgf at "dma: the host port carries 16-byte descriptor halves";
       { dma_scope; host; device; csr_base; requester })
   |> Jsont.Object.mem "scope" scope ~enc:(fun d -> d.dma_scope)
   |> Jsont.Object.mem "host" tlul ~enc:(fun d -> d.host)
@@ -478,8 +479,9 @@ let marks =
   |> finish
 
 let register_file =
-  obj "register file"
+  obj_at "register file"
     (fun
+      at
       rf_scope
       base
       first
@@ -492,8 +494,8 @@ let register_file =
       marks
     ->
       if scoreboard_entries < first + count then
-        Jsont.Error.msgf Jsont.Meta.none
-          "register file: %d scoreboard entries for registers up to %d" scoreboard_entries
+        Jsont.Error.msgf at "register file: %d scoreboard entries for registers up to %d"
+          scoreboard_entries
           (first + count - 1);
       {
         rf_scope;
@@ -528,16 +530,16 @@ let vector_writes =
   |> finish
 
 let vector_registers =
-  obj "vector registers" (fun vr_scope vr_base vr_count vlen storage writes ->
+  obj_at "vector registers" (fun at vr_scope vr_base vr_count vlen storage writes ->
       let has name width =
         match List.find_opt (fun f -> f.field = name) writes.layout with
         | Some f when f.field_width = width -> ()
         | Some f ->
-            Jsont.Error.msgf Jsont.Meta.none "v_registers.writes.layout: %s is %d bits, not %d" name
+            Jsont.Error.msgf at "v_registers.writes.layout: %s is %d bits, not %d" name
               f.field_width width
-        | None -> Jsont.Error.msgf Jsont.Meta.none "v_registers.writes.layout: no %s" name
+        | None -> Jsont.Error.msgf at "v_registers.writes.layout: no %s" name
       in
-      if vlen mod 8 <> 0 then Jsont.Error.msgf Jsont.Meta.none "v_registers: vlen %d" vlen;
+      if vlen mod 8 <> 0 then Jsont.Error.msgf at "v_registers: vlen %d is not a multiple of 8" vlen;
       has "rt_data" vlen;
       has "rt_strobe" (vlen / 8);
       let rec log2 k = if 1 lsl k >= vr_count then k else log2 (k + 1) in
@@ -552,10 +554,10 @@ let vector_registers =
   |> finish
 
 let vector_dispatch =
-  obj "vector dispatch" (fun vd_scope vd_lanes vd_valid vd_ready vd_uop vd_layout units ->
+  obj_at "vector dispatch" (fun at vd_scope vd_lanes vd_valid vd_ready vd_uop vd_layout units ->
       let need name =
         if not (List.exists (fun f -> f.field = name) vd_layout) then
-          Jsont.Error.msgf Jsont.Meta.none "v_dispatch.layout: no %s" name
+          Jsont.Error.msgf at "v_dispatch.layout: no %s" name
       in
       List.iter need
         [
@@ -677,7 +679,7 @@ let jsont =
   |> Jsont.Object.mem "blocks" blocks ~enc:(fun (f : family) -> f.blocks)
   |> finish
 
-let of_string ?file s = Jsont_bytesrw.decode_string ?file jsont s
+let of_string ?file s = Jsont_bytesrw.decode_string ~locs:true ?file jsont s
 
 let configurations f =
   List.map
