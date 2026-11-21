@@ -28,23 +28,20 @@ let%expect_test "jsonl and lines" =
     one
     two |}]
 
+let chrome_events : Chrome_trace.event list =
+  [
+    Span { lane = "bus"; name = "read"; start = 3; stop = 5; args = [ ("a", Str "0x10") ] };
+    Span { lane = "instr"; name = "nop"; start = 1; stop = 1; args = [] };
+    Instant { lane = "ctl"; name = "reset"; at = 0; args = [] };
+    Counter { name = "pc"; at = 2; value = 16 };
+  ]
+
 let%expect_test "chrome trace: lanes in declared order, then first use" =
   print_string
     (Chrome_trace.to_string ~time_unit:"ms"
        [
-         {
-           name = "core";
-           lanes = [ "instr"; "bus" ];
-           events =
-             [
-               Span
-                 { lane = "bus"; name = "read"; start = 3; stop = 5; args = [ ("a", Str "0x10") ] };
-               Span { lane = "instr"; name = "nop"; start = 1; stop = 1; args = [] };
-               Instant { lane = "ctl"; name = "reset"; at = 0; args = [] };
-               Counter { name = "pc"; at = 2; value = 16 };
-             ];
-         };
-         { name = "empty"; lanes = []; events = [] };
+         { name = "core"; lanes = [ "instr"; "bus" ]; events = List.to_seq chrome_events };
+         { name = "empty"; lanes = []; events = Seq.empty };
        ]);
   [%expect
     {|
@@ -79,3 +76,31 @@ let%expect_test "no process" =
     {"displayTimeUnit":"ns","traceEvents":[
     ]}
     |}]
+
+let%expect_test
+    "chrome trace: a lazy sequence gives the same bytes, each event written before the next is \
+     pulled" =
+  let process events : Chrome_trace.process = { name = "core"; lanes = [ "instr" ]; events } in
+  let expect = Chrome_trace.to_string ~time_unit:"ms" [ process (List.to_seq chrome_events) ] in
+  let file = Filename.temp_file "chrome" ".json" in
+  let oc = open_out_bin file in
+  let at = ref [] in
+  let lazy_events =
+    Seq.map
+      (fun e ->
+        at := pos_out oc :: !at;
+        e)
+      (List.to_seq chrome_events)
+  in
+  Chrome_trace.output oc ~time_unit:"ms" [ process lazy_events ];
+  close_out oc;
+  let got = In_channel.with_open_bin file In_channel.input_all in
+  Sys.remove file;
+  Printf.printf "same bytes: %b\n" (got = expect);
+  (* Each pull finds the bytes of the events before it already written: the position grows. *)
+  let at = List.rev !at in
+  Printf.printf "pulled %d, written before each pull strictly growing: %b\n" (List.length at)
+    (List.for_all2 ( < ) (List.filteri (fun i _ -> i < 3) at) (List.tl at));
+  [%expect {|
+    same bytes: true
+    pulled 4, written before each pull strictly growing: true |}]

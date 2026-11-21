@@ -434,7 +434,7 @@ let perfetto (ctx : Text.ctx) events (s : Summary.t) =
   {
     Perfetto.process = "stalls " ^ ctx.root;
     slices =
-      List.map
+      Seq.map
         (fun (Event.Stall_span x) ->
           {
             Perfetto.track = Printf.sprintf "lane %d" x.lane;
@@ -444,7 +444,7 @@ let perfetto (ctx : Text.ctx) events (s : Summary.t) =
             args = [ ("pc", Printf.sprintf "%08x" x.pc); ("instruction", ctx.disasm x.word) ];
           })
         events;
-    counters = [];
+    counters = Seq.empty;
   }
 
 module Accumulator = struct

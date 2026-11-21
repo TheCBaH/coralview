@@ -7,17 +7,22 @@ type event =
   | Instant of { lane : string; name : string; at : int; args : (string * Json.t) list }
   | Counter of { name : string; at : int; value : int }
 
-type process = { name : string; lanes : string list; events : event list }
+type process = { name : string; lanes : string list; events : event Seq.t }
 
 let obj l = Json.Obj l
 
-let render processes =
-  let out = ref [] in
-  let put j = out := Json.to_string j :: !out in
+let write put ?(time_unit = "ns") processes =
+  put
+    (Printf.sprintf "{\"displayTimeUnit\":%s,\"traceEvents\":[\n" (Json.to_string (Str time_unit)));
+  let first = ref true in
+  let emit j =
+    if !first then first := false else put ",\n";
+    put (Json.to_string j)
+  in
   List.iteri
     (fun i p ->
       let pid = i + 1 in
-      put
+      emit
         (obj
            [
              ("ph", Str "M");
@@ -32,7 +37,7 @@ let render processes =
         | None ->
             incr next;
             Hashtbl.replace tids lane !next;
-            put
+            emit
               (obj
                  [
                    ("ph", Str "M");
@@ -44,11 +49,11 @@ let render processes =
             !next
       in
       List.iter (fun l -> ignore (tid l)) p.lanes;
-      List.iter
+      Seq.iter
         (function
           | Span { lane; name; start; stop; args } ->
               let tid = tid lane in
-              put
+              emit
                 (obj
                    [
                      ("ph", Str "X");
@@ -61,7 +66,7 @@ let render processes =
                    ])
           | Instant { lane; name; at; args } ->
               let tid = tid lane in
-              put
+              emit
                 (obj
                    [
                      ("ph", Str "i");
@@ -73,7 +78,7 @@ let render processes =
                      ("args", obj args);
                    ])
           | Counter { name; at; value } ->
-              put
+              emit
                 (obj
                    [
                      ("ph", Str "C");
@@ -84,15 +89,15 @@ let render processes =
                    ]))
         p.events)
     processes;
-  List.rev !out
+  put (if !first then "]}\n" else "\n]}\n")
 
-let to_string ?(time_unit = "ns") processes =
-  let events = match render processes with [] -> "" | l -> String.concat ",\n" l ^ "\n" in
-  Printf.sprintf "{\"displayTimeUnit\":%s,\"traceEvents\":[\n%s]}\n"
-    (Json.to_string (Str time_unit)) events
+let to_string ?time_unit processes =
+  let b = Buffer.create 1024 in
+  write (Buffer.add_string b) ?time_unit processes;
+  Buffer.contents b
 
 let output oc ?time_unit processes =
-  output_string oc (to_string ?time_unit processes);
+  write (output_string oc) ?time_unit processes;
   flush oc
 
 let occupancy ~name intervals ~last =

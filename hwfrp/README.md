@@ -417,8 +417,9 @@ byte for byte with a rerun:
 - `Json.t` and `Json.to_string`: compact, object keys in the order given;
 - `Lines` and `Jsonl`: one record per line, with an optional header record;
 - `Chrome_trace`: processes, named lanes, spans, instants and counters, in
-  the format ui.perfetto.dev loads. Lanes are numbered in the order declared,
-  then by first use; `occupancy` turns intervals into a counter.
+  the format ui.perfetto.dev loads, written as a lazy sequence of events is
+  pulled. Lanes are numbered in the order declared, then by first use;
+  `occupancy` turns intervals into a counter.
 
 The caller supplies the records and the time unit; hwfrp does not hash or
 read files, and there is no JSON reader.

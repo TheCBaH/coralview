@@ -90,5 +90,6 @@ val build :
 val text : Text.ctx -> beats:int -> Format.formatter -> (unit -> Summary.t) -> Event.t Text.sink
 (** Each job with its first [beats] beats, then the stray activity and the summary. *)
 
-val perfetto : Text.ctx -> Event.t list -> Summary.t -> Perfetto.process
-(** Tracks of the jobs, descriptor fetches, host reads and host writes. *)
+val perfetto : Text.ctx -> Event.t Seq.t -> Summary.t -> Perfetto.process
+(** Tracks of the jobs, descriptor fetches, host reads and host writes.
+    The events are traversed more than once: give a sequence that can be replayed. *)

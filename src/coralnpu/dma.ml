@@ -569,7 +569,7 @@ let text (ctx : Text.ctx) ~beats ppf summary : Event.t Text.sink =
 
 let perfetto (ctx : Text.ctx) events (s : Summary.t) =
   let last = s.cycles - 1 in
-  let jobs = List.filter_map (function Event.Job j -> Some j | Stray _ -> None) events in
+  let jobs = Seq.filter_map (function Event.Job j -> Some j | Stray _ -> None) events in
   let beat track (t : Transaction.t) =
     {
       Perfetto.track;
@@ -582,20 +582,21 @@ let perfetto (ctx : Text.ctx) events (s : Summary.t) =
   {
     Perfetto.process = "dma " ^ ctx.root;
     slices =
-      List.concat
-        (List.mapi
-           (fun i (j : Event.job) ->
-             {
-               Perfetto.track = "jobs";
-               name = Printf.sprintf "job %d" (i + 1);
-               start = j.span.start;
-               stop = Option.value j.span.stop ~default:last;
-               args =
-                 [
-                   ("bytes", string_of_int (bytes j)); ("descriptor", Printf.sprintf "%08x" j.first);
-                 ];
-             }
-             :: List.map
+      Seq.concat_map
+        (fun (i, (j : Event.job)) ->
+          Seq.cons
+            {
+              Perfetto.track = "jobs";
+              name = Printf.sprintf "job %d" (i + 1);
+              start = j.span.start;
+              stop = Option.value j.span.stop ~default:last;
+              args =
+                [
+                  ("bytes", string_of_int (bytes j)); ("descriptor", Printf.sprintf "%08x" j.first);
+                ];
+            }
+            (Seq.append
+               (Seq.map
                   (fun (x : Descriptor.t) ->
                     {
                       Perfetto.track = "descriptor fetch";
@@ -604,12 +605,12 @@ let perfetto (ctx : Text.ctx) events (s : Summary.t) =
                       stop = Option.value x.fetch.stop ~default:last;
                       args = [ ("len", string_of_int x.len) ];
                     })
-                  j.descriptors
-             @ List.concat_map
-                 (fun (b : Event.beat) ->
-                   beat "host reads" b.read
-                   :: Option.to_list (Option.map (beat "host writes") b.write))
-                 j.beats)
-           jobs);
-    counters = [];
+                  (List.to_seq j.descriptors))
+               (Seq.concat_map
+                  (fun (b : Event.beat) ->
+                    Seq.cons (beat "host reads" b.read)
+                      (Seq.map (beat "host writes") (Option.to_seq b.write)))
+                  (List.to_seq j.beats))))
+        (Seq.mapi (fun i j -> (i, j)) jobs);
+    counters = Seq.empty;
   }

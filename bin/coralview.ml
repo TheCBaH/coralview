@@ -1027,7 +1027,7 @@ type entry =
       text : opts -> Text.ctx -> Format.formatter -> (unit -> 's) -> 'e Text.sink;
       status : 's -> int;
       profile : (Text.ctx -> Format.formatter -> (unit -> 's) -> 'e Text.sink) option;
-      perfetto : (Text.ctx -> 'e list -> 's -> Perfetto.process) option;
+      perfetto : (Text.ctx -> 'e Seq.t -> 's -> Perfetto.process) option;
     }
       -> entry
 
@@ -1338,7 +1338,7 @@ let run_models (p : Platform.t) o models sinks ?perfetto ?kanata ?report path =
                   in
                   ( status s,
                     (match (perfetto, view) with
-                    | Some _, Some v -> [ v ctx (List.rev !events) s ]
+                    | Some _, Some v -> [ v ctx (List.to_seq (List.rev !events)) s ]
                     | _ -> []),
                     section ))
           models)

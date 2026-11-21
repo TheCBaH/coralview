@@ -17,7 +17,7 @@ type process = {
   name : string;
   lanes : string list;
       (** Numbered in this order from 1, ahead of the lanes first used by an event. *)
-  events : event list;  (** Written in this order. *)
+  events : event Seq.t;  (** Written in this order, each as it is pulled. *)
 }
 
 val to_string : ?time_unit:string -> process list -> string
@@ -25,6 +25,9 @@ val to_string : ?time_unit:string -> process list -> string
     from 1; a lane's name is written the first time it is used. *)
 
 val output : out_channel -> ?time_unit:string -> process list -> unit
+(** The same bytes as {!to_string}, written event by event: no event is held after it is written, so
+    the memory used does not grow with a lazy sequence of events. A process's events are pulled once,
+    in order. *)
 
 val occupancy : name:string -> (int * int option) list -> last:int -> event list
 (** The count of intervals open at each time where it changes, as {!Counter}s. An interval is

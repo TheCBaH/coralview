@@ -15,10 +15,13 @@ type slice = {
 }
 
 type counter = { c_track : string; cycle : int; value : int }
-type process = { process : string; slices : slice list; counters : counter list }
+
+type process = { process : string; slices : slice Seq.t; counters : counter Seq.t }
+(** The slices are written first, then the counters, each as it is pulled. *)
 
 val write : out_channel -> process list -> unit
-(** Tracks are numbered in order of first use within each process. *)
+(** Tracks are numbered in order of first use within each process. The sequences are pulled once, in
+    order, and nothing is held after it is written. *)
 
 val occupancy : track:string -> (int * int option) list -> last:int -> counter list
 (** The count of intervals (start, stop included; [None] runs to [last]) open at each cycle where it

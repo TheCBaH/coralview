@@ -104,8 +104,9 @@ val text : Text.ctx -> Format.formatter -> (unit -> Summary.t) -> Event.t Text.s
 (** The cycles of each reason per lane, and the profile of lane 0's blocked cycles by instruction, both
     over the window's clipped spans. *)
 
-val perfetto : Text.ctx -> Event.t list -> Summary.t -> Perfetto.process
-(** A track per lane with a slice per span, named by its reason. *)
+val perfetto : Text.ctx -> Event.t Seq.t -> Summary.t -> Perfetto.process
+(** A track per lane with a slice per span, named by its reason.
+    The events are traversed more than once: give a sequence that can be replayed. *)
 
 (** The cycles of the spans received. The spans still running at the end arrive last, open, and their
     extent is not in the events: a snapshot lists them apart from the totals instead of guessing it. *)

@@ -971,12 +971,12 @@ let text (ctx : Text.ctx) ppf summary : Event.t Text.sink =
 let perfetto (ctx : Text.ctx) events (s : Summary.t) =
   let last = s.cycles - 1 in
   let transactions =
-    List.filter_map (function Event.Transaction t -> Some t | Unmatched _ -> None) events
+    Seq.filter_map (function Event.Transaction t -> Some t | Unmatched _ -> None) events
   in
   {
     Perfetto.process = "axi " ^ ctx.root;
     slices =
-      List.map
+      Seq.map
         (fun (t : Event.transaction) ->
           {
             Perfetto.track = Printf.sprintf "id %d %s" t.txn.id (Option.value t.source ~default:"?");
@@ -992,7 +992,13 @@ let perfetto (ctx : Text.ctx) events (s : Summary.t) =
           })
         transactions;
     counters =
-      Perfetto.occupancy ~track:"outstanding"
-        (List.map (fun (t : Event.transaction) -> (t.txn.accepted, t.txn.completed)) transactions)
-        ~last;
+      (fun () ->
+        List.to_seq
+          (Perfetto.occupancy ~track:"outstanding"
+             (List.of_seq
+                (Seq.map
+                   (fun (t : Event.transaction) -> (t.txn.accepted, t.txn.completed))
+                   transactions))
+             ~last)
+          ());
   }

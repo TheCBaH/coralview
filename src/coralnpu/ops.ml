@@ -550,10 +550,10 @@ let text (ctx : Text.ctx) ppf summary : Event.t Text.sink =
 
 let perfetto (ctx : Text.ctx) events (s : Summary.t) =
   let window = match s.peak with Some p -> p.p_window | None -> Config.default.peak_window in
-  let ops = List.filter_map (function Event.Op o -> Some o | Burst _ -> None) events in
-  let bursts = List.filter_map (function Event.Burst b -> Some b | Op _ -> None) events in
+  let ops = Seq.filter_map (function Event.Op o -> Some o | Burst _ -> None) events in
+  let bursts = Seq.filter_map (function Event.Burst b -> Some b | Op _ -> None) events in
   let per_window =
-    List.fold_left
+    Seq.fold_left
       (fun m (o : op) ->
         if o.ops = 0 then m
         else
@@ -581,32 +581,33 @@ let perfetto (ctx : Text.ctx) events (s : Summary.t) =
   {
     Perfetto.process = "ops " ^ ctx.root;
     slices =
-      List.map
-        (fun (b : burst) ->
-          {
-            Perfetto.track = "bursts";
-            name = Printf.sprintf "%d ops" b.ops;
-            start = b.first;
-            stop = b.last;
-            args =
-              [
-                ("instructions", string_of_int b.instructions);
-                ("flops", string_of_int b.flops);
-                ("ops/cycle", Printf.sprintf "%.3f" (rate b.ops (length b)));
-              ];
-          })
-        bursts
-      @ List.map
-          (fun (o : op) ->
-            {
-              Perfetto.track = o.unit;
-              name = Option.value o.mnemonic ~default:"?";
-              start = o.cycle;
-              stop = o.cycle;
-              args =
-                ([ ("vl", string_of_int o.vl); ("ops", string_of_int o.ops) ]
-                @ match o.pc with Some pc -> [ ("pc", Printf.sprintf "%08x" pc) ] | None -> []);
-            })
-          ops;
-    counters;
+      Seq.append
+        (Seq.map
+           (fun (b : burst) ->
+             {
+               Perfetto.track = "bursts";
+               name = Printf.sprintf "%d ops" b.ops;
+               start = b.first;
+               stop = b.last;
+               args =
+                 [
+                   ("instructions", string_of_int b.instructions);
+                   ("flops", string_of_int b.flops);
+                   ("ops/cycle", Printf.sprintf "%.3f" (rate b.ops (length b)));
+                 ];
+             })
+           bursts)
+        (Seq.map
+           (fun (o : op) ->
+             {
+               Perfetto.track = o.unit;
+               name = Option.value o.mnemonic ~default:"?";
+               start = o.cycle;
+               stop = o.cycle;
+               args =
+                 ([ ("vl", string_of_int o.vl); ("ops", string_of_int o.ops) ]
+                 @ match o.pc with Some pc -> [ ("pc", Printf.sprintf "%08x" pc) ] | None -> []);
+             })
+           ops);
+    counters = List.to_seq counters;
   }
