@@ -2,12 +2,4 @@
  (name coralview)
  (public_name coralview)
  (package coralview)
- (libraries
-  coralview
-  hwfrp
-  hwfrp.native
-  ovcd
-  ovcd.fst
-  ovcd.vcd_types
-  cmdliner
-  unix))
+ (libraries coralview_cli))

@@ -208,8 +208,9 @@ let analyze ?gate (p : Platform.t) ~window ?(region = Region.none) trace =
   let cycles = (commit_summary stats).cycles in
   let rev o = Option.map (fun l -> List.rev !l) o in
   let commits = List.rev !commits in
-  ( make ~window ~end_cycle:(cycles - 1) ~commits ~accesses:(rev accesses) ~ops:(rev ops)
-      ~stalls:(rev stalls),
+  ( make ~window:(window commits) ~end_cycle:(cycles - 1) ~commits ~accesses:(rev accesses)
+      ~ops:(rev ops) ~stalls:(rev stalls),
     commits )
 
-let of_trace ?gate p ~window ?region trace = fst (analyze ?gate p ~window ?region trace)
+let of_trace ?gate p ~window ?region trace =
+  fst (analyze ?gate p ~window:(fun _ -> window) ?region trace)

@@ -106,8 +106,7 @@ let build () (c : _ Core.t) =
     and+ pcs = vec w.we_pe_pc (v.blocks * 32) "PC of each block's PE write"
     and+ mt = vec w.we_mt_idx (lanes * wt) "written tile"
     and+ sub = vec w.we_sub_idx (lanes * ws) "written sub-tile"
-    and+ data = vec w.we_data (lanes * bytes * 8) "written data"
-    and+ cycle = cycle c.clk in
+    and+ data = vec w.we_data (lanes * bytes * 8) "written data" in
     List.concat_map
       (fun block ->
         List.filter_map
@@ -117,7 +116,7 @@ let build () (c : _ Core.t) =
             else
               Some
                 {
-                  cycle;
+                  cycle = 0;
                   block;
                   port;
                   pc =
@@ -132,7 +131,8 @@ let build () (c : _ Core.t) =
           (List.init v.ports_per_block Fun.id))
       (List.init v.blocks Fun.id)
   in
-  let step (file, n) ws =
+  let step ~cycle (file, n) ws =
+    let ws = List.map (fun w -> { w with cycle }) ws in
     ( ( List.fold_left
           (fun file w ->
             let old =
@@ -148,7 +148,7 @@ let build () (c : _ Core.t) =
       {
         name;
         init = (TM.empty, 0);
-        step = (fun ~tick:_ s ws -> if ws = [] then (s, []) else step s ws);
+        step = (fun ~tick s ws -> if ws = [] then (s, []) else step ~cycle:tick.index s ws);
         finish = (fun _ -> []);
         every_tick = true;
       }

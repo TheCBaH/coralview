@@ -1,0 +1,11 @@
+(library
+ (name coralview_cli)
+ (libraries
+  coralview
+  hwfrp
+  hwfrp.native
+  ovcd
+  ovcd.fst
+  ovcd.vcd_types
+  cmdliner
+  unix))

@@ -22,7 +22,13 @@
    ../ops.t/ops.vcd
    ../traps.t/trap-core.json
    ../traps.t/traps.vcd
-   ../vectors.t/vectors.vcd))
+   ../vectors.t/vectors.vcd
+   ../cost.t/cost-core.json
+   ../cost.t/cost.vcd
+   ../loops.t/loop-core.json
+   ../loops.t/loop.vcd
+   ../dma.t/dma-sub.json
+   ../dma.t/dma.vcd))
  (preprocess
   (pps ppx_expect))
  (libraries

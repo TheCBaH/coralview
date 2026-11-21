@@ -329,11 +329,11 @@ let build (cfg : Config.t) (c : _ Core.t) =
   let vec name width purpose =
     Bind.signal sc name { Bind.bits with dwidth = Exact width } ~purpose
   in
-  let uop cycle e =
+  let uop e =
     let u = field e "uop_exe_unit" in
     let vl = field e "csr_vl" and vstart = field e "csr_vstart" in
     {
-      cycle;
+      cycle = 0;
       pc = Some (field e "uop_pc");
       unit = (match List.nth_opt d.units u with Some n -> n | None -> Printf.sprintf "unit%d" u);
       mnemonic = None;
@@ -354,8 +354,9 @@ let build (cfg : Config.t) (c : _ Core.t) =
       ops = 0;
     }
   in
-  (* The scalar core dispatches a vector instruction before the backend takes its first uop. *)
-  let resolve words (o : op) =
+  (* The scalar core dispatches a vector instruction before the backend takes its first uop. [uop]
+     leaves the cycle to [resolve], which gets it from the tick. *)
+  let resolve ~cycle words (o : op) =
     let mnemonic =
       match Option.bind o.pc (fun pc -> IM.find_opt pc words) with
       | None -> None
@@ -372,6 +373,7 @@ let build (cfg : Config.t) (c : _ Core.t) =
     in
     {
       o with
+      cycle;
       mnemonic;
       kind;
       float = is_float mnemonic;
@@ -383,18 +385,17 @@ let build (cfg : Config.t) (c : _ Core.t) =
     let open Sig in
     let+ valid = vec d.vd_valid d.vd_lanes "uop valid"
     and+ ready = vec d.vd_ready d.vd_lanes "uop taken"
-    and+ uops = vec d.vd_uop (d.vd_lanes * entry) "dispatched uops"
-    and+ cycle = cycle c.clk in
+    and+ uops = vec d.vd_uop (d.vd_lanes * entry) "dispatched uops" in
     List.filter_map
       (fun lane ->
         if Bits.bit valid lane && Bits.bit ready lane then
           let e = Bits.field uops ~lo:(lane * entry) ~width:entry in
-          if field e "first_uop_valid" = 1 then Some (uop cycle e) else None
+          if field e "first_uop_valid" = 1 then Some (uop e) else None
         else None)
       (List.init d.vd_lanes Fun.id)
   in
   let input = Sig.map2 (fun ds us -> (ds, us)) (Core.present c (Core.dispatch c)) uops in
-  let step s ((ds : Core.dispatched list), us) =
+  let step ~cycle s ((ds : Core.dispatched list), us) =
     let words =
       List.fold_left (fun m (x : Core.dispatched) -> IM.add x.d_pc x.d_word m) s.words ds
     in
@@ -402,7 +403,7 @@ let build (cfg : Config.t) (c : _ Core.t) =
     let s, out =
       List.fold_left
         (fun (s, out) o ->
-          let o = resolve s.words o in
+          let o = resolve ~cycle s.words o in
           let s = if o.mnemonic = None then { s with undecoded = s.undecoded + 1 } else s in
           add cfg (s, out) o)
         (s, []) us
@@ -414,7 +415,9 @@ let build (cfg : Config.t) (c : _ Core.t) =
       {
         name;
         init = empty;
-        step = (fun ~tick:_ s (ds, us) -> if ds = [] && us = [] then (s, []) else step s (ds, us));
+        step =
+          (fun ~tick s (ds, us) ->
+            if ds = [] && us = [] then (s, []) else step ~cycle:tick.index s (ds, us));
         finish = (fun s -> Option.to_list (Option.map (fun b -> Event.Burst b) s.burst));
         every_tick = true;
       }
