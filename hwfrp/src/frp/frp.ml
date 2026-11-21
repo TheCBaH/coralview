@@ -308,6 +308,23 @@ module Ev = struct
 
   let never rc = mk_event rc
 
+  let at_finish rc f =
+    let n = mk_event rc in
+    let pending = ref None in
+    n.eval <-
+      (fun () ->
+        match !pending with
+        | None -> false
+        | Some x ->
+            pending := None;
+            fire n x);
+    rc.finishers <-
+      (fun () ->
+        pending := Some (f ());
+        [ P n ])
+      :: rc.finishers;
+    n
+
   let on e f =
     let n = mk_event e.rc in
     n.eval <- (fun () -> match e.value with Some x -> f n x | None -> false);
@@ -412,19 +429,30 @@ module Machine = struct
   let of_fold ?(every_tick = false) ?(finish = fun _ -> []) ~name ~init step =
     { name; init; step = (fun ~tick:_ s i -> step s i); finish; every_tick }
 
-  let run spec i =
+  let run ?finish_input spec i =
     let st = mk ~name:spec.name ~kind:K_machine i.rc spec.init in
     let out = mk_event ~name:(spec.name ^ ".out") i.rc in
     let pending = ref [] in
+    let at_start = ref i.value and finished = ref false in
     st.eval <-
       (fun () ->
-        (not i.rc.net.finishing)
-        &&
-        let s, o = spec.step ~tick:i.rc.net.tick st.value i.value in
-        pending := o;
-        let changed = s != st.value in
-        st.value <- s;
-        changed || o <> []);
+        if not i.rc.net.finishing then begin
+          let s, o = spec.step ~tick:i.rc.net.tick st.value i.value in
+          pending := o;
+          let changed = s != st.value in
+          st.value <- s;
+          changed || o <> []
+        end
+        else
+          match finish_input with
+          | Some f when not !finished ->
+              finished := true;
+              let s, o = if i.value != !at_start then f st.value i.value else (st.value, []) in
+              pending := o @ spec.finish s;
+              let changed = s != st.value in
+              st.value <- s;
+              changed
+          | _ -> false);
     out.eval <-
       (fun () ->
         match !pending with
@@ -436,12 +464,18 @@ module Machine = struct
     dep out st;
     if spec.every_tick then i.rc.every <- P st :: i.rc.every;
     i.rc.finishers <-
-      (fun () ->
-        match spec.finish st.value with
-        | [] -> []
-        | l ->
-            pending := l;
-            [ P out ])
+      (match finish_input with
+      | None -> (
+          fun () ->
+            match spec.finish st.value with
+            | [] -> []
+            | l ->
+                pending := l;
+                [ P out ])
+      | Some _ ->
+          fun () ->
+            at_start := i.value;
+            [ P st; P out ])
       :: i.rc.finishers;
     (out, st)
 end
@@ -908,6 +942,7 @@ module Sched = struct
     mutable ended : bool;
     mutable paused : bool;
     mutable stats : run_stats option;
+    mutable failure : exn option;  (** what a finisher raised: they do not run again *)
   }
 
   let start ?(clock = fun () -> 0.) t sampler =
@@ -924,6 +959,7 @@ module Sched = struct
       ended = false;
       paused = false;
       stats = None;
+      failure = None;
     }
 
   type step = Stepped | Paused | Starved | Ended
@@ -965,7 +1001,11 @@ module Sched = struct
           | Starved -> invalid_arg "Run.finish: the source has not ended"
         in
         drain ();
-        finish r.sched;
+        Option.iter raise r.failure;
+        (try finish r.sched
+         with e ->
+           r.failure <- Some e;
+           raise e);
         check_clocks r;
         let per_node =
           Array.to_list

@@ -326,6 +326,35 @@ however the input is split into pieces and however often the run is paused
 (`hwfrp/test/test_live.ml`). `Port.seq` is for a source that is never starved; it raises
 on `Starved` and `Paused`.
 
+### End of input
+
+What a model sees when the trace ends is one contract, tested in `hwfrp/test/test_run.ml`:
+
+- **The last sample is taken.** The changes of the last timestamp are flushed when the source ends,
+  so a trace cut inside it, or ending with or without a newline, gives the samples of one that went
+  on to an empty `#t`.
+- **Changes after the last sample are applied but not sampled.** There is no sample to put them in, so
+  the finishers read the state of the last sample; the final `d` of a trace that changes `d` after
+  its last clock edge is not seen. `Sampler.activity` (`unknown_at_end`) does include them.
+- **The finishers always run, once.** After the last sample, also when there was none (the clock
+  never ticked: the finishers see the initial state and `clock.no-edges` is reported), and never
+  when the run is not read to its end (`Port.seq` stopped early, `Run.finish` on a starved or
+  paused run). They run once: if one raises, `Run.finish` raises the same exception again and does
+  not call them again.
+- **Nothing steps.** A machine's `step` is not called, nothing is latched, and the `every-sample`
+  nodes do not run; the tick is the last one of the domain.
+- **What they emit propagates in node order.** `Machine.finish` and `Ev.at_finish` outputs flow
+  through the events, signals, `Track`s and subscribers downstream of them, in one pass per domain
+  in domain order, and nothing crosses a clock domain (`Clock_cross.resample` is an every-sample
+  node).
+- **A machine fed by another machine's finish output** ignores it unless it is given a
+  `finish_input`: `Machine.run ~finish_input:(fun s i -> (s', outs)) spec input` calls it once,
+  after everything upstream has finished and before the machine's own `finish`, with the input as
+  it then stands, but only when the input signal changed during the finish (by `==`, as any signal
+  does). `step` is not re-run for that, as it would replay the other sampled inputs of the machine
+  and count a cycle more. A chain of machines each with a `finish_input` therefore settles end to
+  end, under both schedulers.
+
 ### Outcomes known later: Track
 
 Many outcomes are known later than they start: a request and its
@@ -462,8 +491,8 @@ FST blocks ──ocaml-fst──> value changes ──Vcd_fst──> Timestamp /
       changed (or event that fired) marks its successors;
    6. runs d's subscribers in registration order.
 
-   At the end of the trace, each machine's `finish` output propagates
-   through the graph once more (machines do not step then).
+   At the end of the trace the finishers run once more, in node order
+   (see [End of input](#end-of-input)); machines do not step then.
 4. **Equivalence.** `Sched.Sweep` is a second strategy that scans every
    node of the domain for a changed input instead of using the heap. The
    property test compares three things on 1,000 random programs over random
@@ -574,6 +603,22 @@ mechanics.
 - **Maps run once when built.** `Sig.map f s` computes `f` on `s`'s initial
   value to get its own initial value, so `f` must accept the decoder's
   `unknown` value (e.g. `Bits.zero width`).
+- **X and Z are one state.** `Logic.t` is a value plus a single `unknown`
+  mask: X, Z, U, W, L, H and `-` all set the mask, and the value keeps only
+  the weak value (L reads 0, H reads 1, the rest 0). A decoder cannot tell
+  an X from a Z, `bind.unknown-bits` and `signal.unknown-at-end` report
+  both alike, and `Logic.to_string` prints `x`, or `h` for a weak 1. A
+  model that must tell a floating bus from an unknown value cannot be
+  written over `Logic.t`.
+- **A 63-bit `int` is assumed.** The library targets native 64-bit OCaml.
+  `Bits` holds widths up to 62 in an `int` (wider values in bytes, so any
+  width is representable, but `Bits.field_int` and `Bind.uint` stop at 62
+  bits and `Bits.to_int_exn` raises when a bit at or above 62 is set);
+  `Bitset` packs 62 members per word; cycle numbers, PCs and the 32-bit
+  addresses of the models are plain `int`s; the TL-UL tracker reads at
+  most 62 bits of a lane. A target with 32-bit `int`s, which is what
+  js_of_ocaml and wasm_of_ocaml provide, would break these; neither
+  backend has been checked.
 - **A change is a new value by physical equality** unless `?eq` is given.
   A map that builds a new record or list each time counts as a change, so
   its successors are re-evaluated. That is correct but costs evaluations;

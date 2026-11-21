@@ -308,3 +308,35 @@ let%expect_test "the budget is an argument of the net" =
     (kept (Net.create ~max_diags:0 ()))
     (kept (Net.create ()));
   [%expect {| 5 0 20 |}]
+
+let%expect_test "at_finish fires once, after the last sample, in registration order" =
+  let tr = Hwfrp_vcd.of_string vcd in
+  let net = Net.create () in
+  let clk = Option.get (Trace.track_path tr "top.clk") in
+  let (Clock.Any c) =
+    Clock.define net ~name:"clk" { clock = clk.slot; rule = After_falling; enable = None }
+  in
+  let cycle = Sig.cycle c in
+  Ev.subscribe
+    (Ev.at_finish c (fun () -> Printf.sprintf "first, last cycle %d" (Sig.peek cycle)))
+    print_endline;
+  Ev.subscribe
+    (Ev.map
+       (fun l -> String.concat ";" l)
+       (fst
+          (Machine.run
+             (Machine.of_fold
+                ~finish:(fun () -> [ "machine" ])
+                ~name:"m" ~init:()
+                (fun () () -> ((), [])))
+             (Sig.const c ()))))
+    print_endline;
+  Ev.subscribe (Ev.at_finish c (fun () -> "last")) print_endline;
+  let sched = Result.get_ok (Sched.compile net) in
+  let st = Sched.run sched (Sampler.create tr (Net.domains net)) in
+  Printf.printf "ticks=%d\n" st.ticks.(0);
+  [%expect {|
+    first, last cycle 3
+    machine
+    last
+    ticks=4 |}]
