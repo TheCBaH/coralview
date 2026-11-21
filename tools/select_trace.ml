@@ -5,7 +5,8 @@
 (* select-trace MANIFEST TRACE: TRACE (VCD or FST) as a VCD with only the declarations the manifest of
    [coralview plan] selects, as the Verilator patch would write it: a variable is selected when its scopes'
    names and its own, joined by single spaces, are a [select] line; the scopes are kept and the changes of
-   unselected signals are dropped. A name no declaration matches is an error, as for the producer. *)
+   unselected signals are dropped. A name no declaration matches is an error, as for the producer, and so
+   is a VCD that is not complete, as for the consumers. *)
 
 open Vcd_types
 
@@ -34,12 +35,12 @@ let names path =
       names
   | _ -> die "%s: not a version 1 manifest" path
 
-let () =
+let main () =
   match Sys.argv with
   | [| _; manifest; trace |] ->
       let wanted = Hashtbl.create 64 and matched = Hashtbl.create 64 and kept = Hashtbl.create 64 in
       List.iter (fun n -> Hashtbl.replace wanted n ()) (names manifest);
-      let { Vcd.header; simulation } = Vcd_fst.open_file trace in
+      Hwfrp_native.with_parse_file trace @@ fun { Vcd.header; simulation } ->
       let b = Buffer.create 4096 in
       Option.iter (Printf.bprintf b "$timescale %s $end\n") header.timescale;
       let rec scope prefix (s : Vcd_ast.scope_node) =
@@ -79,3 +80,6 @@ let () =
   | _ ->
       prerr_endline "usage: select-trace MANIFEST TRACE";
       exit 2
+
+let () =
+  try main () with Vcd.Error.E e -> die "%s" (Vcd.Error.to_string e) | Sys_error m -> die "%s" m

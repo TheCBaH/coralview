@@ -44,6 +44,7 @@ val sampled :
     {!Hwfrp.Bind.Unbound} when the trace lacks the platform's clock. *)
 
 val raw :
+  ?path:string ->
   Hwfrp.Trace.t ->
   string list ->
   from:int64 ->
@@ -53,7 +54,11 @@ val raw :
   unit
 (** Each value change recorded at a timestamp from [from] to [until]; with [changes], only those that
     differ from the signal's previous value. A value that is not a bit vector of the signal's width reads as
-    unknown, and its signal is named once on the standard error. Raises {!Missing}. *)
+    unknown, and its signal is named once on the standard error. Raises {!Missing}.
+
+    [path] names the file the trace was opened from. When it is an FST file and [from] is not 0, the
+    blocks before [from] are skipped if every requested signal has changed before the block that holds
+    it; the result is that of the full scan. *)
 
 val to_string : Hwfrp.Logic.t -> string
 (** [0x] and hex digits when every bit is known; otherwise [0b] and the bits, with [x] for unknown bits

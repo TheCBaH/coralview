@@ -64,6 +64,25 @@ let with_parse_file ?select path f =
   let r, close = parse ?select path in
   Fun.protect ~finally:close (fun () -> f r)
 
+let with_seek ?select path ~time f =
+  match Vcd_fst.detect_file path with
+  | `Vcd -> None
+  | `Fst -> (
+      match Vcd_fst.File.open_ path with
+      | Error e -> raise (Vcd.Error.E e)
+      | Ok file ->
+          Fun.protect
+            ~finally:(fun () -> Vcd_fst.File.close file)
+            (fun () ->
+              let at = Vcd_types.Timestamp.of_int64 time in
+              match Vcd_fst.File.blocks file with
+              | Ok blocks
+                when Array.length blocks > 1 && Vcd_types.Timestamp.compare (snd blocks.(0)) at < 0
+                ->
+                  let state, simulation = Vcd_fst.File.stream ?select ~at file in
+                  Some (f state simulation)
+              | Ok _ | Error _ -> None))
+
 let open_file ?select path =
   let format = Vcd_fst.detect_file path in
   let close = ref ignore in

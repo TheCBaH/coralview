@@ -1,0 +1,5 @@
+hwfrp-verilator-select 1
+select TOP core clk
+select TOP core wide
+select TOP core data
+select TOP core view data_copy

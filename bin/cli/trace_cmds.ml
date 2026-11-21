@@ -67,7 +67,9 @@ let signals env platform ~raw ~format ~changes ~cycles:(from_cycle, to_cycle)
       if from_cycle <> None || to_cycle <> None then
         fail ~code:2 "--raw selects timestamps: use --from-time and --to-time";
       ( "raw",
-        Signals.raw tr paths
+        Signals.raw
+          ?path:(if path = "-" then None else Some path)
+          tr paths
           ~from:(Option.value from_time ~default:0L)
           ~until:(Option.value to_time ~default:Int64.max_int) )
     end
