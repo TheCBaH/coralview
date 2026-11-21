@@ -5,18 +5,29 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define MAXVARS 65536
+
 struct var { char id[32]; fstHandle h; int width; };
 
-static struct var vars[256];
+static struct var vars[MAXVARS];
 static int nvars;
 
-static struct var *find(const char *id)
+static struct var *lookup(const char *id)
 {
     for (int i = 0; i < nvars; i++)
         if (strcmp(vars[i].id, id) == 0)
             return &vars[i];
-    fprintf(stderr, "unknown id %s\n", id);
-    exit(1);
+    return NULL;
+}
+
+static struct var *find(const char *id)
+{
+    struct var *v = lookup(id);
+    if (!v) {
+        fprintf(stderr, "unknown id %s\n", id);
+        exit(1);
+    }
+    return v;
 }
 
 static void change(void *w, const char *id, const char *bits)
@@ -53,10 +64,25 @@ int main(int argc, char **argv)
         } else if (!strncmp(line, "$upscope", 8)) {
             fstWriterSetUpscope(w);
         } else if (sscanf(line, "$var %63s %63s %63s %63s", a, b, c, d) == 4) {
-            struct var *v = &vars[nvars++];
-            snprintf(v->id, sizeof v->id, "%s", c);
-            v->width = atoi(b);
-            v->h = fstWriterCreateVar(w, FST_VT_VCD_WIRE, FST_VD_IMPLICIT, v->width, d, 0);
+            int width = atoi(b);
+            struct var *seen = lookup(c);
+            if (seen) {
+                /* An id declared again names the same signal: the new name aliases the first handle. */
+                if (seen->width != width) {
+                    fprintf(stderr, "id %s declared with widths %d and %d\n", c, seen->width, width);
+                    return 1;
+                }
+                fstWriterCreateVar(w, FST_VT_VCD_WIRE, FST_VD_IMPLICIT, width, d, seen->h);
+            } else {
+                if (nvars == MAXVARS || strlen(c) >= sizeof vars[0].id) {
+                    fprintf(stderr, "too many variables (at most %d) or id %s too long\n", MAXVARS, c);
+                    return 1;
+                }
+                struct var *v = &vars[nvars++];
+                snprintf(v->id, sizeof v->id, "%s", c);
+                v->width = width;
+                v->h = fstWriterCreateVar(w, FST_VT_VCD_WIRE, FST_VD_IMPLICIT, width, d, 0);
+            }
         } else if (line[0] == '#') {
             fstWriterEmitTimeChange(w, strtoull(line + 1, NULL, 10));
         } else if (line[0] == 'b' && sscanf(line + 1, "%1099s %63s", a, e) == 2) {

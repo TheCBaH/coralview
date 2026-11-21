@@ -3,7 +3,7 @@
 (executable
  (name select_trace)
  (modules select_trace)
- (libraries ovcd ovcd.fst ovcd.vcd_types))
+ (libraries hwfrp_native ovcd ovcd.vcd_types))
 
 (executable
  (name mkelf)
