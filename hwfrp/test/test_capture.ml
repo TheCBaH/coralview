@@ -3,7 +3,7 @@
 [@@@ai_provider "Anthropic"]
 
 open Hwfrp
-open Vcd_types
+open Ovcd_types
 
 let vcd =
   {|$timescale 1ps $end
@@ -257,7 +257,7 @@ let file_round_trip =
   QCheck2.Test.make ~name:"plan file round trip" ~count:300 gen_vars (fun vars ->
       let text = vcd_of vars in
       let tr = Hwfrp_vcd.of_string text in
-      Vcd.Resolver.fold (fun e () -> ignore (Trace.track tr e)) (Trace.resolver tr) ();
+      Ovcd.Vcd.Resolver.fold (fun e () -> ignore (Trace.track tr e)) (Trace.resolver tr) ();
       let p = Capture.plan ~origin:"o" tr [] in
       let file = Capture.to_file p in
       match Capture.of_file file with
@@ -269,7 +269,7 @@ let file_round_trip =
             QCheck2.Test.fail_reportf "entries";
           (* the plan describes its own trace *)
           let tr2 = Hwfrp_vcd.of_string text in
-          Vcd.Resolver.fold (fun e () -> ignore (Trace.track tr2 e)) (Trace.resolver tr2) ();
+          Ovcd.Vcd.Resolver.fold (fun e () -> ignore (Trace.track tr2 e)) (Trace.resolver tr2) ();
           (match Capture.check q ~origins:[ "o" ] tr2 with
           | Ok () -> ()
           | Error l -> QCheck2.Test.fail_reportf "check: %s" (String.concat "; " l));

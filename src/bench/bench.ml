@@ -3,7 +3,7 @@
 [@@@ai_provider "Anthropic"]
 
 open Hwfrp
-module Reference = Vcd_types.Reference
+module Reference = Ovcd_types.Reference
 
 let time f =
   let t0 = Unix.gettimeofday () in
@@ -16,7 +16,7 @@ let inputs (p : Platform.t) tr root =
     (Trace.scope_vars tr root)
 
 let read path =
-  let { Vcd.simulation; _ } = Hwfrp_native.parse_file path in
+  let { Ovcd.Vcd.simulation; _ } = Hwfrp_native.parse_file path in
   Seq.fold_left (fun n _ -> n + 1) 0 simulation
 
 (* Decoding alone, of what sampling would read. *)
@@ -77,11 +77,11 @@ let engine (p : Platform.t) ~select ~nodes ~strategy path =
 
 let run p ~select ~nodes path =
   let header, header_s =
-    time (fun () -> Hwfrp_native.with_parse_file path (fun { Vcd.header; _ } -> header))
+    time (fun () -> Hwfrp_native.with_parse_file path (fun { Ovcd.Vcd.header; _ } -> header))
   in
-  let resolver, resolver_s = time (fun () -> Vcd.Resolver.make header) in
+  let resolver, resolver_s = time (fun () -> Ovcd.Vcd.Resolver.make header) in
   Printf.printf "header  %.3f s, resolver %.3f s for %d signals\n" header_s resolver_s
-    (Vcd.Resolver.fold (fun _ n -> n + 1) resolver 0);
+    (Ovcd.Vcd.Resolver.fold (fun _ n -> n + 1) resolver 0);
   let events, read_s = time (fun () -> read path) in
   Printf.printf "decode  %d events in %.3f s, header included\n" events read_s;
   let events, read_s = time (fun () -> read_tracked p ~select path) in

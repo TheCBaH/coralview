@@ -2,7 +2,7 @@
 [@@@ai_model "claude-opus-5-5"]
 [@@@ai_provider "Anthropic"]
 
-open Vcd_types
+open Ovcd_types
 open Frp
 
 type width_rule = Exact of int | At_least of int | Up_to of int | Any_width
@@ -19,7 +19,7 @@ type status =
   | Bound of Trace.signal
   | Missing
   | Width_mismatch of { expected : width_rule; actual : int }
-  | Not_a_vector of Vcd_ast.var_type
+  | Not_a_vector of Ovcd.Ast.var_type
 
 exception Unbound of requirement * status
 
@@ -51,7 +51,7 @@ let pp_entry ppf ((r : requirement), s) =
     | Missing -> ("missing", "")
     | Width_mismatch { expected; actual } ->
         ("width", Format.asprintf "%d, expected %a" actual pp_width_rule expected)
-    | Not_a_vector t -> ("type", Vcd.string_of_var_type t)
+    | Not_a_vector t -> ("type", Ovcd.Vcd.string_of_var_type t)
   in
   Format.fprintf ppf "  %-7s %s" word (relative r);
   if detail <> "" then Format.fprintf ppf " %s" detail;
@@ -86,7 +86,7 @@ let width_ok rule w =
   match rule with Exact n -> w = n | At_least n -> w >= n | Up_to n -> w <= n | Any_width -> true
 
 let is_vector = function
-  | Vcd_ast.Real | Realtime | Real_parameter | Shortreal | Sstring -> false
+  | Ovcd.Ast.Real | Realtime | Real_parameter | Shortreal | Sstring -> false
   | _ -> true
 
 (* Without [track], a bound signal is a description of the entry, with an invalid slot. *)
@@ -94,7 +94,7 @@ let status ~track tr path rule =
   match Trace.lookup tr path with
   | None -> Missing
   | Some e ->
-      let w = Vcd.Resolver.entry_size e and vt = Trace.var_type tr e in
+      let w = Ovcd.Vcd.Resolver.entry_size e and vt = Trace.var_type tr e in
       if not (is_vector vt) then Not_a_vector vt
       else if not (width_ok rule w) then Width_mismatch { expected = rule; actual = w }
       else if track then Bound (Trace.track tr e)
@@ -102,8 +102,8 @@ let status ~track tr path rule =
         Bound
           {
             (Trace.unbound ~path ~width:w) with
-            id = Vcd.Resolver.entry_id e;
-            aliases = Vcd.Resolver.entry_references e;
+            id = Ovcd.Vcd.Resolver.entry_id e;
+            aliases = Ovcd.Vcd.Resolver.entry_references e;
             var_type = vt;
           }
 
@@ -175,9 +175,9 @@ let path sc = Reference.of_list (Reference.to_list sc.root @ sc.rel)
 let vars sc = Trace.scope_vars sc.trace (path sc)
 
 let find_roots tr pattern =
-  let rec walk prefix acc (s : Vcd_ast.scope_node) =
+  let rec walk prefix acc (s : Ovcd.Ast.scope_node) =
     let p = prefix @ [ s.s_name ] in
-    let acc = if Filter_matcher.matches pattern (Reference.of_list p) then p :: acc else acc in
+    let acc = if Ovcd_filter.Matcher.matches pattern (Reference.of_list p) then p :: acc else acc in
     List.fold_left (walk p) acc s.children
   in
   List.fold_left (walk []) [] (Trace.header tr).scopes |> List.rev_map Reference.of_list

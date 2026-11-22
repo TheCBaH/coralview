@@ -33,8 +33,8 @@ type sample = (bool * bool * request) * (int * Bits.t * bool) option
 type 'c t = {
   sample : (sample, 'c) Sig.t;
   data_bytes : int;
-  a_source : Vcd_types.Reference.t;
-  d_source : Vcd_types.Reference.t;
+  a_source : Ovcd_types.Reference.t;
+  d_source : Ovcd_types.Reference.t;
 }
 
 module IM = Map.Make (Int)
@@ -70,7 +70,9 @@ let bind sc (p : names) ~data_bytes =
     and+ error = b "d_bits_error" in
     if valid && ready then Some (source, data, error) else None
   in
-  let path x = Vcd_types.Reference.of_list (Vcd_types.Reference.to_list (Bind.path sc) @ [ n x ]) in
+  let path x =
+    Ovcd_types.Reference.of_list (Ovcd_types.Reference.to_list (Bind.path sc) @ [ n x ])
+  in
   {
     sample = Sig.map2 (fun a d -> (a, d)) a d;
     data_bytes;

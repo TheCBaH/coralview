@@ -1,5 +1,5 @@
 open Hwfrp
-open Vcd_types
+open Ovcd_types
 
 let vcd =
   {|$timescale 1ps $end
@@ -72,7 +72,8 @@ let%expect_test "discovery" =
             (fun p ->
               Printf.printf "%s: %s\n" p
                 (String.concat " "
-                   (List.map Reference.to_string (Bind.find_roots tr (Filter_parser.parse_exn p)))))
+                   (List.map Reference.to_string
+                      (Bind.find_roots tr (Ovcd_filter.Parser.parse_exn p)))))
             [ "**"; "**.core"; "top.*" ];
           Printf.printf "lanes %s\n"
             (String.concat "," (List.map string_of_int (Bundle.lanes sc "io_lane_%d_v")));

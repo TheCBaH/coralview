@@ -40,7 +40,7 @@ let env () =
         Source.value c
           (Option.get (Trace.track_path tr "top.d"))
           ~init:0
-          (function Vcd_types.Value.Int n -> n | _ -> -1)
+          (function Ovcd_types.Value.Int n -> n | _ -> -1)
       in
       E { tr; net; clk = c; d }
 
@@ -298,7 +298,7 @@ let ends text =
     Source.value c
       (Option.get (Trace.track_path tr "top.d"))
       ~init:0
-      (function Vcd_types.Value.Int n -> n | _ -> -1)
+      (function Ovcd_types.Value.Int n -> n | _ -> -1)
   in
   let m =
     fst
@@ -453,13 +453,13 @@ bx #
 let%expect_test "a reset marks its samples and silences unknown bits in them" =
   let tr = Hwfrp_vcd.of_string reset_vcd in
   let net = Net.create () in
-  let at n = Vcd_types.Reference.of_list [ "top"; n ] in
+  let at n = Ovcd_types.Reference.of_list [ "top"; n ] in
   let (Clock.Any c) =
     Bind.clock net tr ~model:"m" ~name:"clk" ~reset:(at "rst", true) After_falling (at "clk")
   in
   let d =
     Bind.signal
-      (Bind.root net tr c ~model:"m" (Vcd_types.Reference.of_list [ "top" ]))
+      (Bind.root net tr c ~model:"m" (Ovcd_types.Reference.of_list [ "top" ]))
       "d" Bind.uint
   in
   let rst = Sig.in_reset c and cycle = Sig.cycle c in
@@ -483,7 +483,7 @@ let%expect_test "a reset marks its samples and silences unknown bits in them" =
 let%expect_test "a run that never leaves reset says so" =
   let tr = Hwfrp_vcd.of_string reset_vcd in
   let net = Net.create () in
-  let at n = Vcd_types.Reference.of_list [ "top"; n ] in
+  let at n = Ovcd_types.Reference.of_list [ "top"; n ] in
   let (Clock.Any _) =
     Bind.clock net tr ~model:"m" ~name:"clk" ~reset:(at "clk", false) After_falling (at "clk")
   in

@@ -20,9 +20,9 @@ let%expect_test "the seek starts at a block and gives the values before it" =
     (fun time ->
       match
         Hwfrp_native.with_seek file ~time (fun state events ->
-            ( Vcd.ID_map.cardinal state,
+            ( Ovcd.Vcd.ID_map.cardinal state,
               match events () with
-              | Seq.Cons (Vcd_ast.Timestamp t, _) -> Vcd_types.Timestamp.to_int64 t
+              | Seq.Cons (Ovcd.Ast.Timestamp t, _) -> Ovcd_types.Timestamp.to_int64 t
               | _ -> -1L ))
       with
       | Some (n, t) -> ids := Printf.sprintf "%Ld: %d values, from timestamp %Ld" time n t :: !ids

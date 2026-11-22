@@ -78,7 +78,7 @@ module Sig : sig
   (** Fires with the new value when it differs from the previous sample's; never at the first sample. *)
 
   val cycle : 'c Clock.t -> (int, 'c) t
-  val time : 'c Clock.t -> (Vcd_types.Timestamp.t, 'c) t
+  val time : 'c Clock.t -> (Ovcd_types.Timestamp.t, 'c) t
   val enabled : 'c Clock.t -> (bool, 'c) t
 
   val in_reset : 'c Clock.t -> (bool, 'c) t
@@ -183,7 +183,7 @@ module Source : sig
     'c Clock.t ->
     Trace.signal ->
     init:'a ->
-    (Vcd_types.Value.t -> 'a) ->
+    (Ovcd_types.Value.t -> 'a) ->
     ('a, 'c) Sig.t
 
   val many :
@@ -212,14 +212,14 @@ module Diag : sig
     source : string;
     code : string;  (** Stable, e.g. ["decoupled.payload-changed"]. *)
     cycle : int option;
-    time : Vcd_types.Timestamp.t option;
-    paths : Vcd_types.Reference.t list;  (** Where to look in the waveform. *)
+    time : Ovcd_types.Timestamp.t option;
+    paths : Ovcd_types.Reference.t list;  (** Where to look in the waveform. *)
     message : string;
   }
 
   val make :
     ?severity:severity ->
-    ?paths:Vcd_types.Reference.t list ->
+    ?paths:Ovcd_types.Reference.t list ->
     source:string ->
     code:string ->
     string ->
@@ -253,7 +253,7 @@ module Diag : sig
   type group = {
     source : string;
     code : string;
-    paths : Vcd_types.Reference.t list;
+    paths : Ovcd_types.Reference.t list;
     severity : severity;  (** Of the first. *)
     count : int;
     first_cycle : int option;

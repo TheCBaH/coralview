@@ -1,5 +1,5 @@
 open Hwfrp
-open Vcd_types
+open Ovcd_types
 
 (* clk rises at odd timestamps and falls at even ones; data changes with both edges. *)
 let vcd =

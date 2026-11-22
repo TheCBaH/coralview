@@ -40,5 +40,6 @@
   ovcd
   ovcd.vcd_types
   qcheck-core
+  err_trace.err
   jsont
   jsont.bytesrw))

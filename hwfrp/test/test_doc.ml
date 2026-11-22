@@ -1,6 +1,6 @@
 (* The examples of hwfrp/README.md, kept compiling and producing the output shown there. *)
 open Hwfrp
-module Reference = Vcd_types.Reference
+module Reference = Ovcd_types.Reference
 
 let vcd =
   {|$timescale 1ps $end
@@ -74,16 +74,16 @@ let transfers tr =
 
 (* [doc:raw] *)
 let transfers_raw text =
-  let { Vcd.header; simulation } = Vcd.parse_string text in
-  let resolver = Vcd.Resolver.make header in
-  let id path = Option.get (Vcd.Resolver.find_id resolver (Reference.of_string path)) in
+  let { Ovcd.Vcd.header; simulation } = Ovcd.Vcd.parse_string text in
+  let resolver = Ovcd.Vcd.Resolver.make header in
+  let id path = Option.get (Ovcd.Vcd.Resolver.find_id resolver (Reference.of_string path)) in
   let clk = id "top.clk" and valid = id "top.io_out_valid" and data = id "top.io_out_bits_data" in
   let values = Hashtbl.create 8 in
-  let get i = Hashtbl.find_opt values (Vcd_types.ID.to_string i) in
+  let get i = Hashtbl.find_opt values (Ovcd_types.ID.to_string i) in
   let cycle = ref 0 and last = ref None and batch = ref [] in
   let sample () =
     (match (get valid, get data) with
-    | Some (Vcd_types.Value.Scalar B1), Some (Int d) ->
+    | Some (Ovcd_types.Value.Scalar B1), Some (Int d) ->
         Printf.printf "cycle %d: %d%s\n" !cycle d
           (match !last with
           | Some l -> Printf.sprintf " (%d cycles after the last)" (!cycle - l)
@@ -95,13 +95,13 @@ let transfers_raw text =
   (* The changes of one timestamp are applied together; a falling clock edge then samples. *)
   let flush () =
     let before = get clk in
-    List.iter (fun (i, v) -> Hashtbl.replace values (Vcd_types.ID.to_string i) v) (List.rev !batch);
+    List.iter (fun (i, v) -> Hashtbl.replace values (Ovcd_types.ID.to_string i) v) (List.rev !batch);
     batch := [];
     match (before, get clk) with Some (Scalar B1), Some (Scalar B0) -> sample () | _ -> ()
   in
   Seq.iter
     (function
-      | Vcd_ast.Timestamp _ -> flush ()
+      | Ovcd.Ast.Timestamp _ -> flush ()
       | Change (i, v) -> batch := (i, v) :: !batch
       | DumpStart _ | DumpEnd | SimComment _ -> ())
     simulation;

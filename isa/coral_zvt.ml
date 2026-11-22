@@ -2,8 +2,8 @@
 [@@@ai_model "claude-opus-5-5"]
 [@@@ai_provider "Anthropic"]
 
-module Row = Riscv_family_encode.Riscv_table_row
-module Ext = Riscv_family_encode.Extensions
+module Row = Rivet_riscv_family_encode.Riscv_table_row
+module Ext = Rivet_riscv_family_encode.Extensions
 
 let feature = "xcoralzvt"
 let system_feature = "xcoralsys"
@@ -102,7 +102,7 @@ let row i =
         }
   | _ -> Error (i.mnemonic ^ ": bad mask or match")
 
-let component mnemonics : Target_component.t =
+let component mnemonics : Rivet_target_features.Component.t =
   {
     id = "coralnpu." ^ feature;
     feature;
@@ -117,7 +117,7 @@ let component mnemonics : Target_component.t =
       List.map
         (fun m ->
           {
-            Target_component.label = m;
+            Rivet_target_features.Component.label = m;
             mnemonics = [ m ];
             sources = [ { upstream = "mpact-riscv"; name = m } ];
             legal = None;
@@ -141,7 +141,7 @@ let system_rows =
     };
   ]
 
-let system_component : Target_component.t =
+let system_component : Rivet_target_features.Component.t =
   {
     id = "coralnpu." ^ system_feature;
     feature = system_feature;
@@ -156,7 +156,7 @@ let system_component : Target_component.t =
       List.map
         (fun (r : Row.row) ->
           {
-            Target_component.label = r.mnemonic;
+            Rivet_target_features.Component.label = r.mnemonic;
             mnemonics = [ r.mnemonic ];
             sources = [ { upstream = "coralnpu"; name = r.mnemonic } ];
             legal = None;

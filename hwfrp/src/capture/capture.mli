@@ -7,9 +7,9 @@
     with an {i origin} naming the graph, and checked against a selected trace before the first sample. *)
 
 type entry = {
-  aliases : Vcd_types.Reference.t list;  (** All of them, sorted. *)
+  aliases : Ovcd_types.Reference.t list;  (** All of them, sorted. *)
   width : int;
-  var_type : Vcd_ast.var_type;
+  var_type : Ovcd.Ast.var_type;
   origins : string list;  (** Sorted; in the file. *)
   provenance : (string * string) list;  (** Model, purpose; sorted; not in the file. *)
 }

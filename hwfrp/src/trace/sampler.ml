@@ -2,7 +2,7 @@
 [@@@ai_model "claude-opus-5-5"]
 [@@@ai_provider "Anthropic"]
 
-open Vcd_types
+open Ovcd_types
 
 module SH = Hashtbl.Make (struct
   type t = string
@@ -155,7 +155,7 @@ let rec pull t =
   | Event ev -> (
       t.n_events <- t.n_events + 1;
       match ev with
-      | Vcd_ast.Timestamp ts ->
+      | Ovcd.Ast.Timestamp ts ->
           t.n_timestamps <- t.n_timestamps + 1;
           close_batch t;
           t.batch_time <- ts;

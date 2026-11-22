@@ -1,6 +1,6 @@
 (* A run fed in pieces, and paused, gives the events of the whole input at once. *)
 open Hwfrp
-open Vcd_types
+open Ovcd_types
 
 (* [cycles] falling edges of clk; d counts them, changing with the edge. *)
 let text cycles =
@@ -58,7 +58,7 @@ let reference cycles =
   (a, b)
 
 let events cycles =
-  let { Vcd.header; simulation } = Vcd.parse_string (text cycles) in
+  let { Ovcd.Vcd.header; simulation } = Ovcd.Vcd.parse_string (text cycles) in
   (header, Array.of_seq simulation)
 
 type step = { pushed : int; starved : int; paused : int }

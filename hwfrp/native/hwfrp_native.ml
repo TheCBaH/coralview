@@ -18,13 +18,13 @@ let closing close seq =
   go seq
 
 (* A channel names itself "<channel>"; a file is named by its path. *)
-let named path (e : Vcd.Error.error) : Vcd.Error.error =
+let named path (e : Ovcd.Vcd.Error.error) : Ovcd.Vcd.Error.error =
   match e with
-  | `Syntax (p, m) -> `Syntax ({ p with Vcd.Error.file = path }, m)
-  | `Incomplete (p, m) -> `Incomplete ({ p with Vcd.Error.file = path }, m)
+  | `Syntax (p, m) -> `Syntax ({ p with Ovcd.Vcd.Error.file = path }, m)
+  | `Incomplete (p, m) -> `Incomplete ({ p with Ovcd.Vcd.Error.file = path }, m)
   | e -> e
 
-let rename path f = try f () with Vcd.Error.E e -> raise (Vcd.Error.E (named path e))
+let rename path f = try f () with Ovcd.Vcd.Error.E e -> raise (Ovcd.Vcd.Error.E (named path e))
 
 let rec rename_seq path seq () =
   match rename path seq with
@@ -34,25 +34,25 @@ let rec rename_seq path seq () =
 (* A VCD file is read through a channel opened here, so that it is parsed strictly, as standard input
    is. *)
 let parse ?select path =
-  match Vcd_fst.detect_file path with
+  match Ovcd_fst.detect_file path with
   | `Fst -> (
-      match Vcd_fst.File.open_ path with
-      | Error e -> raise (Vcd.Error.E e)
+      match Ovcd_fst.File.open_ path with
+      | Error e -> raise (Ovcd.Vcd.Error.E e)
       | Ok f -> (
-          let close () = Vcd_fst.File.close f in
+          let close () = Ovcd_fst.File.close f in
           match
-            let header = Vcd_fst.File.header f in
-            let _, simulation = Vcd_fst.File.stream ?select f in
-            { Vcd.header; simulation = closing close simulation }
+            let header = Ovcd_fst.File.header f in
+            let _, simulation = Ovcd_fst.File.stream ?select f in
+            { Ovcd.Vcd.header; simulation = closing close simulation }
           with
           | r -> (r, close)
           | exception ex ->
               close ();
               raise ex))
   | `Vcd -> (
-      let ic = try open_in_bin path with Sys_error m -> raise (Vcd.Error.E (`Io m)) in
+      let ic = try open_in_bin path with Sys_error m -> raise (Ovcd.Vcd.Error.E (`Io m)) in
       let close () = close_in_noerr ic in
-      match rename path (fun () -> Vcd.parse_channel ?select ~strict:true ic) with
+      match rename path (fun () -> Ovcd.Vcd.parse_channel ?select ~strict:true ic) with
       | r -> ({ r with simulation = closing close (rename_seq path r.simulation) }, close)
       | exception ex ->
           close ();
@@ -65,26 +65,26 @@ let with_parse_file ?select path f =
   Fun.protect ~finally:close (fun () -> f r)
 
 let with_seek ?select path ~time f =
-  match Vcd_fst.detect_file path with
+  match Ovcd_fst.detect_file path with
   | `Vcd -> None
   | `Fst -> (
-      match Vcd_fst.File.open_ path with
-      | Error e -> raise (Vcd.Error.E e)
+      match Ovcd_fst.File.open_ path with
+      | Error e -> raise (Ovcd.Vcd.Error.E e)
       | Ok file ->
           Fun.protect
-            ~finally:(fun () -> Vcd_fst.File.close file)
+            ~finally:(fun () -> Ovcd_fst.File.close file)
             (fun () ->
-              let at = Vcd_types.Timestamp.of_int64 time in
-              match Vcd_fst.File.blocks file with
+              let at = Ovcd_types.Timestamp.of_int64 time in
+              match Ovcd_fst.File.blocks file with
               | Ok blocks
-                when Array.length blocks > 1 && Vcd_types.Timestamp.compare (snd blocks.(0)) at < 0
+                when Array.length blocks > 1 && Ovcd_types.Timestamp.compare (snd blocks.(0)) at < 0
                 ->
-                  let state, simulation = Vcd_fst.File.stream ?select ~at file in
+                  let state, simulation = Ovcd_fst.File.stream ?select ~at file in
                   Some (f state simulation)
               | Ok _ | Error _ -> None))
 
 let open_file ?select path =
-  let format = Vcd_fst.detect_file path in
+  let format = Ovcd_fst.detect_file path in
   let close = ref ignore in
   let t =
     Hwfrp.Trace.of_parse ?select ~format (fun select ->
@@ -95,7 +95,7 @@ let open_file ?select path =
   Hwfrp.Trace.on_close t !close;
   t
 
-let open_file_result ?select path = Vcd.Error.catch (fun () -> open_file ?select path)
+let open_file_result ?select path = Ovcd.Vcd.Error.catch (fun () -> open_file ?select path)
 let close = Hwfrp.Trace.close
 
 let with_file ?select path f =
@@ -103,8 +103,8 @@ let with_file ?select path f =
   Fun.protect ~finally:(fun () -> close t) (fun () -> f t)
 
 let open_string ?select s =
-  Hwfrp.Trace.of_parse ?select ~format:(Vcd_fst.detect_string s) (fun select ->
-      Vcd_fst.open_string ?select s)
+  Hwfrp.Trace.of_parse ?select ~format:(Ovcd_fst.detect_string s) (fun select ->
+      Ovcd_fst.open_string ?select s)
 
 let open_input ?select path =
   if path = "-" then begin

@@ -12,8 +12,8 @@ type width_rule = Exact of int | At_least of int | Up_to of int | Any_width
 
 type requirement = {
   model : string;
-  root : Vcd_types.Reference.t;
-  path : Vcd_types.Reference.t;  (** Absolute, after the root and the overrides. *)
+  root : Ovcd_types.Reference.t;
+  path : Ovcd_types.Reference.t;  (** Absolute, after the root and the overrides. *)
   width : width_rule;
   purpose : string;
 }
@@ -22,14 +22,14 @@ type status =
   | Bound of Trace.signal
   | Missing
   | Width_mismatch of { expected : width_rule; actual : int }
-  | Not_a_vector of Vcd_ast.var_type
+  | Not_a_vector of Ovcd.Ast.var_type
 
 exception Unbound of requirement * status
 (** The status is never [Bound]. *)
 
 type report = {
   model : string;
-  root : Vcd_types.Reference.t;
+  root : Ovcd_types.Reference.t;
   entries : (requirement * status) list;
 }
 
@@ -39,10 +39,10 @@ val clock :
   model:string ->
   ?purpose:string ->
   name:string ->
-  ?enable:Vcd_types.Reference.t ->
-  ?reset:Vcd_types.Reference.t * bool ->
+  ?enable:Ovcd_types.Reference.t ->
+  ?reset:Ovcd_types.Reference.t * bool ->
   Trace.sample_rule ->
-  Vcd_types.Reference.t ->
+  Ovcd_types.Reference.t ->
   Frp.Clock.any
 (** A clock domain sampled on a 1-bit signal. [reset] is a 1-bit signal and the level that asserts it:
     the samples taken then are [in_reset], and a decoder reports no unknown bits in them (see
@@ -67,8 +67,8 @@ val root :
   Trace.t ->
   'c Frp.Clock.t ->
   model:string ->
-  ?overrides:(string * Vcd_types.Reference.t) list ->
-  Vcd_types.Reference.t ->
+  ?overrides:(string * Ovcd_types.Reference.t) list ->
+  Ovcd_types.Reference.t ->
   'c scope
 (** [overrides] maps a path relative to the root, components joined by ['.'], to the absolute path to bind
     instead. *)
@@ -78,7 +78,7 @@ val flat :
   Trace.t ->
   'c Frp.Clock.t ->
   model:string ->
-  (string * Vcd_types.Reference.t) list ->
+  (string * Ovcd_types.Reference.t) list ->
   'c scope
 (** A scope for a flat description: a list of (name, absolute path). {!signal} and {!resolve} take only
     those names, and a name that is not listed is {!Unbound} as missing, whatever the trace holds. *)
@@ -86,12 +86,12 @@ val flat :
 val sub : 'c scope -> string -> 'c scope
 (** One scope component, taken literally. *)
 
-val path : 'c scope -> Vcd_types.Reference.t
+val path : 'c scope -> Ovcd_types.Reference.t
 
 val vars : 'c scope -> (string * int) list
 (** The variables declared directly in the scope, with their widths. *)
 
-val find_roots : Trace.t -> Filter_ast.pattern -> Vcd_types.Reference.t list
+val find_roots : Trace.t -> Ovcd_filter.Ast.pattern -> Ovcd_types.Reference.t list
 (** The scopes whose paths match, outermost first. *)
 
 type 'a decoder = {

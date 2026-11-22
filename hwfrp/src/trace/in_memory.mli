@@ -4,29 +4,29 @@
 
 (** A trace whose catalog and value changes are values in memory: no file, no parser. A producer that
     holds a simulation's signals builds a catalog with {!scope} and {!var} and supplies its changes as
-    events, with the same meaning as the ones a VCD or FST file gives (see [Vcd_ast.event]). *)
+    events, with the same meaning as the ones a VCD or FST file gives (see [Ovcd.Ast.event]). *)
 
-val var : ?typ:Vcd_ast.var_type -> id:string -> width:int -> string -> Vcd_ast.var_decl
+val var : ?typ:Ovcd.Ast.var_type -> id:string -> width:int -> string -> Ovcd.Ast.var_decl
 (** A signal of a scope: a unique [id] (aliases share one), its width in bits, and its name. The type
     defaults to [Wire]. *)
 
 val scope :
-  ?typ:Vcd_ast.scope_type ->
-  ?children:Vcd_ast.scope_node list ->
+  ?typ:Ovcd.Ast.scope_type ->
+  ?children:Ovcd.Ast.scope_node list ->
   string ->
-  Vcd_ast.var_decl list ->
-  Vcd_ast.scope_node
+  Ovcd.Ast.var_decl list ->
+  Ovcd.Ast.scope_node
 (** A named scope (a [Module] by default) with its signals and sub-scopes. *)
 
-val header : Vcd_ast.scope_node list -> Vcd_ast.header
+val header : Ovcd.Ast.scope_node list -> Ovcd.Ast.header
 (** A catalog of top-level scopes. *)
 
-val at : int64 -> Vcd_ast.event
+val at : int64 -> Ovcd.Ast.event
 (** A timestamp, in the units the producer chose. *)
 
-val change : id:string -> Vcd_types.Value.t -> Vcd_ast.event
+val change : id:string -> Ovcd_types.Value.t -> Ovcd.Ast.event
 
-val trace : Vcd_ast.header -> Vcd_ast.event Seq.t -> Trace.t
+val trace : Ovcd.Ast.header -> Ovcd.Ast.event Seq.t -> Trace.t
 (** The events are consumed lazily and once, in order: a timestamp, then the changes at it. Changes of
     an id the catalog does not declare are dropped, as in a selected read of a file. *)
 
@@ -34,10 +34,10 @@ val trace : Vcd_ast.header -> Vcd_ast.event Seq.t -> Trace.t
 module Live : sig
   type t
 
-  val create : Vcd_ast.header -> t
+  val create : Ovcd.Ast.header -> t
   val trace : t -> Trace.t
 
-  val push : t -> Vcd_ast.event -> unit
+  val push : t -> Ovcd.Ast.event -> unit
   (** Queues one event. Raises [Invalid_argument] after {!finish}. *)
 
   val finish : t -> unit

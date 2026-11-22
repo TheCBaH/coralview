@@ -16,7 +16,7 @@ type binding = {
 }
 
 val of_entry :
-  string -> Vcd_types.Reference.t -> Hwfrp.Bind.requirement * Hwfrp.Bind.status -> binding
+  string -> Ovcd_types.Reference.t -> Hwfrp.Bind.requirement * Hwfrp.Bind.status -> binding
 
 val ok : binding -> bool
 

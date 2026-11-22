@@ -78,7 +78,7 @@ let require tr paths =
     (fun path ->
       if
         components path = []
-        || Trace.lookup tr (Vcd_types.Reference.of_list (components path)) = None
+        || Trace.lookup tr (Ovcd_types.Reference.of_list (components path)) = None
       then raise (Missing path))
     paths
 
@@ -88,7 +88,7 @@ let bind_paths (c : _ Core.t) tr paths =
       match List.rev (components path) with
       | [] -> raise (Missing path)
       | name :: up ->
-          let sc = Bind.root c.net tr c.clk ~model (Vcd_types.Reference.of_list (List.rev up)) in
+          let sc = Bind.root c.net tr c.clk ~model (Ovcd_types.Reference.of_list (List.rev up)) in
           Bind.signal sc name Bind.logic ~purpose:"requested signal")
     paths
 
@@ -105,7 +105,7 @@ let sampled ?gate (p : Platform.t) tr paths ~from ~until ~changes f =
   let now =
     let open Sig in
     let+ vs = all values and+ cycle = cycle c.clk and+ time = time c.clk in
-    (cycle, Vcd_types.Timestamp.to_int64 time, vs)
+    (cycle, Ovcd_types.Timestamp.to_int64 time, vs)
   in
   let previous = ref [] in
   Ev.subscribe
@@ -131,10 +131,10 @@ let sampled ?gate (p : Platform.t) tr paths ~from ~until ~changes f =
   Seq.iter
     (fun (d : Diag.t) ->
       if d.code = "signal.undecodable" then
-        let name (r : Vcd_types.Reference.t) =
-          match List.find_opt (fun p -> components p = Vcd_types.Reference.to_list r) paths with
+        let name (r : Ovcd_types.Reference.t) =
+          match List.find_opt (fun p -> components p = Ovcd_types.Reference.to_list r) paths with
           | Some p -> p
-          | None -> Vcd_types.Reference.to_string r
+          | None -> Ovcd_types.Reference.to_string r
         in
         Format.eprintf "%s: %s@." (String.concat "," (List.map name d.paths)) d.message)
     (Diag.stream c.net)
@@ -155,7 +155,7 @@ let raw ?path tr paths ~from ~until ~changes f =
   let by_id = Hashtbl.create 16 in
   List.iter
     (fun ((_, (s : Trace.signal)) as w) ->
-      let k = Vcd_types.ID.to_string s.id in
+      let k = Ovcd_types.ID.to_string s.id in
       Hashtbl.replace by_id k (w :: Option.value (Hashtbl.find_opt by_id k) ~default:[]))
     (List.rev wanted);
   let last = Hashtbl.create 16 and undecodable = Hashtbl.create 4 in
@@ -171,11 +171,11 @@ let raw ?path tr paths ~from ~until ~changes f =
         Logic.unknown s.width
   in
   let handle = function
-    | Vcd_ast.Timestamp t ->
-        time := Vcd_types.Timestamp.to_int64 t;
+    | Ovcd.Ast.Timestamp t ->
+        time := Ovcd_types.Timestamp.to_int64 t;
         if Int64.compare !time until > 0 then raise Stop
     | Change (id, v) -> (
-        match Hashtbl.find_opt by_id (Vcd_types.ID.to_string id) with
+        match Hashtbl.find_opt by_id (Ovcd_types.ID.to_string id) with
         | None -> ()
         | Some ws ->
             List.iter
@@ -193,9 +193,9 @@ let raw ?path tr paths ~from ~until ~changes f =
   (* The stream stands in for the scan only if it starts before [from]: a block can start at a timestamp
      whose changes are in the block before, so those changes are in [state] and not in the stream. *)
   let resume events state resumed =
-    match (Vcd.ID_map.is_empty state, resumed ()) with
-    | false, Seq.Cons ((Vcd_ast.Timestamp t0 as first), rest) ->
-        let t0_ = Vcd_types.Timestamp.to_int64 t0 in
+    match (Ovcd.Vcd.ID_map.is_empty state, resumed ()) with
+    | false, Seq.Cons ((Ovcd.Ast.Timestamp t0 as first), rest) ->
+        let t0_ = Ovcd_types.Timestamp.to_int64 t0 in
         if Int64.compare t0_ from >= 0 then `Earlier
         else begin
           let unseen = Hashtbl.create 16 in
@@ -203,18 +203,18 @@ let raw ?path tr paths ~from ~until ~changes f =
           let rec prefix seq =
             match seq () with
             | Seq.Nil -> ()
-            | Cons (Vcd_ast.Timestamp t, _) as node
-              when Int64.compare (Vcd_types.Timestamp.to_int64 t) t0_ >= 0 ->
+            | Cons (Ovcd.Ast.Timestamp t, _) as node
+              when Int64.compare (Ovcd_types.Timestamp.to_int64 t) t0_ >= 0 ->
                 Seq.iter handle (fun () -> node)
             | Cons (e, seq) ->
                 handle e;
                 (match e with
-                | Change (id, _) -> Hashtbl.remove unseen (Vcd_types.ID.to_string id)
+                | Change (id, _) -> Hashtbl.remove unseen (Ovcd_types.ID.to_string id)
                 | _ -> ());
                 if Hashtbl.length unseen = 0 then begin
                   List.iter
                     (fun (path, (s : Trace.signal)) ->
-                      match Vcd.Stateful.find state s.id with
+                      match Ovcd.Vcd.Stateful.find state s.id with
                       | Some v -> Hashtbl.replace last path (decode path s v)
                       | None -> ())
                     wanted;
@@ -234,7 +234,7 @@ let raw ?path tr paths ~from ~until ~changes f =
       | Some path when Int64.compare time 0L > 0 && tries > 0 -> (
           match
             Hwfrp_native.with_seek
-              ~select:(fun id -> Hashtbl.mem by_id (Vcd_types.ID.to_string id))
+              ~select:(fun id -> Hashtbl.mem by_id (Ovcd_types.ID.to_string id))
               path ~time (resume events)
           with
           | Some `Earlier -> seek (Int64.pred time) (tries - 1)
@@ -247,7 +247,7 @@ let raw ?path tr paths ~from ~until ~changes f =
 
 let header (p : Platform.t) =
   Printf.printf "# sampled %s on %s at %s\n" (sample_rule_name p.sample) p.clock
-    (Vcd_types.Reference.to_string (Platform.root p))
+    (Ovcd_types.Reference.to_string (Platform.root p))
 
 let row (r : record) =
   Printf.printf "%8s %10Ld %4d %s %s\n"

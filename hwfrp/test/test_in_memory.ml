@@ -1,6 +1,6 @@
 (* A trace built from values gives the samples of the VCD text with the same content. *)
 open Hwfrp
-open Vcd_types
+open Ovcd_types
 
 let text =
   {|$timescale 1ps $end
@@ -67,6 +67,6 @@ let%test "a catalog and events built by hand" =
   List.length got = 2 && got = samples (Hwfrp_vcd.of_string text)
 
 let%test "the events of a parsed file, replayed from memory" =
-  let { Vcd.header; simulation } = Vcd.parse_string text in
+  let { Ovcd.Vcd.header; simulation } = Ovcd.Vcd.parse_string text in
   let events = List.of_seq simulation in
   samples (In_memory.trace header (List.to_seq events)) = samples (Hwfrp_vcd.of_string text)

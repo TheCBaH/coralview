@@ -2,7 +2,7 @@
 [@@@ai_model "claude-opus-5-5"]
 [@@@ai_provider "Anthropic"]
 
-open Vcd_types
+open Ovcd_types
 
 type t = { bits : Bits.t; unknown : Bits.t }
 type decode_error = Not_a_vector of Value.t | Too_wide of { width : int; bytes : int }

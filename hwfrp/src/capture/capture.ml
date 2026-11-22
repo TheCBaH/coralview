@@ -2,21 +2,21 @@
 [@@@ai_model "claude-sonnet-5-5"]
 [@@@ai_provider "Anthropic"]
 
-open Vcd_types
+open Ovcd_types
 module String_set = Set.Make (String)
 module Ref_map = Map.Make (Reference)
 
 type entry = {
   aliases : Reference.t list;
   width : int;
-  var_type : Vcd_ast.var_type;
+  var_type : Ovcd.Ast.var_type;
   origins : string list;
   provenance : (string * string) list;
 }
 
 type plan = entry list
 
-let type_name = Vcd.string_of_var_type
+let type_name = Ovcd.Vcd.string_of_var_type
 let same_type a b = String.equal (type_name a) (type_name b)
 let same_aliases a b = List.equal Reference.equal a b
 let sorted_uniq cmp l = List.sort_uniq cmp l
@@ -43,7 +43,7 @@ let plan ~origin trace nets =
           match Trace.lookup trace r.path with
           | None -> ()
           | Some entry ->
-              let id = ID.to_string (Vcd.Resolver.entry_id entry) in
+              let id = ID.to_string (Ovcd.Vcd.Resolver.entry_id entry) in
               let prev = Option.value (Hashtbl.find_opt provenance id) ~default:[] in
               Hashtbl.replace provenance id ((r.model, r.purpose) :: prev))
         (Bind.requirements net))
@@ -53,7 +53,7 @@ let plan ~origin trace nets =
        (Array.map
           (fun (s : Trace.signal) ->
             {
-              aliases = Vcd.Ref_set.elements s.aliases;
+              aliases = Ovcd.Vcd.Ref_set.elements s.aliases;
               width = s.width;
               var_type = s.var_type;
               origins = [ origin ];
@@ -187,7 +187,7 @@ let of_file text =
                     ( {
                         aliases = [];
                         width;
-                        var_type = Vcd_ast.var_type_of_keyword ty;
+                        var_type = Ovcd.Ast.var_type_of_keyword ty;
                         origins = sorted_uniq String.compare origins;
                         provenance = [];
                       },
@@ -230,18 +230,22 @@ let check p ~origins:wanted trace =
       | [] ->
           let entries = List.filter_map snd resolved in
           List.iter
-            (fun x -> Hashtbl.replace matched (ID.to_string (Vcd.Resolver.entry_id x)) ())
+            (fun x -> Hashtbl.replace matched (ID.to_string (Ovcd.Vcd.Resolver.entry_id x)) ())
             entries;
-          let id = Vcd.Resolver.entry_id (List.hd entries) in
-          if not (List.for_all (fun x -> ID.equal (Vcd.Resolver.entry_id x) id) entries) then
+          let id = Ovcd.Vcd.Resolver.entry_id (List.hd entries) in
+          if not (List.for_all (fun x -> ID.equal (Ovcd.Vcd.Resolver.entry_id x) id) entries) then
             err "%s: alias group split over several signals" (show first)
           else
-            let refs = Vcd.Ref_set.elements (Vcd.Resolver.entry_references (List.hd entries)) in
+            let refs =
+              Ovcd.Vcd.Ref_set.elements (Ovcd.Vcd.Resolver.entry_references (List.hd entries))
+            in
             if not (same_aliases refs e.aliases) then err "%s: different alias group" (show first)
             else
               let entry = List.hd entries in
-              if Vcd.Resolver.entry_size entry <> e.width then
-                err "%s: width %d, planned %d" (show first) (Vcd.Resolver.entry_size entry) e.width
+              if Ovcd.Vcd.Resolver.entry_size entry <> e.width then
+                err "%s: width %d, planned %d" (show first)
+                  (Ovcd.Vcd.Resolver.entry_size entry)
+                  e.width
               else if not (same_type (Trace.var_type trace entry) e.var_type) then
                 err "%s: type %s, planned %s" (show first)
                   (type_name (Trace.var_type trace entry))
@@ -279,16 +283,16 @@ module Verilator = struct
   (* The verdict on each declared path, from the catalog's scope tree: the first declaration wins. *)
   let declared (catalog : Trace.t) =
     let table = ref Ref_map.empty in
-    let rec walk names bad (s : Vcd_ast.scope_node) =
+    let rec walk names bad (s : Ovcd.Ast.scope_node) =
       let names = s.s_name :: names in
       let bad =
         match (bad, s.s_type) with
-        | None, Vcd_ast.Module -> None
-        | None, t -> Some (Vcd.string_of_scope_type t)
+        | None, Ovcd.Ast.Module -> None
+        | None, t -> Some (Ovcd.Vcd.string_of_scope_type t)
         | b, _ -> b
       in
       List.iter
-        (fun (v : Vcd_ast.var_decl) ->
+        (fun (v : Ovcd.Ast.var_decl) ->
           let comps = List.rev (v.ref :: names) in
           let key = Reference.of_list comps in
           if not (Ref_map.mem key !table) then
@@ -303,7 +307,7 @@ module Verilator = struct
         s.vars;
       List.iter (walk names bad) s.children
     in
-    List.iter (walk [] None) (Trace.header catalog).Vcd_ast.scopes;
+    List.iter (walk [] None) (Trace.header catalog).Ovcd.Ast.scopes;
     !table
 
   let manifest ~catalog ~producer ~format p =

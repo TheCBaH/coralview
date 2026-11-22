@@ -238,7 +238,7 @@ let ctx env (p : Platform.t) ?(features = None) ?(region = Region.none) ?(window
       | Some n, ls -> Some (String.concat "; " (n :: ls))
   in
   {
-    Text.root = Vcd_types.Reference.to_string (Platform.root p);
+    Text.root = Ovcd_types.Reference.to_string (Platform.root p);
     disasm;
     instruction_class =
       (let d = decoder features in

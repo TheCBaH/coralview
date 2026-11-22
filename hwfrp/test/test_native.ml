@@ -14,7 +14,7 @@ let samples tr =
     match Sampler.next s with
     | None -> List.rev acc
     | Some (tick : Trace.tick) ->
-        go ((tick.index, Vcd_types.Timestamp.to_int64 tick.time, Sampler.value s a.slot) :: acc)
+        go ((tick.index, Ovcd_types.Timestamp.to_int64 tick.time, Sampler.value s a.slot) :: acc)
   in
   go []
 
@@ -38,14 +38,16 @@ let%test "the format follows the content" =
 let missing = "data/absent.fst"
 
 let%test "a missing file is a Vcd.Error.E, not a Sys_error" =
-  match Hwfrp_native.open_file missing with exception Vcd.Error.E (`Io _) -> true | _ -> false
+  match Hwfrp_native.open_file missing with
+  | exception Ovcd.Vcd.Error.E (`Io _) -> true
+  | _ -> false
 
 let%test "open_file_result returns a missing file as an Io error" =
   (match Hwfrp_native.open_file_result missing with Error (`Io _) -> true | _ -> false)
   && Result.is_ok (Hwfrp_native.open_file_result "data/memory.fst")
 
 let%test "a damaged file is a Vcd.Error.E" =
-  match Hwfrp_native.open_string "$var" with exception Vcd.Error.E _ -> true | _ -> false
+  match Hwfrp_native.open_string "$var" with exception Ovcd.Vcd.Error.E _ -> true | _ -> false
 
 let temp_file text =
   let path = Filename.temp_file "hwfrp" ".vcd" in
@@ -60,7 +62,7 @@ let incomplete text =
     ~finally:(fun () -> Sys.remove path)
     (fun () ->
       match drain (Hwfrp_native.open_file path) with
-      | exception Vcd.Error.E (`Incomplete _) -> true
+      | exception Ovcd.Vcd.Error.E (`Incomplete _) -> true
       | (exception _) | () -> false)
 
 let%test "a VCD file without its final newline is incomplete, as a stream is" =
@@ -111,7 +113,9 @@ let%test "a strict error names the file" =
     ~finally:(fun () -> Sys.remove path)
     (fun () ->
       match Hwfrp_native.open_file path with
-      | exception Vcd.Error.E (`Incomplete ({ Vcd.Error.file; _ }, _) | `Syntax ({ file; _ }, _)) ->
+      | exception
+          Ovcd.Vcd.Error.E (`Incomplete ({ Ovcd.Vcd.Error.file; _ }, _) | `Syntax ({ file; _ }, _))
+        ->
           file = path
       | _ -> false)
 

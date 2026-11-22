@@ -2,8 +2,8 @@ open Coralview
 
 let diag_eq (a : Hwfrp.Diag.t) (b : Hwfrp.Diag.t) =
   a.severity = b.severity && a.source = b.source && a.code = b.code && a.cycle = b.cycle
-  && Option.equal Vcd_types.Timestamp.equal a.time b.time
-  && List.equal Vcd_types.Reference.equal a.paths b.paths
+  && Option.equal Ovcd_types.Timestamp.equal a.time b.time
+  && List.equal Ovcd_types.Reference.equal a.paths b.paths
   && a.message = b.message
 
 let%expect_test "shared codecs round-trip" =
@@ -24,7 +24,7 @@ let%expect_test "shared codecs round-trip" =
   print_endline
     (Codec.to_line Codec.diag
        (Hwfrp.Diag.make ~source:"bind" ~code:"bind.unknown-bits"
-          ~paths:[ Vcd_types.Reference.of_list [ "TOP"; "x" ] ]
+          ~paths:[ Ovcd_types.Reference.of_list [ "TOP"; "x" ] ]
           "X bits"));
   [%expect
     {|

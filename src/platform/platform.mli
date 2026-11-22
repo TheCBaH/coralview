@@ -305,9 +305,9 @@ val find : string -> (t, string) result
 (** A built-in configuration by name, or a description file by path, which must have one configuration
     or be followed by [:CONFIG]. *)
 
-val root : t -> Vcd_types.Reference.t
+val root : t -> Ovcd_types.Reference.t
 
-val scope : t -> string list -> Vcd_types.Reference.t
+val scope : t -> string list -> Ovcd_types.Reference.t
 (** A block scope as an absolute path. *)
 
 val blocks : t -> string list

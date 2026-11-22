@@ -2,7 +2,7 @@
 [@@@ai_model "claude-opus-5-5"]
 [@@@ai_provider "Anthropic"]
 
-open Vcd_types
+open Ovcd_types
 
 module D = struct
   type severity = Error | Warning | Info

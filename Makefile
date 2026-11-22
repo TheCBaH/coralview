@@ -15,6 +15,7 @@ versions:
 	$(OPAM_EXEC) ocamlfind ocamlopt -version
 	$(DUNE) --version
 	opam list --columns=name,version,pin ovcd fst unlz4 err_trace elf ocamlformat
+	git rev-parse HEAD:vendor/rivet
 	cat $(CORALNPU)/RELEASE
 
 build:

@@ -50,7 +50,7 @@ let access =
 
 let path =
   G.map
-    (fun l -> Vcd_types.Reference.of_list l)
+    (fun l -> Ovcd_types.Reference.of_list l)
     G.(list_size (int_range 1 4) (oneof_list [ "TOP"; "core"; "io_x"; "a_b" ]))
 
 let diag =
@@ -61,7 +61,7 @@ let diag =
         source = "test";
         code;
         cycle;
-        time = Option.map (fun t -> Vcd_types.Timestamp.of_int64 (Int64.of_int t)) time;
+        time = Option.map (fun t -> Ovcd_types.Timestamp.of_int64 (Int64.of_int t)) time;
         paths;
         message;
       })

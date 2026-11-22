@@ -2,23 +2,23 @@
 [@@@ai_model "claude-sonnet-5-5"]
 [@@@ai_provider "Anthropic"]
 
-let var ?(typ = Vcd_ast.Wire) ~id ~width ref : Vcd_ast.var_decl =
-  { v_type = typ; size = width; id = Vcd_types.ID.of_string id; ref; index = None }
+let var ?(typ = Ovcd.Ast.Wire) ~id ~width ref : Ovcd.Ast.var_decl =
+  { v_type = typ; size = width; id = Ovcd_types.ID.of_string id; ref; index = None }
 
-let scope ?(typ = Vcd_ast.Module) ?(children = []) name vars : Vcd_ast.scope_node =
+let scope ?(typ = Ovcd.Ast.Module) ?(children = []) name vars : Ovcd.Ast.scope_node =
   { s_type = typ; s_name = name; children; vars }
 
-let header scopes : Vcd_ast.header =
+let header scopes : Ovcd.Ast.header =
   { version = None; date = None; timescale = None; timezero = None; comment = None; scopes }
 
-let at t = Vcd_ast.Timestamp (Vcd_types.Timestamp.of_int64 t)
-let change ~id v = Vcd_ast.Change (Vcd_types.ID.of_string id, v)
+let at t = Ovcd.Ast.Timestamp (Ovcd_types.Timestamp.of_int64 t)
+let change ~id v = Ovcd.Ast.Change (Ovcd_types.ID.of_string id, v)
 
 let trace header events =
-  Trace.of_parse ~format:`Vcd (fun _select -> { Vcd.header; simulation = events })
+  Trace.of_parse ~format:`Vcd (fun _select -> { Ovcd.Vcd.header; simulation = events })
 
 module Live = struct
-  type t = { header : Vcd_ast.header; queue : Vcd_ast.event Queue.t; mutable finished : bool }
+  type t = { header : Ovcd.Ast.header; queue : Ovcd.Ast.event Queue.t; mutable finished : bool }
 
   let create header = { header; queue = Queue.create (); finished = false }
 

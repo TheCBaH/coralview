@@ -23,20 +23,20 @@ let of_entry model root ((r : Bind.requirement), (s : Bind.status)) =
     | _ -> None
   in
   let rel =
-    match strip (Vcd_types.Reference.to_list root) (Vcd_types.Reference.to_list r.path) with
+    match strip (Ovcd_types.Reference.to_list root) (Ovcd_types.Reference.to_list r.path) with
     | Some (_ :: _ as rest) -> String.concat "/" rest
-    | _ -> Vcd_types.Reference.to_string r.path
+    | _ -> Ovcd_types.Reference.to_string r.path
   in
   let status, actual, detail =
     match s with
     | Bound s -> ("bound", Some s.width, None)
     | Missing -> ("missing", None, None)
     | Width_mismatch { actual; _ } -> ("width", Some actual, None)
-    | Not_a_vector t -> ("type", None, Some (Vcd.string_of_var_type t))
+    | Not_a_vector t -> ("type", None, Some (Ovcd.Vcd.string_of_var_type t))
   in
   {
     model;
-    root = Vcd_types.Reference.to_string root;
+    root = Ovcd_types.Reference.to_string root;
     path = rel;
     width = Format.asprintf "%a" Bind.pp_width_rule r.width;
     purpose = (if r.purpose = "" then None else Some r.purpose);

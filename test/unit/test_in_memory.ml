@@ -12,7 +12,7 @@ let platform json =
 
 (* The text's catalog and events, as a producer in memory would hand them over. *)
 let from_memory text =
-  let { Vcd.header; simulation } = Vcd.parse_string text in
+  let { Ovcd.Vcd.header; simulation } = Ovcd.Vcd.parse_string text in
   In_memory.trace header (List.to_seq (List.of_seq simulation))
 
 let run (type k e s)
@@ -41,7 +41,7 @@ let%test "stalls" = same (module Stalls) "../stalls.t/stall-core.json" "../stall
 let live (type k e s)
     (module A : Analysis.S with type Config.t = k and type Event.t = e and type Summary.t = s) json
     text batch =
-  let { Vcd.header; simulation } = Vcd.parse_string text in
+  let { Ovcd.Vcd.header; simulation } = Ovcd.Vcd.parse_string text in
   let evs = Array.of_seq simulation in
   let src = In_memory.Live.create header in
   let (Core.Any c) = Core.bind (platform json) (In_memory.Live.trace src) ~model:A.name in

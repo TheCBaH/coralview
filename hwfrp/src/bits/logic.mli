@@ -8,7 +8,7 @@
 type t = private { bits : Bits.t; unknown : Bits.t }
 
 type decode_error =
-  | Not_a_vector of Vcd_types.Value.t  (** Real, String, Port or Other. *)
+  | Not_a_vector of Ovcd_types.Value.t  (** Real, String, Port or Other. *)
   | Too_wide of { width : int; bytes : int }  (** A [Bytes] value with a 1 at or above [width]. *)
 
 val known : Bits.t -> t
@@ -17,7 +17,7 @@ val width : t -> int
 val is_known : t -> bool
 val to_known : t -> Bits.t option
 
-val of_value : width:int -> Vcd_types.Value.t -> (t, decode_error) result
+val of_value : width:int -> Ovcd_types.Value.t -> (t, decode_error) result
 (** Records shorter than [width] are extended as VCD specifies: with X or Z when their leftmost bit is X or
     Z, otherwise with 0. *)
 

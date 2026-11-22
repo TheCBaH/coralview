@@ -13,9 +13,9 @@ type signal = {
 let of_entry (e : Hwfrp.Capture.entry) =
   {
     width = e.width;
-    var_type = Vcd.string_of_var_type e.var_type;
+    var_type = Ovcd.Vcd.string_of_var_type e.var_type;
     origins = e.origins;
-    aliases = List.map Vcd_types.Reference.to_list e.aliases;
+    aliases = List.map Ovcd_types.Reference.to_list e.aliases;
     provenance = e.provenance;
   }
 

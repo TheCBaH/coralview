@@ -7,7 +7,7 @@
 open Coralview
 open Cmdliner
 
-let error_kind : Vcd.Error.error -> string = function
+let error_kind : Ovcd.Vcd.Error.error -> string = function
   | `Syntax _ -> "syntax"
   | `Incomplete _ -> "incomplete"
   | `Fst _ -> "fst"
@@ -27,11 +27,11 @@ let main () =
             (Trace_cmds.commands @ Code_cmds.commands @ Model_cmds.commands @ Run_cmds.commands))
      with
     | code -> code
-    | exception Vcd.Error.E e ->
+    | exception Ovcd.Vcd.Error.E e ->
         flush stdout;
         prerr_endline
           (Printf.sprintf "coralview: trace read failed (%s): %s" (error_kind e)
-             (Vcd.Error.to_string e));
+             (Ovcd.Vcd.Error.to_string e));
         3
     | exception e ->
         flush stdout;

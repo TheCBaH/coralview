@@ -6,7 +6,7 @@
 
 type t
 
-module Cls = Riscv_family_encode.Riscv_types.Cls
+module Cls = Rivet_riscv_family_encode.Riscv_types.Cls
 
 type instruction = {
   mnemonic : string;  (** Rivet's canonical mnemonic, e.g. [vfmacc.vf]. *)

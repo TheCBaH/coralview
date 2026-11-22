@@ -2,13 +2,13 @@
 [@@@ai_model "claude-opus-5-5"]
 [@@@ai_provider "Anthropic"]
 
-module Cls = Riscv_family_encode.Riscv_types.Cls
+module Cls = Rivet_riscv_family_encode.Riscv_types.Cls
 
 type instruction = { mnemonic : string; feature : string option; cls : Cls.t }
 
 type t = {
-  driver : (module Target_intf.Target.DRIVER);
-  features : Target_config.spec option;
+  driver : (module Rivet_target_intf.Target.DRIVER);
+  features : Rivet_target_features.Config.spec option;
   cache : (int, string) Hashtbl.t;
   instruction : int -> (instruction, string) result;
   decoded : (int, (instruction, string) result) Hashtbl.t;
@@ -16,7 +16,8 @@ type t = {
   needs : int -> string list;
 }
 
-let render e = String.trim (Foundation.Diagnostic.render_all (Foundation.Diag.diagnostics e))
+let render e =
+  String.trim (Rivet_foundation.Diagnostic.render_all (Rivet_foundation.Diag.diagnostics e))
 
 let word_bytes word =
   let b = Bytes.create 4 in
@@ -25,12 +26,12 @@ let word_bytes word =
 
 let driver definition spec =
   let module C =
-    Riscv_family.Make_with
-      (Riscv32_encode.Profile)
+    Rivet_riscv_family.Make_with
+      (Rivet_riscv32_encode.Profile)
       (struct
         let definition = definition
       end) in
-  let module D = Pipeline.Make (C) in
+  let module D = Rivet_text_pipeline.Pipeline.Make (C) in
   let decode_under config word =
     let state = C.initial_state config in
     match C.decode { C.state; address = 0L } (word_bytes word) ~pos:0 with
@@ -41,41 +42,49 @@ let driver definition spec =
     | Error _ -> Error (Printf.sprintf "no instruction form for %08x" word)
   in
   let instruction =
-    match Target_config.resolve C.components spec with
+    match Rivet_target_features.Config.resolve C.components spec with
     | Error e -> fun _ -> Error e
     | Ok config -> decode_under config
   in
   (* The features that, each added to the spec alone, make the word decode. *)
   let needs word =
-    let known = Target_config.features (Target_config.all_enabled C.components) in
+    let known =
+      Rivet_target_features.Config.features (Rivet_target_features.Config.all_enabled C.components)
+    in
     List.filter
       (fun f ->
-        match Target_config.resolve C.components (spec @ [ Target_config.Enable f ]) with
+        match
+          Rivet_target_features.Config.resolve C.components
+            (spec @ [ Rivet_target_features.Config.Enable f ])
+        with
         | Error _ -> false
         | Ok config -> Result.is_ok (decode_under config word))
       known
   in
   let assemble text =
-    let source = Foundation.Span.source ~name:"coral.s" ~contents:(".text\n" ^ text) in
+    let source = Rivet_foundation.Span.source ~name:"coral.s" ~contents:(".text\n" ^ text) in
     let features = Option.some spec in
     match D.assemble ?features ~unit_name:"coral" ~source () with
     | Error e -> Error (render e)
     | Ok laid_out -> (
-        let plan = Image.plan_of laid_out in
+        let plan = Rivet_image.plan_of laid_out in
         let addresses =
-          List.map (fun (s : Image.segment_plan) -> (s.Image.seg_name, 0L)) plan.Image.segments
+          List.map
+            (fun (s : Rivet_image.segment_plan) -> (s.Rivet_image.seg_name, 0L))
+            plan.Rivet_image.segments
         in
-        match Image.bind_image laid_out ~addresses with
+        match Rivet_image.bind_image laid_out ~addresses with
         | Error e -> Error (render e)
-        | Ok img -> ( match img.Image.segments with s :: _ -> Ok s.Image.bytes | [] -> Ok ""))
+        | Ok img -> (
+            match img.Rivet_image.segments with s :: _ -> Ok s.Rivet_image.bytes | [] -> Ok ""))
   in
-  ((module D : Target_intf.Target.DRIVER), instruction, assemble, needs)
+  ((module D : Rivet_target_intf.Target.DRIVER), instruction, assemble, needs)
 
 let create ?(features = "+" ^ Coral_zvt.feature ^ ",+" ^ Coral_zvt.system_feature) () =
   match Coral_zvt.definition () with
   | Error e -> Error e
   | Ok definition -> (
-      match Target_config.parse_spec features with
+      match Rivet_target_features.Config.parse_spec features with
       | Error e -> Error e
       | Ok spec ->
           let driver, instruction, assemble, needs = driver definition spec in

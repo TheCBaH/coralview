@@ -8,7 +8,7 @@
    unselected signals are dropped. A name no declaration matches is an error, as for the producer, and so
    is a VCD that is not complete, as for the consumers. *)
 
-open Vcd_types
+open Ovcd_types
 
 let die fmt =
   Printf.ksprintf
@@ -40,20 +40,21 @@ let main () =
   | [| _; manifest; trace |] ->
       let wanted = Hashtbl.create 64 and matched = Hashtbl.create 64 and kept = Hashtbl.create 64 in
       List.iter (fun n -> Hashtbl.replace wanted n ()) (names manifest);
-      Hwfrp_native.with_parse_file trace @@ fun { Vcd.header; simulation } ->
+      Hwfrp_native.with_parse_file trace @@ fun { Ovcd.Vcd.header; simulation } ->
       let b = Buffer.create 4096 in
       Option.iter (Printf.bprintf b "$timescale %s $end\n") header.timescale;
-      let rec scope prefix (s : Vcd_ast.scope_node) =
+      let rec scope prefix (s : Ovcd.Ast.scope_node) =
         let prefix = prefix @ [ s.s_name ] in
-        Printf.bprintf b "$scope %s %s $end\n" (Vcd.string_of_scope_type s.s_type) s.s_name;
+        Printf.bprintf b "$scope %s %s $end\n" (Ovcd.Vcd.string_of_scope_type s.s_type) s.s_name;
         List.iter
-          (fun (v : Vcd_ast.var_decl) ->
+          (fun (v : Ovcd.Ast.var_decl) ->
             let native = String.concat " " (prefix @ [ v.ref ]) in
             if Hashtbl.mem wanted native then begin
               Hashtbl.replace matched native ();
               Hashtbl.replace kept (ID.to_string v.id) ();
-              Printf.bprintf b "$var %s %d %s %s%s $end\n" (Vcd.string_of_var_type v.v_type) v.size
-                (ID.to_string v.id) v.ref
+              Printf.bprintf b "$var %s %d %s %s%s $end\n"
+                (Ovcd.Vcd.string_of_var_type v.v_type)
+                v.size (ID.to_string v.id) v.ref
                 (match v.index with Some i -> " " ^ i | None -> "")
             end)
           s.vars;
@@ -68,7 +69,7 @@ let main () =
       print_string (Buffer.contents b);
       Seq.iter
         (function
-          | Vcd_ast.Timestamp t -> Printf.printf "#%Ld\n" (Timestamp.to_int64 t)
+          | Ovcd.Ast.Timestamp t -> Printf.printf "#%Ld\n" (Timestamp.to_int64 t)
           | Change (id, v) when Hashtbl.mem kept (ID.to_string id) -> (
               let id = ID.to_string id in
               match v with
@@ -82,4 +83,6 @@ let main () =
       exit 2
 
 let () =
-  try main () with Vcd.Error.E e -> die "%s" (Vcd.Error.to_string e) | Sys_error m -> die "%s" m
+  try main () with
+  | Ovcd.Vcd.Error.E e -> die "%s" (Ovcd.Vcd.Error.to_string e)
+  | Sys_error m -> die "%s" m

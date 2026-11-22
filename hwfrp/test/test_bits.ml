@@ -1,5 +1,5 @@
 open Hwfrp
-open Vcd_types
+open Ovcd_types
 
 let%expect_test "widths around the native int boundary" =
   List.iter
@@ -32,7 +32,7 @@ let%expect_test
   List.iter
     (fun width ->
       let s = String.init width (fun i -> if i * 7 mod 3 = 0 || i mod 11 = 0 then '1' else '0') in
-      let v = Vcd_ast.binary_value s in
+      let v = Ovcd.Ast.binary_value s in
       let b =
         match Logic.of_value ~width v with
         | Ok l -> Option.get (Logic.to_known l)

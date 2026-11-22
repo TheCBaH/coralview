@@ -1,5 +1,5 @@
 open Hwfrp
-open Vcd_types
+open Ovcd_types
 
 (* Random traces: clocks [top.clk<k>] and 4-bit data [top.d<i>], with value -1 for x. *)
 type wave = {
@@ -523,7 +523,7 @@ let equivalence =
       if a <> b then QCheck2.Test.fail_reportf "incremental:%s\nsweep:%s" a b;
       true)
 
-(* [Vcd.Stateful.stream] is the oracle for the sampled values. *)
+(* [Ovcd.Vcd.Stateful.stream] is the oracle for the sampled values. *)
 let sampled_state =
   QCheck2.Test.make ~name:"sampler = Stateful" ~count:500
     ~print:(fun w -> rule_name w.rules.(0) ^ "\n" ^ vcd w)
@@ -543,11 +543,11 @@ let sampled_state =
       let s = Sampler.create tr [| { clock = clk.slot; rule; enable = None; reset = None } |] in
       let states = Hashtbl.create 64 in
       Seq.iter
-        (fun (e : Vcd.Stateful.event) ->
-          let after = Vcd.ID_map.union (fun _ _ c -> Some c) e.state e.changes in
+        (fun (e : Ovcd.Vcd.Stateful.event) ->
+          let after = Ovcd.Vcd.ID_map.union (fun _ _ c -> Some c) e.state e.changes in
           Hashtbl.replace states (Timestamp.to_int64 e.time)
             (if rule = Before_rising then e.state else after))
-        (Vcd.Stateful.stream (Vcd.parse_string text).simulation);
+        (Ovcd.Vcd.Stateful.stream (Ovcd.Vcd.parse_string text).simulation);
       let rec go () =
         match Sampler.next s with
         | None -> true
@@ -555,7 +555,9 @@ let sampled_state =
             let st = Hashtbl.find states (Timestamp.to_int64 tk.time) in
             List.iter
               (fun (sg : Trace.signal) ->
-                let want = Option.value (Vcd.Stateful.find st sg.id) ~default:(Value.Scalar X) in
+                let want =
+                  Option.value (Ovcd.Vcd.Stateful.find st sg.id) ~default:(Value.Scalar X)
+                in
                 let got = Sampler.value s sg.slot in
                 if want <> got then
                   QCheck2.Test.fail_reportf "#%Ld %s: sampled %s, Stateful %s"
@@ -677,16 +679,16 @@ let selected_subset =
           sa.changes_tracked;
       let states = Hashtbl.create 64 in
       Seq.iter
-        (fun (e : Vcd.Stateful.event) ->
-          let after = Vcd.ID_map.union (fun _ _ c -> Some c) e.state e.changes in
+        (fun (e : Ovcd.Vcd.Stateful.event) ->
+          let after = Ovcd.Vcd.ID_map.union (fun _ _ c -> Some c) e.state e.changes in
           Hashtbl.replace states e.time (if w.rules.(0) = Before_rising then e.state else after))
-        (Vcd.Stateful.stream (Vcd.parse_string text).simulation);
+        (Ovcd.Vcd.Stateful.stream (Ovcd.Vcd.parse_string text).simulation);
       List.iter
         (fun (_, time, values) ->
           let st = Hashtbl.find states (Timestamp.of_int64 time) in
           List.iter
             (fun (id, got) ->
-              let want = Option.value (Vcd.Stateful.find st id) ~default:(Value.Scalar X) in
+              let want = Option.value (Ovcd.Vcd.Stateful.find st id) ~default:(Value.Scalar X) in
               if want <> got then
                 QCheck2.Test.fail_reportf "#%Ld %s: sampled %s, Stateful %s" time (ID.to_string id)
                   (Value.to_string got) (Value.to_string want))

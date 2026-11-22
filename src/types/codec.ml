@@ -59,12 +59,12 @@ let severity =
     [ ("error", Diag.Error); ("warning", Diag.Warning); ("info", Diag.Info) ]
 
 let timestamp =
-  Jsont.map ~kind:"timestamp" Jsont.int64 ~dec:Vcd_types.Timestamp.of_int64
-    ~enc:Vcd_types.Timestamp.to_int64
+  Jsont.map ~kind:"timestamp" Jsont.int64 ~dec:Ovcd_types.Timestamp.of_int64
+    ~enc:Ovcd_types.Timestamp.to_int64
 
 let reference =
-  Jsont.map ~kind:"path" Jsont.string ~dec:Vcd_types.Reference.of_string
-    ~enc:Vcd_types.Reference.to_string
+  Jsont.map ~kind:"path" Jsont.string ~dec:Ovcd_types.Reference.of_string
+    ~enc:Ovcd_types.Reference.to_string
 
 let diag =
   record "diag" (fun severity source code cycle time paths message ->

@@ -7,9 +7,9 @@ type k = { k : 'c. Trace.t -> Net.t -> 'c Clock.t -> 'c Bind.scope -> bool }
 let setup (w : Test_props.wave) { k } =
   let tr = Hwfrp_vcd.of_string (Test_props.vcd w) in
   let net = Net.create () in
-  let at s = Vcd_types.Reference.of_list [ "top"; s ] in
+  let at s = Ovcd_types.Reference.of_list [ "top"; s ] in
   let (Clock.Any c) = Bind.clock net tr ~model:"t" ~name:"clk" w.rules.(0) (at "clk0") in
-  k tr net c (Bind.root net tr c ~model:"t" (Vcd_types.Reference.of_list [ "top" ]))
+  k tr net c (Bind.root net tr c ~model:"t" (Ovcd_types.Reference.of_list [ "top" ]))
 
 let run tr net =
   let sched = Result.get_ok (Sched.compile net) in

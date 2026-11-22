@@ -25,7 +25,8 @@
   coral-isa
   ovcd
   fst
-  err_trace
+  (err_trace
+   (>= 0.3.0))
   elf
   rivet
   fmt

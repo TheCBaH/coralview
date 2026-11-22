@@ -986,8 +986,8 @@ let find name =
               | _, None -> Error (Printf.sprintf "%s has several configurations: add :CONFIG" file))
           ))
 
-let root p = Vcd_types.Reference.of_list p.trace_root
-let scope p rel = Vcd_types.Reference.of_list (p.trace_root @ rel)
+let root p = Ovcd_types.Reference.of_list p.trace_root
+let scope p rel = Ovcd_types.Reference.of_list (p.trace_root @ rel)
 
 let blocks p =
   List.filter_map (fun (Block b) -> if b.get p.blocks <> None then Some b.name else None) registry

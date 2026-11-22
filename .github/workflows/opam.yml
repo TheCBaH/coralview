@@ -62,5 +62,7 @@ jobs:
       run: opam install -y coralview
     - name: rivet is a declared dependency
       run: opam list --installed --silent rivet
+    - name: resolved pins
+      run: opam list --installed --columns=name,version,pin rivet err_trace elf fst ovcd unlz4 zipc
     - name: consumer
       run: opam exec -- tools/check-install.sh test/memory.t/mem-core.json test/memory.t/memory.fst

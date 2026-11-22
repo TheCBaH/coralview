@@ -8,26 +8,26 @@ open Coralview
 open Cli
 
 let probe path =
-  let { Vcd.header; simulation } = Hwfrp_native.parse_file path in
-  let signals = Vcd.Resolver.fold (fun _ n -> n + 1) (Vcd.Resolver.make header) 0 in
+  let { Ovcd.Vcd.header; simulation } = Hwfrp_native.parse_file path in
+  let signals = Ovcd.Vcd.Resolver.fold (fun _ n -> n + 1) (Ovcd.Vcd.Resolver.make header) 0 in
   let times, changes, last =
     Seq.fold_left
       (fun (t, c, last) -> function
-        | Vcd_ast.Timestamp ts -> (t + 1, c, Some ts)
-        | Vcd_ast.Change _ -> (t, c + 1, last)
+        | Ovcd.Ast.Timestamp ts -> (t + 1, c, Some ts)
+        | Ovcd.Ast.Change _ -> (t, c + 1, last)
         | _ -> (t, c, last))
       (0, 0, None) simulation
   in
   Format.printf "signals %d@.timestamps %d@.changes %d@.last %a@." signals times changes
-    (Format.pp_print_option Vcd_types.Timestamp.pp)
+    (Format.pp_print_option Ovcd_types.Timestamp.pp)
     last
 
 let tree ~depth ~vars path scope =
-  Hwfrp_native.with_parse_file path @@ fun { Vcd.header; _ } ->
-  let rec total (s : Vcd_ast.scope_node) =
+  Hwfrp_native.with_parse_file path @@ fun { Ovcd.Vcd.header; _ } ->
+  let rec total (s : Ovcd.Ast.scope_node) =
     List.length s.vars + List.fold_left (fun n c -> n + total c) 0 s.children
   in
-  let rec show indent d (s : Vcd_ast.scope_node) =
+  let rec show indent d (s : Ovcd.Ast.scope_node) =
     Printf.printf "%s%s %d/%d\n" indent s.s_name (List.length s.vars) (total s);
     if d < depth then List.iter (show (indent ^ "  ") (d + 1)) s.children
   in
@@ -35,7 +35,7 @@ let tree ~depth ~vars path scope =
     | [] -> nodes
     | n :: rest ->
         List.concat_map
-          (fun (s : Vcd_ast.scope_node) -> if s.s_name = n then find s.children rest else [])
+          (fun (s : Ovcd.Ast.scope_node) -> if s.s_name = n then find s.children rest else [])
           nodes
   in
   let parts = if scope = "" then [] else String.split_on_char '/' scope in
@@ -43,13 +43,13 @@ let tree ~depth ~vars path scope =
   let here =
     match List.rev parts with
     | [] -> header.scopes
-    | last :: _ -> List.filter (fun (s : Vcd_ast.scope_node) -> s.s_name = last) parent
+    | last :: _ -> List.filter (fun (s : Ovcd.Ast.scope_node) -> s.s_name = last) parent
   in
   if here = [] then fail ("no scope " ^ scope);
   List.iter
-    (fun (s : Vcd_ast.scope_node) ->
+    (fun (s : Ovcd.Ast.scope_node) ->
       if vars then
-        List.iter (fun (v : Vcd_ast.var_decl) -> Printf.printf "%s %d\n" v.ref v.size) s.vars
+        List.iter (fun (v : Ovcd.Ast.var_decl) -> Printf.printf "%s %d\n" v.ref v.size) s.vars
       else show "" 0 s)
     here
 
@@ -175,8 +175,8 @@ let plan_command env (p : Platform.t) names signal_paths catalogs dir producer ~
   let with_catalog file f =
     match Hwfrp_native.open_file_result file with
     | Ok tr -> Fun.protect ~finally:(fun () -> Hwfrp_native.close tr) (fun () -> f tr)
-    | Error (`Io _ as e) -> fail ~code:2 (Vcd.Error.to_string e)
-    | Error e -> raise (Vcd.Error.E e)
+    | Error (`Io _ as e) -> fail ~code:2 (Ovcd.Vcd.Error.to_string e)
+    | Error e -> raise (Ovcd.Vcd.Error.E e)
   in
   let plans =
     List.concat_map

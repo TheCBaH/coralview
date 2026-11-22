@@ -33,7 +33,7 @@ long it has been since the previous one:
 
 ```ocaml
 open Hwfrp
-module Reference = Vcd_types.Reference
+module Reference = Ovcd_types.Reference
 
 let transfers tr =
   let net = Net.create () in
@@ -123,7 +123,7 @@ the domain's cycle index, the timestamp, whether the enable was high, and
 the set of slots whose value changed since that domain's previous sample.
 
 The property test in `hwfrp/test/test_props.ml` checks the sampled values
-against ovcd's own `Vcd.Stateful` stream on 500 random traces, under all
+against ovcd's own `Ovcd.Vcd.Stateful` stream on 500 random traces, under all
 three rules.
 
 ### Signals and events
@@ -462,9 +462,9 @@ read files, and there is no JSON reader.
 What happens between the FST file and a subscriber call:
 
 ```
-FST blocks ──ocaml-fst──> value changes ──Vcd_fst──> Timestamp / Change (ID, Value) events
+FST blocks ──ocaml-fst──> value changes ──Ovcd_fst──> Timestamp / Change (ID, Value) events
    │                                                        │
-   └─ header ──> Vcd.Resolver (paths -> IDs) ──> Trace (slots for bound signals)
+   └─ header ──> Ovcd.Vcd.Resolver (paths -> IDs) ──> Trace (slots for bound signals)
                                                             │
                          Sampler: batch per timestamp, clock edges, sample rules
                                                             │ tick (domain, cycle, time, changed slots)
@@ -474,7 +474,7 @@ FST blocks ──ocaml-fst──> value changes ──Vcd_fst──> Timestamp /
 ```
 
 1. **Reading.** ocaml-fst decodes one value-change block at a time.
-   `Vcd_fst` turns it into the same event stream ovcd's VCD parser
+   `Ovcd_fst` turns it into the same event stream ovcd's VCD parser
    produces, so memory stays flat however long the trace is.
 2. **Sampling.** `Sampler` keeps the current value of every tracked slot in
    an array, and drops changes to untracked signals by ID. At each timestamp
@@ -520,7 +520,7 @@ variables, 1,084 cycles), `coralview bench` measures this split:
 | Step | Time |
 |---|---|
 | FST header | 0.12–0.14 s |
-| ovcd `Vcd.Resolver.make` (paths -> IDs, all 79,512 signals) | 0.84–0.98 s |
+| ovcd `Ovcd.Vcd.Resolver.make` (paths -> IDs, all 79,512 signals) | 0.84–0.98 s |
 | Decoding every value change and sampling 408 signals | 0.17–0.24 s |
 | Evaluating a 900-node graph (66k–148k node evaluations) | under 0.05 s |
 
@@ -534,16 +534,16 @@ The same quick-start task, written against ovcd alone, is also in
 
 ```ocaml
 let transfers_raw text =
-  let { Vcd.header; simulation } = Vcd.parse_string text in
-  let resolver = Vcd.Resolver.make header in
-  let id path = Option.get (Vcd.Resolver.find_id resolver (Reference.of_string path)) in
+  let { Ovcd.Vcd.header; simulation } = Ovcd.Vcd.parse_string text in
+  let resolver = Ovcd.Vcd.Resolver.make header in
+  let id path = Option.get (Ovcd.Vcd.Resolver.find_id resolver (Reference.of_string path)) in
   let clk = id "top.clk" and valid = id "top.io_out_valid" and data = id "top.io_out_bits_data" in
   let values = Hashtbl.create 8 in
-  let get i = Hashtbl.find_opt values (Vcd_types.ID.to_string i) in
+  let get i = Hashtbl.find_opt values (Ovcd_types.ID.to_string i) in
   let cycle = ref 0 and last = ref None and batch = ref [] in
   let sample () =
     (match (get valid, get data) with
-    | Some (Vcd_types.Value.Scalar B1), Some (Int d) ->
+    | Some (Ovcd_types.Value.Scalar B1), Some (Int d) ->
         Printf.printf "cycle %d: %d%s\n" !cycle d
           (match !last with
           | Some l -> Printf.sprintf " (%d cycles after the last)" (!cycle - l)
@@ -555,13 +555,13 @@ let transfers_raw text =
   (* The changes of one timestamp are applied together; a falling clock edge then samples. *)
   let flush () =
     let before = get clk in
-    List.iter (fun (i, v) -> Hashtbl.replace values (Vcd_types.ID.to_string i) v) (List.rev !batch);
+    List.iter (fun (i, v) -> Hashtbl.replace values (Ovcd_types.ID.to_string i) v) (List.rev !batch);
     batch := [];
     match (before, get clk) with Some (Scalar B1), Some (Scalar B0) -> sample () | _ -> ()
   in
   Seq.iter
     (function
-      | Vcd_ast.Timestamp _ -> flush ()
+      | Ovcd.Ast.Timestamp _ -> flush ()
       | Change (i, v) -> batch := (i, v) :: !batch
       | DumpStart _ | DumpEnd | SimComment _ -> ())
     simulation;
@@ -574,7 +574,7 @@ it grows with every signal and every model:
 
 | Concern | Raw | hwfrp |
 |---|---|---|
-| Which phase is settled, edge detection, grouping changes per timestamp | hand-written per tool; easy to stamp a sample with the wrong timestamp (an early `Sampler` did, caught by its expect test) | a sample rule per clock, tested against `Vcd.Stateful` |
+| Which phase is settled, edge detection, grouping changes per timestamp | hand-written per tool; easy to stamp a sample with the wrong timestamp (an early `Sampler` did, caught by its expect test) | a sample rule per clock, tested against `Ovcd.Vcd.Stateful` |
 | Missing signal, wrong width, real instead of bits | `Option.get` raises, or a silently wrong decode (`Int d` does not match an `Int64` for 25–64 bits) | `Bind.Unbound` names the path, the width expected and found, and the purpose |
 | Decoding `Value.t` (`Scalar`, `Int`, `Int64`, `Bytes`, `Scalars` with X) | a match per use | decoders, with X/Z as diagnostics |
 | Registers and joins across cycles | refs updated in the right order | `Sig.pre`, `hold`, `fold`, `scan`, `Machine` |

@@ -22,7 +22,7 @@ val zvt_version : string
 val revision : string
 (** The [coralnpu_revision] in the same record. *)
 
-val definition : unit -> (Riscv_family_encode.Extensions.Validated.t, string) result
+val definition : unit -> (Rivet_riscv_family_encode.Extensions.Validated.t, string) result
 (** The standard RV32 extensions with the Zvt rows, validated by Rivet. *)
 
 val samples : unit -> ((string * int) list, string) result

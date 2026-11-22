@@ -28,7 +28,7 @@ val next : t -> Trace.tick option
     [Before_rising] domains, then the changes are applied, then the [After_*] domains, each group in domain
     order. *)
 
-val value : t -> Trace.slot -> Vcd_types.Value.t
+val value : t -> Trace.slot -> Ovcd_types.Value.t
 (** The current sampled value; X before the first change. *)
 
 val logic : t -> Trace.slot -> Logic.t
