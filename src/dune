@@ -3,6 +3,7 @@
 (library
  (name coralview)
  (public_name coralview)
+ (private_modules regmodel builtin_platforms)
  (libraries
   hwfrp
   hwfrp.native

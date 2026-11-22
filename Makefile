@@ -3,7 +3,7 @@ DUNE = $(OPAM_EXEC) dune
 CORALNPU ?= /opt/coralnpu
 export RIVET_EXTERNAL_DEPS = true
 
-.PHONY: deps versions build test fmt fmt-check hwfrp-boundary isa-check rivet-pin-check smoke zvt-check integration long ci clean
+.PHONY: deps versions build test fmt fmt-check hwfrp-boundary isa-check rivet-pin-check namespace namespace-check smoke zvt-check integration long ci clean
 
 # rivet is a dependency of the package, for installs from opam. In this tree dune builds the vendored copy,
 # and an installed one next to it makes dune fail with "rivet.fmt is already defined".
@@ -113,6 +113,21 @@ smoke: build
 	  --format jsonl $$d/sim.fst > $$d/dma.jsonl; \
 	$(DUNE) exec -- coralview render --manifest $$s/hardware-configurations.json --beats 2 $$d/dma.jsonl | cmp - $$d/dma
 
+# Every unit coralview, coral-isa and hwfrp install is the package name or starts with it (Coralview_,
+# Coral_isa_, Hwfrp_), and every findlib directory of tools/namespace.expect is there. NAMESPACE_LIB is the
+# library directory checked: this build's install tree, or an opam switch's (the opam workflow).
+NAMESPACE_LIB ?= _build/install/default/lib
+
+namespace:
+	$(DUNE) build @install
+	$(MAKE) namespace-check
+
+namespace-check:
+	for p in coralview=Coralview coral-isa=Coral_isa hwfrp=Hwfrp; do \
+	  $(OPAM_EXEC) sh tools/namespace-check.sh --fail -q --prefix $${p#*=} --expect-libs tools/namespace.expect \
+	    "$${p%%=*}=$(NAMESPACE_LIB)/$${p%%=*}" || exit 1; \
+	done
+
 # vendor/rivet and the opam pin-depends must name one Rivet commit.
 rivet-pin-check:
 	vendored=$$(git rev-parse :vendor/rivet); \
@@ -138,7 +153,7 @@ integration: build
 long:
 	$(DUNE) build @long
 
-ci: fmt-check build test hwfrp-boundary rivet-pin-check isa-check zvt-check smoke integration
+ci: fmt-check build test hwfrp-boundary rivet-pin-check namespace isa-check zvt-check smoke integration
 
 clean:
 	$(DUNE) clean

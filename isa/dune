@@ -10,6 +10,7 @@
  (name coral_isa)
  (public_name coral-isa)
  (modules :standard \ check)
+ (private_modules zvt_rows)
  (libraries
   rivet.text_pipeline
   rivet.image

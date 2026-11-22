@@ -1,0 +1,7 @@
+# CONFIG PROVIDER: the findlib directories each package installs. hwfrp.native
+# counts as provider hwfrp: the check drops `native` path components (.objs/native).
+coralview coralview
+coral-isa coral-isa
+hwfrp hwfrp
+hwfrp sinks
+hwfrp vcd

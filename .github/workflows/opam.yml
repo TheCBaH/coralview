@@ -64,5 +64,7 @@ jobs:
       run: opam list --installed --silent rivet
     - name: resolved pins
       run: opam list --installed --columns=name,version,pin rivet err_trace elf fst ovcd unlz4 zipc
+    - name: namespace check (installed coralview, coral-isa, hwfrp)
+      run: opam exec -- make namespace-check NAMESPACE_LIB="$(opam var lib)"
     - name: consumer
       run: opam exec -- tools/check-install.sh test/memory.t/mem-core.json test/memory.t/memory.fst
